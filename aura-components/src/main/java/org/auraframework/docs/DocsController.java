@@ -87,9 +87,9 @@ public class DocsController implements Controller {
             
             DefDescriptor<?> defDescriptor = definitionService.getDefDescriptor(descriptor, dt.getPrimaryInterface());
             if(!configAdapter.isDocumentedNamespace(defDescriptor.getNamespace())) {
-            	return null;
+                return null;
             }
-            
+
             attributes.put("descriptor", descriptor);
             attributes.put("defType", dt.name());
             return instanceService.getInstance("auradocs:def", ComponentDef.class, attributes);

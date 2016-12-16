@@ -15,6 +15,7 @@
  */
 package org.auraframework.impl;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -44,6 +45,7 @@ import org.auraframework.def.ParentedDef;
 import org.auraframework.def.RootDefinition;
 import org.auraframework.def.TypeDef;
 import org.auraframework.impl.controller.AuraStaticControllerDefRegistry;
+import org.auraframework.impl.system.CompilingDefRegistry;
 import org.auraframework.impl.system.DefDescriptorImpl;
 import org.auraframework.impl.system.SubDefDescriptorImpl;
 import org.auraframework.impl.type.AuraStaticTypeDefRegistry;
@@ -74,6 +76,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import org.apache.log4j.Logger;
+
 /**
  * The public access to definitions inside Aura.
  *
@@ -83,6 +87,8 @@ import com.google.common.collect.Sets;
 @ServiceComponent
 public class DefinitionServiceImpl implements DefinitionService {
     private static final long serialVersionUID = -2488984746420077688L;
+
+    private static final Logger logger = Logger.getLogger(DefinitionServiceImpl.class);
 
     private ContextService contextService;
 
@@ -181,7 +187,7 @@ public class DefinitionServiceImpl implements DefinitionService {
         if (descriptor == null) {
             return null;
         }
-            
+
         // TODO: Clean up so that we just walk up descriptor trees and back down them.
         Optional<T> optLocalDef = null;
         if (descriptor instanceof SubDefDescriptor) {
@@ -222,6 +228,7 @@ public class DefinitionServiceImpl implements DefinitionService {
             // Case 3: Have to find the def.
             Lock rLock = cachingService.getReadLock();
             rLock.lock();
+
             try {
                 DependencyEntry de = getDE(null, descriptor);
                 if (de == null) {
@@ -1133,8 +1140,7 @@ public class DefinitionServiceImpl implements DefinitionService {
      */
     private <D extends Definition> void buildDE(@Nonnull DependencyEntry de, @Nonnull DefDescriptor<?> descriptor)
             throws QuickFixException {
-        CompileContext currentCC;
-        currentCC = new CompileContext(descriptor, contextService.getCurrentContext(),
+        CompileContext currentCC = new CompileContext(descriptor, contextService.getCurrentContext(),
                 cachingService.getDefsCache(), null);
         threadContext.set(currentCC);
         try {
@@ -1582,4 +1588,94 @@ public class DefinitionServiceImpl implements DefinitionService {
             }
         }
     }
+
+    @Override
+    public void warmCaches() {
+        AuraContext context = contextService.getCurrentContext();
+        Cache<DefDescriptor<?>, Optional<? extends Definition>> defCaches = cachingService.getDefsCache();
+        List<ClientLibraryDef> clientLibs = new ArrayList<>();
+        CompileContext cc = new CompileContext(null, context, defCaches, clientLibs);
+        cc.addMap(AuraStaticControllerDefRegistry.getInstance(this).getAll());
+
+        DefType [] types = new DefType [] { DefType.LIBRARY, DefType.COMPONENT, DefType.APPLICATION };
+
+        for(DefRegistry<?> registry : context.getRegistries().getAllRegistries()) {
+            if (registry instanceof CompilingDefRegistry) {
+                logger.info("warmCaches: PROCESSING CompilingDefRegistry with namespace="+registry.getNamespaces());
+                for (String namespace : registry.getNamespaces()) {
+                    for (DefType type : types) {
+                        //logger.info("warmCaches: compiling '"+namespace+"' for '"+type+"'");
+                        DescriptorFilter filter = new DescriptorFilter(namespace+":*", type);
+                        Set<DefDescriptor<?>> descriptors = registry.find(filter);
+
+                        for (DefDescriptor<?> descriptor : descriptors) {
+                            if (defCaches.getIfPresent(descriptor) == null) {
+                                try {
+                                    //logger.info("warmCaches: compiling '"+descriptor);
+                                    compileDef(descriptor, cc, false);
+                                } catch (Throwable t) {
+                                    //logger.error("warmCaches: Failed to compile "+descriptor, t);
+                                    // we totally ignore errors, we are just trying to warm the caches.
+                                    cleanupValidation(cc);
+                                }
+                            } else {
+                                //logger.info("warmCaches: found compiled '"+descriptor);
+                            }
+                        }
+                    }
+                }
+            } else {
+                logger.warn("warmCaches: SKIP "+registry.getClass().getSimpleName()
+                            +" with prefixes="+registry.getPrefixes()
+                            +" with namespace="+registry.getNamespaces()
+                            +" with defTypes="+registry.getDefTypes());
+            }
+        }
+    }
+
+    private void cleanupValidation(CompileContext cc) {
+        //
+        // !!!EXTREMELY HACKISH!!!!
+        // walk all defs, and if they are not validated, force a JavaScript validation.
+        // This is a last resort, attempting to catch anything that fails above. This is
+        // bad juju.
+        //
+        int iteration = 0;
+        List<CompilingDef<?>> compiling = null;
+        do {
+            compiling = Lists.newArrayList(cc.compiled.values());
+
+            for (CompilingDef<?> cd : compiling) {
+                if (cd.def == null) {
+                    if (cc.compiled.containsKey(cd.descriptor)) {
+                        cc.compiled.remove(cd.descriptor);
+                    }
+                    continue;
+                }
+                cc.context.pushCallingDescriptor(cd.descriptor);
+                try {
+                    if (cd.built && !cd.validated) {
+                        if (iteration != 0) {
+                            logger.warn("warmCaches: Nested add of " + cd.descriptor);
+                        }
+                        try {
+                            if (cd.def instanceof HasJavascriptReferences) {
+                                ((HasJavascriptReferences) cd.def).validateReferences(true);
+                            } else {
+                                cd.def.validateReferences();
+                            }
+                        } catch (QuickFixException qfe) {
+                            logger.error("warmCaches: Failed to validate "+cd.descriptor, qfe);
+                        }
+                        // Always mark as validated to avoid future complaints.
+                        cd.validated = true;
+                    }
+                } finally {
+                    cc.context.popCallingDescriptor();
+                }
+            }
+            iteration += 1;
+        } while (compiling.size() < cc.compiled.size());
+    }
+
 }

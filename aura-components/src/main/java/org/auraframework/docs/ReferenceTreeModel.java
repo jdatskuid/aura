@@ -18,6 +18,7 @@ package org.auraframework.docs;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
+import org.apache.log4j.Logger;
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponentModelInstance;
 import org.auraframework.components.ui.TreeNode;
@@ -39,18 +40,18 @@ import java.util.Set;
 
 @ServiceComponentModelInstance
 public class ReferenceTreeModel implements ModelInstance{
-    
+    private static final Logger logger = Logger.getLogger(ReferenceTreeModel.class);
+
     private final DefinitionService definitionService;
     private final ContextService contextService;
     private final ConfigAdapter configAdapter;
     private List<TreeNode> tree;
-    
+
     public ReferenceTreeModel(ContextService contextService, DefinitionService definitionService, ConfigAdapter configAdapter) {
         this.contextService = contextService;
         this.definitionService = definitionService;
         this.configAdapter = configAdapter;
     }
-
 
     public boolean isRunningInInternalNamespace() {
         String ns = configAdapter.getDefaultNamespace();
@@ -59,13 +60,17 @@ public class ReferenceTreeModel implements ModelInstance{
 
     private final <E extends Definition> List<TreeNode> makeTreeNodes(String prefix, DefType type)
             throws QuickFixException {
+
         contextService.pushSystemContext();
+
         try {
             List<TreeNode> ret = Lists.newArrayList();
 
             Map<String, TreeNode> namespaceTreeNodes = Maps.newHashMap();
             DescriptorFilter matcher = new DescriptorFilter(String.format("%s://*:*", prefix), type);
+
             Set<DefDescriptor<?>> descriptors = definitionService.find(matcher);
+
             for (DefDescriptor<?> desc : descriptors) {
                 if (desc == null) {
                     // Getting null here after commit 2037c31ddc81eae3edaf6ddd5bcfd0009fefe1bd. This causes a NPE and
@@ -78,7 +83,7 @@ public class ReferenceTreeModel implements ModelInstance{
                     try {
                         Definition def = definitionService.getDefinition(desc);
                         if (hasAccess(def)) {
-                            TreeNode namespaceTreeNode = namespaceTreeNodes.get(desc.getNamespace());
+                            TreeNode namespaceTreeNode = namespaceTreeNodes.get(namespace);
                             if (namespaceTreeNode == null) {
                                 namespaceTreeNode = new TreeNode(null, namespace);
                                 namespaceTreeNodes.put(namespace, namespaceTreeNode);
@@ -87,10 +92,11 @@ public class ReferenceTreeModel implements ModelInstance{
 
                             String href;
                             DefType defType = desc.getDefType();
+                            String cmpName = desc.getName();
                             if (defType.equals(DefType.TESTSUITE)) {
-                                href = String.format("#reference?descriptor=%s.%s", namespace, desc.getName());
+                                href = String.format("#reference?descriptor=%s.%s", namespace, cmpName);
                             } else {
-                                href = String.format("#reference?descriptor=%s:%s", namespace, desc.getName());
+                                href = String.format("#reference?descriptor=%s:%s", namespace, cmpName);
                             }
 
                             href += "&defType=" + defType.name().toLowerCase();
@@ -102,13 +108,12 @@ public class ReferenceTreeModel implements ModelInstance{
                                 // ignore problems, we were only trying to preload
                             }
 
-                            namespaceTreeNode.addChild(new TreeNode(href, desc.getName()));
+                            namespaceTreeNode.addChild(new TreeNode(href, cmpName));
                         }
-                    } catch (Exception x) {
+                    } catch (Exception e) {
                         // Skip any invalid def
-                        System.out.printf(
-                                "\n*** ReferenceTreeModel.makeTreeNodes() failed to load component '%s': %s\n", desc,
-                                x.toString());
+                        String message = String.format("\nReferenceTreeModel.makeTreeNodes() failed to load component '%s'\n", desc);
+                        logger.warn(message, e);
                     }
                 }
             }
@@ -127,10 +132,15 @@ public class ReferenceTreeModel implements ModelInstance{
             tree = Lists.newArrayList();
 
             tree.add(new TreeNode("#reference", "Overview"));
+
             tree.add(new TreeNode(null, "Applications", makeTreeNodes("markup", DefType.APPLICATION), false));
+
             tree.add(new TreeNode(null, "Components", makeTreeNodes("markup", DefType.COMPONENT), false));
+
             tree.add(new TreeNode(null, "Interfaces", makeTreeNodes("markup", DefType.INTERFACE), false));
+
             tree.add(new TreeNode(null, "Events", makeTreeNodes("markup", DefType.EVENT), false));
+
             tree.add(new TreeNode(null, "Libraries", makeTreeNodes("markup", DefType.LIBRARY), false));
 
             if (isRunningInInternalNamespace()) {
@@ -138,7 +148,7 @@ public class ReferenceTreeModel implements ModelInstance{
             }
 
             ApiContentsModel.refreshSymbols(configAdapter.getResourceLoader());
-            
+
             tree.add(new TreeNode(null, "JavaScript API", new ApiContentsModel().getNodes(), false));
 
             /*

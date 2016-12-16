@@ -49,20 +49,18 @@
                         var sidebar = cmp.find("sidebar");
                         if(sidebar.get("v.body").length === 0) {
                             $A.createComponent("markup://auradocs:referenceTree", {}, function(referenceTree, status, messages) {
-                            	if (status === "SUCCESS") {
-                            		sidebar.set("v.body", referenceTree);
-                            	}
+                                if (status === "SUCCESS") {
+                                    sidebar.set("v.body", referenceTree);
+                                }
                             });
                         }
                     }
-                    
 
                 }
             } else if(state === "INCOMPLETE" || state === "ERROR") {
-
                 // KRIS
                 // Lets cause this to fail so we can give a better error message.
-                throw new Error("Layout Failed for the docs app.");
+                throw new Error("Layout Failed for the docs app: " + action.getError());
             }
         });
 
