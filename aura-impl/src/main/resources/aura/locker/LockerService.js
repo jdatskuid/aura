@@ -313,6 +313,7 @@ function LockerService() {
 	};
 
 	// Exports
+    service["create"] = service.create;
 	service["createForDef"] = service.createForDef;
 	service["getEnvForSecureObject"] = service.getEnvForSecureObject;
 	service["trust"] = service.trust;
