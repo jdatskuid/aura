@@ -20,7 +20,30 @@ Test.Aura.Locker.SecureObjectTest = function() {
 
     Function.RegisterNamespace("Aura.Locker");
 
-    [Import("aura-impl/src/main/resources/aura/locker/SecureObject.js")]
+    var CustomFileClass = function(){};
+    var CustomFileListClass = function(){};
+    var CustomPromiseClass = function(){};
+
+    Mocks.GetMocks(Object.Global(), {
+        "window": { 
+            "document": {
+                "getElementById": function() {
+                    return undefined;
+                }
+            }
+        },
+        "File": CustomFileClass, 
+        "FileList": CustomFileListClass, 
+        "Promise": CustomPromiseClass, 
+        "CSSStyleDeclaration": function() {}, 
+        "TimeRanges": function() {}, 
+        "MessagePort": function() {}, 
+        "MessageChannel": function() {}, 
+        "MessageEvent": function() {},
+        "FormData": function() {}
+    })(function() {
+        [Import("aura-impl/src/main/resources/aura/locker/SecureObject.js")]
+    });
 
     var mockGlobals = Mocks.GetMocks(Object.Global(), {
 
@@ -38,7 +61,15 @@ Test.Aura.Locker.SecureObjectTest = function() {
         MessagePort: function(){},
         MessageChannel: function(){},
         MessageEvent: function(){},
-        "FormData": function() {}
+        FormData: function() {}
+
+        $A: {
+            lockerService: {
+                instanceOf: function(value, type) {
+                    return value instanceof type;
+                }
+            }
+        }
     });
 
     // remove globals
@@ -130,9 +161,6 @@ Test.Aura.Locker.SecureObjectTest = function() {
 
         [Fixture]
         function testPassthroughValues() {
-            var CustomFileClass = function(){};
-            var CustomFileListClass = function(){};
-            var CustomPromiseClass = function(){};
             // Mock the File and FileList class with a custom class
             var mockClassTypes = Mocks.GetMocks(Object.Global(), {
                 File: CustomFileClass,
