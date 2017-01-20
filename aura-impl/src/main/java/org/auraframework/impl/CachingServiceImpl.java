@@ -49,17 +49,17 @@ public class CachingServiceImpl implements CachingService {
     private static final long serialVersionUID = -3311707270226573084L;
 
     /** Default size of definition caches, in number of entries */
-    private final static int DEFINITION_CACHE_SIZE = 100 * 1024;
+    private final static int DEFINITION_CACHE_SIZE = 60 * 1024;
 
     /** Default size of dependency caches, in number of entries */
-    private final static int DEPENDENCY_CACHE_SIZE = 4 * 1024;
+    private final static int DEPENDENCY_CACHE_SIZE = 6 * 1024;
 
     /** Default size of descriptor filter caches, in number of entries */
     private final static int FILTER_CACHE_SIZE = 4608;
 
     /** Default size of string caches, in number of entries */
-    private final static int STRING_CACHE_SIZE = 100;
-    private final static int ALT_STRINGS_CACHE_SIZE = 100;
+    private final static int STRING_CACHE_SIZE = 150;
+    private final static int ALT_STRINGS_CACHE_SIZE = 150;
 
     /** Default size of client lib caches, in number of entries */
     private final static int CLIENT_LIB_CACHE_SIZE = 30;
