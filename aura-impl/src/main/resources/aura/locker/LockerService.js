@@ -316,6 +316,7 @@ function LockerService() {
     service["create"] = service.create;
 	service["createForDef"] = service.createForDef;
 	service["getEnvForSecureObject"] = service.getEnvForSecureObject;
+    service["getKeyForNamespace"] = service.getKeyForNamespace;
 	service["trust"] = service.trust;
 	service["showLockedNodes"] = service.showLockedNodes;
 	service["wrapComponent"] = service.wrapComponent;
