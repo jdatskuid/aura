@@ -113,25 +113,31 @@ function LockerService() {
 	];
 
 	var nsKeys = {};
-	
-    var workerFrame = window.document.getElementById("safeEvalWorker");
-    var safeEvalWindow = workerFrame && workerFrame.contentWindow;
-    var typeToOtherRealmType;
-    
-    // Wire up bidirectional back references from one realm to the other for cross realm instanceof checks
-    if (safeEvalWindow) {
-        typeToOtherRealmType = new Map();
-        var types = Object.keys(SecureWindow.metadata["prototypes"]["Window"]).concat(["Blob", "File"]);
-        types.forEach(function(name) {
-            var mainInstance = window[name];
-            var safeEvalInstance = safeEvalWindow[name];
-            if (mainInstance && safeEvalInstance) {
-                typeToOtherRealmType.set(safeEvalInstance, mainInstance);
-                typeToOtherRealmType.set(mainInstance, safeEvalInstance);
+
+	var workerFrame = window.document.getElementById("safeEvalWorker");
+	var safeEvalWindow = workerFrame && workerFrame.contentWindow;
+	var typeToOtherRealmType;
+
+	// Wire up bidirectional back references from one realm to the other for cross realm instanceof checks
+	if (safeEvalWindow) {
+		typeToOtherRealmType = new Map();
+		var types = Object.keys(SecureWindow.metadata["prototypes"]["Window"]).concat([ "Blob", "File", "FormData" ]);
+		types.forEach(function(name) {
+			try{
+				var mainInstance = window[name];
+				var safeEvalInstance = safeEvalWindow[name];
+				if (mainInstance && safeEvalInstance) {
+					typeToOtherRealmType.set(safeEvalInstance, mainInstance);
+					typeToOtherRealmType.set(mainInstance, safeEvalInstance);
+				}
+			}
+			catch(e){
+				//continue if we hit exception getting properties
+                //e.g window.frameElement throws AccessDenied in Edge/IE)
             }
-        });
-    }
-    
+		});
+	}
+
 	// defining LockerService as a service
 	var service = {
 		isEnabled : function() {
