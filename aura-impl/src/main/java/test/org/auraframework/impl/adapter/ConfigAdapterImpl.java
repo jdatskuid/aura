@@ -530,7 +530,7 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     @Override
     public boolean validateBootstrap(String ssid) {
     	String expected = generateJwtToken();
-        return expected == ssid || expected.equals(ssid);
+        return expected == ssid || (expected != null && expected.equals(ssid));
     }
 
     @Override

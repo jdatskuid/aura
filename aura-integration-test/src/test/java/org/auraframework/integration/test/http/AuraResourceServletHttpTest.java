@@ -275,7 +275,7 @@ public class AuraResourceServletHttpTest extends AuraHttpTestCase {
 
     @Test
     public void testInlineJSNoCacheHeaders() throws Exception {
-        String url = "/l/" + AuraTextUtil.urlencode(getSimpleContext(Format.JS, false)) + "/inline.js?jwt=TESTJWT";
+        String url = "/l/" + AuraTextUtil.urlencode(getSimpleContext(Format.JS, false)) + "/inline.js";
 
         HttpGet get = obtainGetMethod(url);
         HttpResponse httpResponse = perform(get);
@@ -292,6 +292,22 @@ public class AuraResourceServletHttpTest extends AuraHttpTestCase {
                 pragma[0].getValue().contains("no-cache"));
     }
 
+    @Test
+    public void testInlineJSExceptionCode() throws Exception {
+        // modified uid url
+        String url = "/l/" + AuraTextUtil.urlencode(getSimpleContext(Format.JS, true)) + "/inline.js";
+
+        HttpGet get = obtainGetMethod(url);
+        HttpResponse httpResponse = perform(get);
+        String response = getResponseBody(httpResponse);
+        get.releaseConnection();
+
+        assertTrue("JS Exception code should be in IIFE: " + response,
+                response.startsWith("(function () { function execAuraException() { $A.clientService.throwExceptionEvent("));
+        assertTrue("JS exception code should be in beforeFrameworkInit: " + response,
+                response.contains("window.Aura.beforeFrameworkInit.push(execAuraException)"));
+    }
+
     /**
      * This gets a simple context string that uses a single preload.
      */
@@ -301,3 +317,4 @@ public class AuraResourceServletHttpTest extends AuraHttpTestCase {
                 modified);
     }
 }
+																																																																																																																																																		
