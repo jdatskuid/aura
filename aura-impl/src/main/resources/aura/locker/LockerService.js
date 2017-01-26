@@ -132,9 +132,9 @@ function LockerService() {
 				}
 			}
 			catch(e){
-				//continue if we hit exception getting properties
-                //e.g window.frameElement throws AccessDenied in Edge/IE)
-            }
+			    //continue if we hit exception getting properties
+			    //e.g window.frameElement throws AccessDenied in Edge/IE)
+			}
 		});
 	}
 
