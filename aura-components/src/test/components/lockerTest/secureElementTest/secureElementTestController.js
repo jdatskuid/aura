@@ -283,8 +283,8 @@
         var testUtils = cmp.get("v.testUtils");
 
         var title = document.getElementById("title");
-        // go up 3 levels since we will have access to first 2 levels
-        var greatGrandParentNode = title.parentNode.parentNode.parentNode;
+        // go up 4 levels since we will have access to first 3 levels
+        var greatGrandParentNode = title.parentNode.parentNode.parentNode.parentNode;
 
         testUtils.assertEquals(null, greatGrandParentNode, "Element.parentNode should return null when it is not accessible");
     },
@@ -420,5 +420,15 @@
         testUtils.assertNull(button.getAttribute("href"), "Should have got null when trying to access invalid attributes");
         testUtils.assertUndefined(button.setAttribute("href", "/foo"), "Should return undefined when trying to set invalid attributes on dom element");
         testUtils.assertNull(button.getAttribute("href"), "Accessing invalid attribute values should continue to return undefined");
+    },
+
+    // Verify that element can traverse up the dom hierarchy using parentNode property
+    testRecursiveTraversal: function(cmp, event, helper){
+        var testUtils = cmp.get("v.testUtils");
+        var element = cmp.find("title").getElement();
+        testUtils.assertTrue(helper.contains(document, element), "Dom element was expected to be in the document");
+
+        var unattachedElement = document.createElement("div");
+        testUtils.assertFalse(helper.contains(document, unattachedElement), "Dom element was expected to not be in the document");
     }
 })

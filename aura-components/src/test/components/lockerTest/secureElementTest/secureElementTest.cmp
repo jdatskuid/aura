@@ -70,6 +70,7 @@
     <aura:method name="testAriaAttributesAccessible" action="{!c.testAriaAttributesAccessible}"/>
     <aura:method name="testAttributesPropertyContainsData" action="{!c.testAttributesPropertyContainsData}"/>
     <aura:method name="testGetSetInvalidAttributes"/>
+    <aura:method name="testRecursiveTraversal"/>
 
     <lockerTest:facet/>
 
