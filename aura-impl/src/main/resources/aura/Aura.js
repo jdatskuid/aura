@@ -25,6 +25,7 @@ if (typeof Aura === "undefined") {//eslint-disable-line no-use-before-define
 // -- Aura inlining bootstrap
 Aura.time = window.performance && window.performance.now ? window.performance.now.bind(performance) : function(){return Date.now();};
 Aura["bootstrap"] = Aura["bootstrap"] || {};
+Aura["bootstrap"]["visibilityStateStart"] = document.visibilityState;
 Aura.bootstrapMark = function (mark, value) {
     //#if {"excludeModes" : ["PRODUCTION"]}
     if (window.console.timeStamp) {
@@ -704,7 +705,7 @@ AuraInstance.prototype.initAsync = function(config) {
         $A.clientService.initHost(config["host"]);
         $A.clientService.setToken(config["token"]);
         $A.metricsService.initialize();
-        
+
         function reportError (e) {
             $A.reportError("Error initializing the application", e);
         }
@@ -716,7 +717,7 @@ AuraInstance.prototype.initAsync = function(config) {
                 $A.log("Aura.initAsync(): token not loaded from storage: " + reason);
             });
         }
-        
+
         function initializeApp () {
             return $A.clientService.initializeApplication().then(function (bootConfig) {
                 $A.run(function () {
