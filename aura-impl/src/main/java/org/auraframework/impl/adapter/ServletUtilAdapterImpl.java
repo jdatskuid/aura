@@ -55,11 +55,11 @@ import com.google.common.collect.Sets;
 
 @ServiceComponent
 public class ServletUtilAdapterImpl implements ServletUtilAdapter {
-    private ContextService contextService;
-    private ConfigAdapter configAdapter;
     private ExceptionAdapter exceptionAdapter;
     private SerializationService serializationService;
     private ClientLibraryService clientLibraryService;
+    protected ContextService contextService;
+    protected ConfigAdapter configAdapter;
     protected TemplateUtil templateUtil = new TemplateUtil();
     protected DefinitionService definitionService;
     protected ManifestUtil manifestUtil;

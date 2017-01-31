@@ -59,6 +59,7 @@ import org.auraframework.util.json.JsonReader;
 import org.junit.Test;
 
 import javax.inject.Inject;
+
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -769,4 +770,37 @@ public class ServerServiceImplTest extends AuraImplTestCase {
         return output.toString();
     }
 
+	@Test
+    public void testWriteTemplateHasCsrfTokenIfAppcacheNotEnabled() throws Exception {
+		DefDescriptor<ApplicationDef> appDesc = addSourceAutoCleanup(ApplicationDef.class,
+				String.format(baseApplicationTag, "useAppCache='false' render='client'", ""));
+		AuraContext context = contextService.startContext(Mode.PROD, Format.HTML, Authentication.AUTHENTICATED);
+		context.setApplicationDescriptor(appDesc);
+		ApplicationDef appDef = definitionService.getDefinition(appDesc);
+		
+		Component template = serverService.writeTemplate(context , appDef, null, null);
+		
+		String init = (String)template.getAttributes().getValue("auraInit");
+		@SuppressWarnings("unchecked")
+		Map<String,Object> initMap = (Map<String, Object>) new JsonReader().read(init);
+		
+		assertEquals("Token should be sent if appcache is not enabled", "aura", initMap.get("token"));
+    }
+
+    @Test
+    public void testWriteTemplateHasNoCsrfTokenIfAppcacheEnabled() throws Exception {
+		DefDescriptor<ApplicationDef> appDesc = addSourceAutoCleanup(ApplicationDef.class,
+				String.format(baseApplicationTag, "useAppCache='true' render='client'", ""));
+		AuraContext context = contextService.startContext(Mode.PROD, Format.HTML, Authentication.AUTHENTICATED);
+		context.setApplicationDescriptor(appDesc);
+		ApplicationDef appDef = definitionService.getDefinition(appDesc);
+		
+		Component template = serverService.writeTemplate(context , appDef, null, null);
+		
+		String init = (String)template.getAttributes().getValue("auraInit");
+		@SuppressWarnings("unchecked")
+		Map<String,Object> initMap = (Map<String, Object>) new JsonReader().read(init);
+		
+		assertEquals("Token should not be sent if appcache is enabled", false, initMap.containsKey("token"));
+    }
 }

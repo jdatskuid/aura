@@ -63,7 +63,7 @@ public class CSPReportLoggingUITest extends AbstractLoggingUITest {
         String externalUri = "http://www2.sfdcstatic.com";
         String expectedBlockedUri = String.format("%s=%s", CSPReporterServlet.BLOCKED_URI, externalUri);
         assertThat("Could not find expected blocked URI", cspReport, containsString(expectedBlockedUri));
-        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "style-src 'self'");
+        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "style-src");
         assertThat("Could not find expected violated directive", cspReport, containsString(exptectedViolatedDirective));
     }
 
@@ -85,7 +85,7 @@ public class CSPReportLoggingUITest extends AbstractLoggingUITest {
         String externalUri = "http://www2.sfdcstatic.com";
         String expectedBlockedUri = String.format("%s=%s", CSPReporterServlet.BLOCKED_URI, externalUri);
         assertThat("Could not find expected blocked URI", cspReport, containsString(expectedBlockedUri));
-        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "style-src 'self'");
+        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "style-src");
         assertThat("Could not find expected violated directive", cspReport, containsString(exptectedViolatedDirective));
     }
 
@@ -107,7 +107,7 @@ public class CSPReportLoggingUITest extends AbstractLoggingUITest {
         String frameUri = "http://www.salesforce.com";
         String expectedBlockedUri = String.format("%s=%s", CSPReporterServlet.BLOCKED_URI, frameUri);
         assertThat("Could not find expected blocked URI", cspReport, containsString(expectedBlockedUri));
-        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "frame-src 'self'");
+        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "frame-src");
         assertThat("Could not find expected violated directive", cspReport, containsString(exptectedViolatedDirective));
     }
 
@@ -128,7 +128,7 @@ public class CSPReportLoggingUITest extends AbstractLoggingUITest {
         String frameUri = "http://www.salesforce.com";
         String expectedBlockedUri = String.format("%s=%s", CSPReporterServlet.BLOCKED_URI, frameUri);
         assertThat("Could not find expected blocked URI", cspReport, containsString(expectedBlockedUri));
-        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "frame-src 'self'");
+        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "frame-src");
         assertThat("Could not find expected violated directive", cspReport, containsString(exptectedViolatedDirective));
     }
 
@@ -148,7 +148,7 @@ public class CSPReportLoggingUITest extends AbstractLoggingUITest {
                 "@font-face {font-family: Gentium;src: url(http://example.com/fonts/Gentium.ttf);}");
         String uri = String.format("/%s/%s.cmp", cmpDesc.getNamespace(), cmpDesc.getName());
 
-        openNoAura(uri);
+        open(uri);
         // trigger script violation to generate CSP logs.
         getAuraUITestingUtil().getRawEval("var s=document.createElement('script');s.type='text/javascript';s.async=true;s.src='http://expectedreport.salesforce.com/';document.getElementsByTagName('head')[0].appendChild(s);");
 
@@ -162,7 +162,7 @@ public class CSPReportLoggingUITest extends AbstractLoggingUITest {
         String scriptUri = "http://expectedreport.salesforce.com";
         String expectedBlockedUri = String.format("%s=%s", CSPReporterServlet.BLOCKED_URI, scriptUri);
         assertThat("Could not find expected blocked URI", cspReport, containsString(expectedBlockedUri));
-        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "script-src 'self'");
+        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "script-src");
         assertThat("Could not find expected violated directive, perhaps fonts wasn't allowed", cspReport, containsString(exptectedViolatedDirective));
     }
 
@@ -193,7 +193,7 @@ public class CSPReportLoggingUITest extends AbstractLoggingUITest {
         assertThat("Could not find expected violated directive", cspReport, containsString(expectedDocumentUri));
         String expectedBlockedUri = String.format("%s=%s", CSPReporterServlet.BLOCKED_URI, externalUri);
         assertThat("Could not find expected blocked URI", cspReport, containsString(expectedBlockedUri));
-        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "script-src 'self'");
+        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "script-src");
         assertThat("Could not find expected violated directive", cspReport, containsString(exptectedViolatedDirective));
         String exptectedEffectiveDirective = String.format("%s=%s", CSPReporterServlet.EFFECTIVE_DIRECTIVE, "script-src");
         assertThat("Could not find expected violated directive", cspReport, containsString(exptectedEffectiveDirective));
@@ -241,7 +241,7 @@ public class CSPReportLoggingUITest extends AbstractLoggingUITest {
         assertThat("Could not find expected violated directive", cspReport, containsString(expectedDocumentUri));
         String expectedBlockedUri = String.format("%s=%s", CSPReporterServlet.BLOCKED_URI, externalUri);
         assertThat("Could not find expected blocked URI", cspReport, containsString(expectedBlockedUri));
-        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "connect-src 'self'");
+        String exptectedViolatedDirective = String.format("%s=%s", CSPReporterServlet.VIOLATED_DIRECTIVE, "connect-src");
         assertThat("Could not find expected violated directive", cspReport, containsString(exptectedViolatedDirective));
         String exptectedEffectiveDirective = String.format("%s=%s", CSPReporterServlet.EFFECTIVE_DIRECTIVE, "connect-src");
         assertThat("Could not find expected violated directive", cspReport, containsString(exptectedEffectiveDirective));
