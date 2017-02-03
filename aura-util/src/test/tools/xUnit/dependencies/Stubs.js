@@ -93,7 +93,8 @@ Test.Stubs.Aura=new function(){
             releaseCurrentAccess: function(){},
             joinComponentConfigs : function() {},
             finishComponentConfigs : function() {},
-            getNum : function() { return 0; }
+            getNum : function() { return 0; },
+            getAccessStackHierarchy: function() {}
         });
     };
 };

@@ -947,7 +947,7 @@ AuraInstance.prototype.handleError = function(message, e) {
             var format = "This page has an error. You might just need to refresh it.\n{0}";
             e.severity = e.severity || this.severity["ALERT"];
             var displayMessage = e.message || e.name;
-            displayMessage += "\n" + (e.component ? "Failing descriptor: {" + e.component + "}" : "");
+            displayMessage += "\n" + (e["component"] ? "Failing descriptor: {" + e["component"] + "}" : "");
             dispMsg = $A.util.format(format, displayMessage);
             // use null error string to specify non auraFriendlyError type.
             evtArgs = {"message":dispMsg,"error":null,"auraError":e};
@@ -1077,6 +1077,7 @@ AuraInstance.prototype.message = function(msg, error, showReload) {
 AuraInstance.prototype.getCallback = function(callback) {
     $A.assert($A.util.isFunction(callback),"$A.getCallback(): 'callback' must be a valid Function");
     var context=$A.getContext().getCurrentAccess();
+    var contextComponentStack = $A.getContext().getAccessStackHierarchy();
     var contextComponent = null;
     if (context && context.getDef) {
         var contextComponentDef = context.getDef();
@@ -1093,7 +1094,8 @@ AuraInstance.prototype.getCallback = function(callback) {
             // no need to wrap AFE with auraError as
             // customers who throw AFE would want to handle it with their own custom experience.
             if (e instanceof $A.auraError) {
-                e.component = e.component || contextComponent;
+                e["component"] = e["component"] || contextComponent;
+                e["componentStack"] = e["componentStack"] || contextComponentStack;
                 $A.lastKnownError = e;
                 throw e;
             } else {
@@ -1118,7 +1120,7 @@ AuraInstance.prototype.getCallback = function(callback) {
                 }
 
                 var errorWrapper = new $A.auraError("Error in $A.getCallback()", e);
-                errorWrapper.component = contextComponent;
+                errorWrapper["component"] = contextComponent;
                 if (syntheticStackFrame) {
                     errorWrapper.setStackTrace(syntheticStackFrame + errorWrapper.stackTrace);
                 }

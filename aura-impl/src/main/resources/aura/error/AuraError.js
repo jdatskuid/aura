@@ -31,7 +31,10 @@ function AuraError() {
     this["reported"] = false;
 
     // the component that throws the error
-    this.component = "";
+    this["component"] = "";
+
+    // the component stack that contains the component that throws the error
+    this["componentStack"] = "";
 
     // the action that errors out
     this.action = null;
@@ -98,12 +101,23 @@ function AuraError() {
 
     /* analyze stack frames to create meaningful trace */
     function getStackTrace(frames) {
-        var filtered = frames.filter(function(frame) {
-            return !frame.fileName || frame.fileName.match(/aura_[^\.]+\.js$/gi) === null;
-        });
-
-        // if all stack frames are from framework, we still want to keep the trace.
-        return filtered.length > 0 ? filtered.join('\n') : frames.join('\n');
+        // only strip out stack-frames after a non-framework stack-frame,
+        // and keep stack-frames before a non-framework stack-frame intact. 
+        var filtered = [];
+        var nonFrameworkStackFrameExist = false;
+        var isNonFrameworkStackFrame = false;
+        for (var i = 0; i < frames.length; i++) {
+            isNonFrameworkStackFrame = !frames[i].fileName || frames[i].fileName.match(/aura_[^\.]+\.js$/gi) === null;
+            if (!nonFrameworkStackFrameExist) {
+                filtered.push(frames[i]);
+                nonFrameworkStackFrameExist = isNonFrameworkStackFrame;
+            } else {
+                if (isNonFrameworkStackFrame) {
+                    filtered.push(frames[i]);
+                }
+            }
+        }
+        return filtered.join('\n');
     }
 
     var generateErrorId = function(stacktrace) {
@@ -146,6 +160,7 @@ function AuraError() {
     this["severity"] = this.severity;
     this["data"] = null;
     this["id"] = this.id;
+    this["stackFrames"] = this.stackFrames;
     this.generateErrorId = generateErrorId;
 }
 

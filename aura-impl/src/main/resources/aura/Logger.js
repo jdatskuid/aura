@@ -147,14 +147,15 @@ Logger.prototype.reportError = function(e, action){
     var reportAction = $A.get("c.aura://ComponentController.reportFailedAction");
     reportAction.setCaboose();
     reportAction.setParams({
-        "failedAction": action || actionName || e.component,
+        "failedAction": action || actionName || e["component"],
         "failedId": e.id && e.id.toString(),
         "clientError": e.toString(),
         // Note that stack is non-standard, and even if present, may be obfuscated
         // Also we only take the first 25k characters because stacks can get very large
         // and our parser on the server will gack on more than a million characters 
         // for the entire json package.
-        "clientStack": (e.stackTrace || e.stack || "").toString().substr(0, 25000)   
+        "clientStack": (e.stackTrace || e.stack || "").toString().substr(0, 25000),
+        "componentStack": e["componentStack"] || ""
     });
     reportAction.setCallback(this, function() { /* do nothing */ });
     $A.clientService.enqueueAction(reportAction);
@@ -407,8 +408,11 @@ Logger.prototype.devDebugConsoleLog = function(level, message, error) {
         if (console[filter]) {
             console[filter]("%s", message);
             if (error) {
-                if (error.component) {
-                    console[filter]("%s", "Failing component: " + error.component);
+                if (error["component"]) {
+                    console[filter]("%s", "Failing component: " + error["component"]);
+                }
+                if (error["componentStack"]) {
+                    console[filter]("%s", "Failing component stack: " + error["componentStack"]);
                 }
                 console[filter]("%o", error);
             }

@@ -1244,10 +1244,15 @@ Action.prototype.markException = function(e) {
     // if the error doesn't have id, we wrap it with auraError so that when displaying UI, it will have an id
     if (!e.id) {
         e = new $A.auraError(descriptor ? "Action failed: " + descriptor : "", e);
-        e.component = descriptor;
+        e["component"] = descriptor;
     } else if (e instanceof $A.auraError) {
         // keep the root cause failing descriptor
-        e.component = e.component || descriptor;
+        e["component"] = e["component"] || descriptor;
+    }
+
+    var context = $A.getContext();
+    if (!e['componentStack'] && context) {
+        e['componentStack'] = context.getAccessStackHierarchy();
     }
 
     this.state = "ERROR";
