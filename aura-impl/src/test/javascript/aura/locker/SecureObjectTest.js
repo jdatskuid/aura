@@ -25,22 +25,17 @@ Test.Aura.Locker.SecureObjectTest = function() {
     var CustomPromiseClass = function(){};
 
     Mocks.GetMocks(Object.Global(), {
-        "window": { 
+        "window": {
             "document": {
                 "getElementById": function() {
                     return undefined;
                 }
-            }
+            },
+            "File": CustomFileClass,
+            "FileList": CustomFileListClass,
+            "Promise": CustomPromiseClass
         },
-        "File": CustomFileClass, 
-        "FileList": CustomFileListClass, 
-        "Promise": CustomPromiseClass, 
         "CSSStyleDeclaration": function() {}, 
-        "TimeRanges": function() {}, 
-        "MessagePort": function() {}, 
-        "MessageChannel": function() {}, 
-        "MessageEvent": function() {},
-        "FormData": function() {}
     })(function() {
         [Import("aura-impl/src/main/resources/aura/locker/SecureObject.js")]
     });
@@ -61,7 +56,7 @@ Test.Aura.Locker.SecureObjectTest = function() {
         MessagePort: function(){},
         MessageChannel: function(){},
         MessageEvent: function(){},
-        FormData: function() {}
+        FormData: function() {},
 
         $A: {
             lockerService: {
@@ -161,12 +156,6 @@ Test.Aura.Locker.SecureObjectTest = function() {
 
         [Fixture]
         function testPassthroughValues() {
-            // Mock the File and FileList class with a custom class
-            var mockClassTypes = Mocks.GetMocks(Object.Global(), {
-                File: CustomFileClass,
-                FileList: CustomFileListClass,
-                Promise: CustomPromiseClass
-            });
 
             [Fact]
             [Data({clazz: CustomFileClass, msg: "File type value should passthrough unfiltered"})]
@@ -180,9 +169,7 @@ Test.Aura.Locker.SecureObjectTest = function() {
                 // Act
                 var actual;
                 mockGlobals(function() {
-                    mockClassTypes(function () {
-                        actual = SecureObject.unfilterEverything({}, value);
-                    });
+                    actual = SecureObject.unfilterEverything({}, value);
                 });
 
                 // Assert
