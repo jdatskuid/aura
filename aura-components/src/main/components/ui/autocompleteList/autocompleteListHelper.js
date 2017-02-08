@@ -193,12 +193,18 @@
 
     handleDataChange: function (component, event) {
         var concreteCmp = component.getConcreteComponent();
-        // Refactor this component:
-        // We want to update the internal v.items, but without udating iteration just yet
-        // since customer might have thir own matchText function
-        concreteCmp.set("v.items", event.getParam("data"), true/*ignore changes, dont notify*/);
-
-        this.matchText(concreteCmp, event.getParam("data"));
+        var newItems = event.getParam("data");
+        
+        // Users of the component that implement their own v.matchFunc rely on this being set.
+        concreteCmp.set("v.items", newItems, true/*ignore changes, dont notify*/);
+        if (concreteCmp.get("v.disableMatch") === true) {
+            for (var j = 0; j < newItems.length; j++) {
+                newItems[j].visible = true;
+            }
+            this.matchFuncDone(concreteCmp, newItems);
+        } else {
+            this.matchText(concreteCmp, newItems);
+        }
     },
 
     handleListHighlight: function (component, event) {
