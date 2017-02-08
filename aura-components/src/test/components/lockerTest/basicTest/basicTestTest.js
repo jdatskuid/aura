@@ -201,6 +201,8 @@
     },
     
     testInstanceOf: {
+        // TODO(tbliss): with partial backport of Proxy work to 206/patch this doesn't make sense to run on SFDC yet
+        labels : ["UnAdaptableTest"],
         test: function(cmp) {
             cmp.testInstanceOf(window);
         }
