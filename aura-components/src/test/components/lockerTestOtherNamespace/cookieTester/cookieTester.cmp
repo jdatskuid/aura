@@ -15,13 +15,8 @@
     limitations under the License.
 
 -->
-<aura:component render="client">
-    <aura:attribute name="stringAttribute" type="String" default="fooBar" access="GLOBAL"/>
-    <aura:attribute name="nameAttribute" type="String" default="Washington"/>
-    <aura:attribute type="Integer" name="numberAttribute"/>
-    {!v.body}
-    <loadLevelTest:serverComponent/>
-
-
-    <ui:button press="{!c.createCmpWithMapValuePropRefValueFromServer}" label="Push for component" aura:id="button_createCmp"/>
+<aura:component implements="aura:requireLocker">
+    <aura:method name="addCookie">
+        <aura:attribute name="key" type="String"/>
+    </aura:method>
 </aura:component>
