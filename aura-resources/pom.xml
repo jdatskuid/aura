@@ -219,7 +219,7 @@
             </property>
          </activation>
          <properties>
-            <jsDoc.mode>internal</jsDoc.mode>
+            <jsDoc.mode>external</jsDoc.mode>
          </properties>
          <build>
             <plugins>
