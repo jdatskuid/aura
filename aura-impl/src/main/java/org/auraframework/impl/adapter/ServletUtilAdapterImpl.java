@@ -417,7 +417,15 @@ public class ServletUtilAdapterImpl implements ServletUtilAdapter {
 
     @Override
     public String getInlineJsUrl(AuraContext context, Map<String,Object> attributes) {
-        return commonJsUrl("/inline.js", context, attributes);
+        String ret = commonJsUrl("/inline.js", context, attributes);
+
+        // The way we render the appcache manifest does not handle the ampersand in urls. For appcached apps, we don't
+        // need the token in inline anyways.
+        if (!manifestUtil.isManifestEnabled()) {
+            ret += ret.endsWith("inline.js") ? "?jwt=" : "&jwt=";
+            ret += configAdapter.generateJwtToken();
+        }
+        return ret;
     }
 
     @Override
@@ -434,7 +442,7 @@ public class ServletUtilAdapterImpl implements ServletUtilAdapter {
         return defs.toString();
     }
 
-    private String commonJsUrl (String filepath, AuraContext context, Map<String,Object> attributes) {
+    protected String commonJsUrl (String filepath, AuraContext context, Map<String,Object> attributes) {
         StringBuilder url = new StringBuilder(context.getContextPath()).append("/l/");
         url.append(context.getEncodedURL(AuraContext.EncodingStyle.Normal));
         url.append(filepath);

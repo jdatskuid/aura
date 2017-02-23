@@ -519,7 +519,7 @@ public class ConfigAdapterImpl implements ConfigAdapter {
 
     @Override
     public String generateJwtToken() {
-        return null;
+        return "TESTJWT";
     }
 
     @Override
@@ -528,9 +528,9 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     }
 
     @Override
-    public boolean validateBootstrap(String ssid) {
+    public boolean validateBootstrap(String jwtToken) {
     	String expected = generateJwtToken();
-        return expected == ssid || (expected != null && expected.equals(ssid));
+        return expected.equals(jwtToken);
     }
 
     @Override
