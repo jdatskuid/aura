@@ -142,6 +142,7 @@ public class RegistryTrieTest extends AuraTestCase {
         }
     }
 
+    @Ignore("W-3676967: Temporarily allow case sensitive namespaces")
     @Test
     public void testInitWithDuplicateRegistries() {
         MockRegistry<?> reg1 = new MockRegistry<>().setNamespaces("testNamespace").setDefTypes(DefType.APPLICATION,
@@ -157,6 +158,7 @@ public class RegistryTrieTest extends AuraTestCase {
         }
     }
 
+    @Ignore("W-3676967: Temporarily allow case sensitive namespaces")
     @Test
     public void testInitWithDuplicateRegistriesBasedOnNamespaceCaseInsensitivity() {
         MockRegistry<?> reg1 = new MockRegistry<>().setNamespaces("testNamespace");
@@ -168,6 +170,55 @@ public class RegistryTrieTest extends AuraTestCase {
             assertExceptionMessageStartsWith(t, AuraError.class,
                     "Duplicate DefType/Prefix/Namespace combination claimed by 2 DefRegistries : {[COMPONENT]/[markup]/[testNamespace]} and {[COMPONENT]/[markup]/[TESTNAMESPACE]}");
         }
+    }
+
+    // W-3676967: Temporarily allow case sensitive namespaces
+    @Test
+    public void testGetAllRegistriesWithCaseSensitiveNamespaces() {
+        MockRegistry<?> reg1 = new MockRegistry<>().setNamespaces("one");
+        MockRegistry<?> reg2 = new MockRegistry<>().setNamespaces("ONE");
+        DefRegistry<?>[] registries = new DefRegistry<?>[] { reg1, reg2 };
+        RegistryTrie trie = new RegistryTrie(registries);
+
+        Collection<DefRegistry<?>> actual = trie.getAllRegistries();
+        assertEquals(true, actual.contains(reg1));
+        assertEquals(true, actual.contains(reg2));
+    }
+
+    // W-3676967: Temporarily allow case sensitive namespaces
+    @Test
+    public void testGetRegistriesMatchAllCaseInsensitiveNamespace() {
+        MockRegistry<?> reg1 = new MockRegistry<>().setNamespaces("one");
+        MockRegistry<?> reg2 = new MockRegistry<>().setNamespaces("ONE");
+        RegistryTrie trie = new RegistryTrie(reg1, reg2);
+
+        DescriptorFilter matcher = new DescriptorFilter("one:*");
+        Collection<DefRegistry<?>> actual = trie.getRegistries(matcher);
+        assertEquals(2, actual.size());
+        assertEquals(true, actual.contains(reg1));
+        assertEquals(true, actual.contains(reg2));
+
+        matcher = new DescriptorFilter("ONE:*");
+        actual = trie.getRegistries(matcher);
+        assertEquals(2, actual.size());
+        assertEquals(true, actual.contains(reg1));
+        assertEquals(true, actual.contains(reg2));
+    }
+
+    // W-3676967: Temporarily allow case sensitive namespaces
+    @Test
+    public void testGetRegistryForCaseInsensitiveNamespace() {
+        MockRegistry<?> reg1 = new MockRegistry<>().setNamespaces("one");
+        MockRegistry<?> reg2 = new MockRegistry<>().setNamespaces("ONE");
+        RegistryTrie trie = new RegistryTrie(reg1, reg2);
+
+        DefDescriptor<?> descriptor = new DefDescriptorImpl<>("one:*", ComponentDef.class);
+        DefRegistry<?> actual = trie.getRegistryFor(descriptor);
+        assertEquals(reg1, actual);
+
+        descriptor = new DefDescriptorImpl<>("ONE:*", ComponentDef.class);
+        actual = trie.getRegistryFor(descriptor);
+        assertEquals(reg2, actual);
     }
 
     @Test

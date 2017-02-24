@@ -31,7 +31,6 @@ import org.auraframework.def.Definition;
 import org.auraframework.def.DescriptorFilter;
 import org.auraframework.system.DefRegistry;
 import org.auraframework.system.RegistrySet;
-import org.auraframework.throwable.AuraError;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -51,13 +50,14 @@ public class RegistryTrie implements RegistrySet {
             defTypeMap = new EnumMap<>(DefType.class);
         }
         for (DefType dt : reg.getDefTypes()) {
-            if (defTypeMap.containsKey(dt)) {
-                DefRegistry<?> existing = defTypeMap.get(dt);
-                throw new AuraError(String.format(
-                        "Duplicate DefType/Prefix/Namespace combination claimed by 2 DefRegistries : {%s/%s/%s} and {%s/%s/%s}",
-                        existing.getDefTypes(), existing.getPrefixes(), existing.getNamespaces(), reg.getDefTypes(),
-                        reg.getPrefixes(), reg.getNamespaces()));
-            }
+            // W-3676967: Temporarily allow case sensitive namespaces
+//          if (defTypeMap.containsKey(dt)) {
+//              DefRegistry<?> existing = defTypeMap.get(dt);
+//              throw new AuraError(String.format(
+//                      "Duplicate DefType/Prefix/Namespace combination claimed by 2 DefRegistries : {%s/%s/%s} and {%s/%s/%s}",
+//                      existing.getDefTypes(), existing.getPrefixes(), existing.getNamespaces(), reg.getDefTypes(),
+//                      reg.getPrefixes(), reg.getNamespaces()));
+//          }
             defTypeMap.put(dt, reg);
         }
         return defTypeMap;
@@ -94,7 +94,9 @@ public class RegistryTrie implements RegistrySet {
             namespaceMap = Maps.newHashMap();
         }
         for (String namespaceUnknown : reg.getNamespaces()) {
-            String namespace = namespaceUnknown.toLowerCase();
+            // W-3676967: Temporarily allow case sensitive namespaces
+//            String namespace = namespaceUnknown.toLowerCase();
+            String namespace = namespaceUnknown;
             Object orig = namespaceMap.get(namespace);
             EnumMap<DefType, DefRegistry<?>> defTypeMap;
 
@@ -118,9 +120,11 @@ public class RegistryTrie implements RegistrySet {
     private void initializeHashes() {
         for (DefRegistry<?> reg : allRegistries) {
             insertPrefixReg(root, reg);
-            for (String ns : reg.getNamespaces()) {
-                allNamespaces.add(ns.toLowerCase());
-            }
+            allNamespaces.addAll(reg.getNamespaces());
+            // W-3676967: Temporarily allow case sensitive namespaces
+//            for (String ns : reg.getNamespaces()) {
+//                allNamespaces.add(ns.toLowerCase());
+//            }
         }
         allNamespaces.remove("*");
     }
@@ -180,9 +184,12 @@ public class RegistryTrie implements RegistrySet {
 
         if (ns == null) {
             ns = "*";
-        } else {
-            ns = ns.toLowerCase();
+            // W-3676967: Temporarily allow case sensitive namespaces
+//    		} else {
+//    			ns = ns.toLowerCase();
+                 
         }
+        
         Object top = root.get(prefix);
         if (top == null) {
             return null;

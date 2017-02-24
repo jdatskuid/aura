@@ -6,9 +6,11 @@
     <componentTest:HASBody/>
 
     <!-- however the namespace is case sensitive, IF we haven't cache it with right case already -->
+    <!-- W-3676967: Temporarily allow case sensitive namespaces
     <componentTEST:hasBody/>
     <auraTEST:TESTMarkupCaseSensitivityOuterCmp/>
-
+    -->
+    
     <!-- dependency is case non-sensitive, this will load the 'correct' dependency withpreload -->
     <aura:dependency resource="appCache:WITHPRELOAD" type="APPLICATION"/>
 
