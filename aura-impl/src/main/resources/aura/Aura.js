@@ -42,6 +42,7 @@ Aura.bootstrapMark = function (mark, value) {
 // - to detect errors we wait for DOMContentLoaded then check for all bootstrap file markers
 // NOTE: if Aura is injected into the page (Lightning Out or AIS) then DOMContentLoaded is fired
 // before aura.js is loaded/executed, so verifyBootstrap() is never invoked.
+//#if {"excludeModes" : ["DOC","TESTING","AUTOTESTING", "TESTINGDEBUG", "AUTOTESTINGDEBUG"]}
 (function bootstrapRobustness() {
     function verifyBootstrap() {
         document.removeEventListener('DOMContentLoaded', verifyBootstrap);
@@ -49,15 +50,20 @@ Aura.bootstrapMark = function (mark, value) {
         // now that all <script> are loaded can update network bootstrap.js load status
         $A.clientService.setAppBootstrapStatus();
 
+        var state = $A.clientService.getBootstrapState();
+        
         // wait for bootstrap to load from storage:
-        // 1. wait for $A.initAsync()'s AuraContext callback to be invoked: gvsFromStorage gets assigned true/false
+        // 1. wait for $A.initAsync()'s AuraContext callback to be invoked: gvpsFromStorage gets assigned true/false
         // 2. if gvpsFromStorage is true then wait for bootstrap from storage (if false then bootstrap is not loaded from storage)
-        if ($A.clientService.gvpsFromStorage === undefined || ($A.clientService.gvpsFromStorage && Aura["appBootstrapCacheStatus"] === undefined)) {
+        //
+        // wait for "in progress" app cache
+        // 1.state['appcache'] is appCache progress indicator, if it's undefined or 0 (not in progress), then we don't wait
+        // 2.If < 0 then considered an error; if >=100 then considered done, so we wait for < 100.
+        if (($A.clientService.gvpsFromStorage === undefined || ($A.clientService.gvpsFromStorage && Aura["appBootstrapCacheStatus"] === undefined)) ||
+            (state["appcache"] && state["appcache"] < 100)) {
             setTimeout(verifyBootstrap, 1000);
             return;
         }
-
-        var state = $A.clientService.getBootstrapState(false);
 
         var allFilesLoaded = Object.keys(state).reduce(function(prev, curr) {
             return prev && state[curr];
@@ -69,7 +75,7 @@ Aura.bootstrapMark = function (mark, value) {
 
     document.addEventListener('DOMContentLoaded', verifyBootstrap);
 })();
-
+//#end
 
 // -- Namespaces ------------------------------------------------------------
 Aura.Utils      = {};

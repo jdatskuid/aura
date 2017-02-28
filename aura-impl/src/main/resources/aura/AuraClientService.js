@@ -1131,11 +1131,10 @@ AuraClientService.prototype.handleAppCache = function() {
 
 /**
  * Gets the framework and app bootstrap state, which indicates execution state of each file.
- * @param {Boolean} appcache True to include appcache progress, if appcache is enabled.
  * @return {Object} loading state for all bootstrap files.
  * @private
  */
-AuraClientService.prototype.getBootstrapState = function(appcache) {
+AuraClientService.prototype.getBootstrapState = function() {
     var state = {
         "inline.js": !!Aura["inlineJsLoaded"],
         "aura.js": !!Aura["frameworkJsReady"],
@@ -1143,7 +1142,7 @@ AuraClientService.prototype.getBootstrapState = function(appcache) {
         "bootstrap.js": !!Aura["appBootstrap"] || !!Aura["appBootstrapCache"] || !!this.appBootstrap
     };
 
-    if (appcache && this.isManifestPresent()) {
+    if (this.isManifestPresent()) {
         state["appcache"] = this.appCacheProgress;
     }
 
@@ -1173,7 +1172,7 @@ AuraClientService.prototype.startBootTimers = function() {
     }
 
     // capture current state
-    var oldState = this.getBootstrapState(true);
+    var oldState = this.getBootstrapState();
 
     // start the timer.
     // note: start the timer even if all files are loaded. by then measuring success as the app+fwk
@@ -1184,7 +1183,7 @@ AuraClientService.prototype.startBootTimers = function() {
             return;
         }
 
-        var newState = that.getBootstrapState(true);
+        var newState = that.getBootstrapState();
         var progress = getBootProgressed(oldState, newState);
 
         // if progress made then start a new timer to check again
