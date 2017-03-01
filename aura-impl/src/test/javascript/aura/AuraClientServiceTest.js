@@ -896,6 +896,9 @@ Test.Aura.AuraClientServiceTest = function() {
                             },
                             isPersistent: function() {
                                 return true;
+                            },
+                            enqueue: function(fn) {
+                                fn();
                             }
                         }
                     }
@@ -931,6 +934,9 @@ Test.Aura.AuraClientServiceTest = function() {
                             },
                             isPersistent: function() {
                                 return true;
+                            },
+                            enqueue: function(fn) {
+                                fn();
                             }
                         }
                     }
