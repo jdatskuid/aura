@@ -100,6 +100,7 @@ public class AuraTestFilter {
     // "jstestrun" is used by this filter to identify the jstest to execute.
     // If the param is empty, it will fall back to loading auratest:jstest.
     private static final StringParam jstestToRun = new StringParam(AuraServlet.AURA_PREFIX + "jstestrun", 0, false);
+    private static final Pattern jstestToRunPattern = Pattern.compile("(?<=\\b" + Pattern.quote(jstestToRun.name) + "=)\\w*");
 
     // "jstest" is a shortcut to load auratest:jstest.
     private static final StringParam jstestAppFlag = new StringParam(AuraServlet.AURA_PREFIX + "jstest", 0, false);
@@ -229,7 +230,7 @@ public class AuraTestFilter {
                         loadTestMocks(context, true, testContext.getLocalDefs());
 
                         // Capture the response and inject tags to load jstest.
-                        String capturedResponse = captureResponse(request, response, targetUri);
+                        String capturedResponse = captureResponse(request, response, testToRun, targetUri);
                         if (capturedResponse != null) {
                             servletUtilAdapter.setNoCache(response);
                             response.setContentType(servletUtilAdapter.getContentType(Format.HTML));
@@ -477,21 +478,32 @@ public class AuraTestFilter {
         }
     }
 
-    private String captureResponse(ServletRequest req, ServletResponse res, String uri) throws ServletException,
+    private String captureResponse(ServletRequest req, ServletResponse res, String testName, String uri) throws ServletException,
             IOException {
-        CapturingResponseWrapper responseWrapper = new CapturingResponseWrapper((HttpServletResponse) res);
-        RequestDispatcher dispatcher = req.getServletContext().getContext(uri).getRequestDispatcher(uri);
-        if (dispatcher == null) {
-            return null;
-        }
-        dispatcher.forward(req, responseWrapper);
-        
-        String redirectUrl = responseWrapper.getRedirectUrl();
-		if (redirectUrl != null) {
-			return captureResponse(req, res, redirectUrl);
-		} else {
-			return responseWrapper.getCapturedResponseString();
+        CapturingResponseWrapper responseWrapper = new CapturingResponseWrapper((HttpServletResponse) res){
+            @Override
+            public void sendRedirect(String location) throws IOException{
+				// If the response is redirected after this filter, we want to
+				// handle the redirect, so we need to set the jstestrun
+				// parameter to make sure we can see it on the next request.
+            	Matcher test = jstestToRunPattern.matcher(location);
+				if (test.find()) {
+					location = test.replaceAll(testName);
+				} else {
+					location = location + (location.indexOf('?') < 0 ? "?" : "&") + jstestToRun.name + "=" + testName;
+				}
+            	super.sendRedirect(location);
+            }
+        };
+		RequestDispatcher dispatcher = req.getServletContext().getContext(uri).getRequestDispatcher(uri);
+		if (dispatcher == null) {
+			return null;
 		}
+		dispatcher.forward(req, responseWrapper);
+		if (responseWrapper.getRedirectUrl() != null) {
+			return null;
+		}
+		return responseWrapper.getCapturedResponseString();
     }
 
     private String buildJsTestScriptTag(DefDescriptor<?> targetDescriptor, String testName, int timeout, String original) {
