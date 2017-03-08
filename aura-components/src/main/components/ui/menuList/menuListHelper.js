@@ -270,7 +270,11 @@
             this.setFocusToTrigger(component);
         }
 
-    	component.get("e.menuSelect").fire(event.getParams());
+        // Make sure component still valid.
+        // above steps may cause component be destroyed.
+        if (component.isValid()) {
+            component.get("e.menuSelect").fire(event.getParams());
+        }
     },
 
     /**
