@@ -18,10 +18,10 @@ Function.RegisterNamespace("Test.Aura");
 [Fixture]
 Test.Aura.AuraLocalizationServiceTest = function(){
     var Aura = {
-        Services: {   
+        Services: {
         }
     };
-	
+
     // Mock the exp() function defined in Aura.js, this is originally used for exposing members using a export.js file
 	Mocks.GetMocks(Object.Global(), {
         "Aura": Aura,
@@ -31,6 +31,7 @@ Test.Aura.AuraLocalizationServiceTest = function(){
 	});
 
 	var targetService = new Aura.Services.AuraLocalizationService();
+    targetService.logLocaleStats = function() {};
 
 	var targetDate = "07/10/2013";
 	var targetDateFormat = "DD-MM-YYYY";
@@ -1219,7 +1220,7 @@ Test.Aura.AuraLocalizationServiceTest = function(){
             var actual;
 
             // Act
-            mockUtil(function() { 
+            mockUtil(function() {
                 actual = targetService.toISOString(targetDate);
             });
 
@@ -1241,7 +1242,7 @@ Test.Aura.AuraLocalizationServiceTest = function(){
             var actual;
 
             // Act
-            mockUtil(function() { 
+            mockUtil(function() {
                 actual = targetService.toISOString(dt);
             });
 
@@ -1264,10 +1265,10 @@ Test.Aura.AuraLocalizationServiceTest = function(){
             var actual;
 
             // Act
-            mockUtil(function() { 
+            mockUtil(function() {
                 actual = targetService.toISOString(dt);
             });
-            
+
             // Assert
             Assert.Equal(expected, actual);
         }
@@ -1294,9 +1295,9 @@ Test.Aura.AuraLocalizationServiceTest = function(){
 
             // Act
             mockUtil(function () {
-                targetService.UTCToWallTime(mockDateTime, "GMT", callback);    
+                targetService.UTCToWallTime(mockDateTime, "GMT", callback);
             });
-			
+
 
             // Assert
             Assert.Equal(expected, actual);
@@ -1490,7 +1491,7 @@ Test.Aura.AuraLocalizationServiceTest = function(){
             mockMoment(function () {
                 mockGetNormalizedFormat(function(){
                     actual = targetService.displayDateTime(targetDateTimeObj, targetFormat, '');
-                });    
+                });
             });
 
             // Assert
@@ -1575,7 +1576,7 @@ Test.Aura.AuraLocalizationServiceTest = function(){
             Assert.Equal(expected, actual);
         }
     }
-    
+
     [Fixture]
 	function getStrictModeFormat(){
 
@@ -2048,15 +2049,15 @@ Test.Aura.AuraLocalizationServiceTest = function(){
             Assert.Equal(expected, actual);
         }
     }
-    
+
     [Fixture]
     function lazyInitTimeZoneInfo() {
-    	
+
     	[Fact]
     	function initTimeZoneInfoCalledOncePerTimezone(){
         	// Arrange
         	var initTimeZoneInfoCalls = [];
-        	
+
         	var mockWallTime = Mocks.GetMock(Object.Global(), "WallTime",{
             	zones: {
             		PST:false,
@@ -2067,12 +2068,12 @@ Test.Aura.AuraLocalizationServiceTest = function(){
         	var mockInitializeWalltime = Mocks.GetMock(targetService, "initializeWalltime", function(callback) {
                 callback();
         	})
-        	
+
         	var mockInitTimeZoneInfo = Mocks.GetMock(targetService, "initTimeZoneInfo", function(timezone, afterInit) {
         		initTimeZoneInfoCalls.push(timezone);
                 afterInit();
         	})
-    		
+
         	// Act
         	mockWallTime(function() {
         		mockInitializeWalltime(function() {
@@ -2083,7 +2084,7 @@ Test.Aura.AuraLocalizationServiceTest = function(){
         			})
         		})
         	});
-    		
+
     		// Assert
     		Assert.Equal(["PST", "EST"], initTimeZoneInfoCalls);
     	}

@@ -355,15 +355,19 @@ AuraLocalizationService.prototype.endOf = function(date, unit) {
  */
 AuraLocalizationService.prototype.formatDate = function(date, formatString, locale) {
     var mDate = moment(date);
-    if (mDate && mDate["isValid"]()) {
-        var format = formatString;
-        if (!format) { // use default format
-            format = $A.get("$Locale.dateFormat");
-        }
-        return this.displayDateTime(mDate, format, locale);
-    } else {
+    if (!mDate || !mDate["isValid"]()) {
         throw {message: "Invalid date value"};
     }
+
+    if (locale) {
+        this.logLocaleStats("formatDate", locale);
+    }
+
+    var format = formatString;
+    if (!format) { // use default format
+        format = $A.get("$Locale.dateFormat");
+    }
+    return this.displayDateTime(mDate, format, locale);
 };
 
 /**
@@ -383,15 +387,19 @@ AuraLocalizationService.prototype.formatDate = function(date, formatString, loca
  */
 AuraLocalizationService.prototype.formatDateUTC = function(date, formatString, locale) {
     var mDate = moment["utc"](date);
-    if (mDate && mDate["isValid"]()) {
-        var format = formatString;
-        if (!format) { // use default format
-            format = $A.get("$Locale.dateFormat");
-        }
-        return this.displayDateTime(mDate, format, locale);
-    } else {
+    if (!mDate || !mDate["isValid"]()) {
         throw {message: "Invalid date value"};
     }
+
+    if (locale) {
+        this.logLocaleStats("formatDateUTC", locale);
+    }
+
+    var format = formatString;
+    if (!format) { // use default format
+        format = $A.get("$Locale.dateFormat");
+    }
+    return this.displayDateTime(mDate, format, locale);
 };
 
 /**
@@ -411,15 +419,19 @@ AuraLocalizationService.prototype.formatDateUTC = function(date, formatString, l
  */
 AuraLocalizationService.prototype.formatDateTime = function(date, formatString, locale) {
     var mDate = moment(date);
-    if (mDate && mDate["isValid"]()) {
-        var format = formatString;
-        if (!format) { // use default format
-            format = $A.get("$Locale.datetimeFormat");
-        }
-        return this.displayDateTime(mDate, format, locale);
-    } else {
+    if (!mDate || !mDate["isValid"]()) {
         throw {message: "Invalid date time value"};
     }
+
+    if (locale) {
+        this.logLocaleStats("formatDateTime", locale);
+    }
+
+    var format = formatString;
+    if (!format) { // use default format
+        format = $A.get("$Locale.datetimeFormat");
+    }
+    return this.displayDateTime(mDate, format, locale);
 };
 
 /**
@@ -438,15 +450,19 @@ AuraLocalizationService.prototype.formatDateTime = function(date, formatString, 
  */
 AuraLocalizationService.prototype.formatDateTimeUTC = function(date, formatString, locale) {
     var mDate = moment["utc"](date);
-    if (mDate && mDate["isValid"]()) {
-        var format = formatString;
-        if (!format) { // use default format
-            format = $A.get("$Locale.datetimeFormat");
-        }
-        return this.displayDateTime(mDate, format, locale);
-    } else {
+    if (!mDate || !mDate["isValid"]()) {
         throw {message: "Invalid date time value"};
     }
+
+    if (locale) {
+        this.logLocaleStats("formatDateTimeUTC", locale);
+    }
+
+    var format = formatString;
+    if (!format) { // use default format
+        format = $A.get("$Locale.datetimeFormat");
+    }
+    return this.displayDateTime(mDate, format, locale);
 };
 
 /**
@@ -466,15 +482,19 @@ AuraLocalizationService.prototype.formatDateTimeUTC = function(date, formatStrin
  */
 AuraLocalizationService.prototype.formatTime = function(date, formatString, locale) {
     var mDate = moment(date);
-    if (mDate && mDate["isValid"]()) {
-        var format = formatString;
-        if (!format) { // use default format
-            format = $A.get("$Locale.timeFormat");
-        }
-        return this.displayDateTime(mDate, format, locale);
-    } else {
+    if (!mDate || !mDate["isValid"]()) {
         throw {message: "Invalid time value"};
     }
+
+    if (locale) {
+        this.logLocaleStats("formatTime", locale);
+    }
+
+    var format = formatString;
+    if (!format) { // use default format
+        format = $A.get("$Locale.timeFormat");
+    }
+    return this.displayDateTime(mDate, format, locale);
 };
 
 /**
@@ -494,15 +514,20 @@ AuraLocalizationService.prototype.formatTime = function(date, formatString, loca
  */
 AuraLocalizationService.prototype.formatTimeUTC = function(date, formatString, locale) {
     var mDate = moment["utc"](date);
-    if (mDate && mDate["isValid"]()) {
-        var format = formatString;
-        if (!format) { // use default format
-            format = $A.get("$Locale.timeFormat");
-        }
-        return this.displayDateTime(mDate, format, locale);
-    } else {
+    if (!mDate || !mDate["isValid"]()) {
         throw {message: "Invalid time value"};
     }
+
+    if (locale) {
+        this.logLocaleStats("formatTimeUTC", locale);
+    }
+
+    var format = formatString;
+    if (!format) { // use default format
+        format = $A.get("$Locale.timeFormat");
+    }
+    return this.displayDateTime(mDate, format, locale);
+
 };
 
 /**
@@ -790,13 +815,20 @@ AuraLocalizationService.prototype.parseDateTime = function(dateTimeString, targe
     if (!dateTimeString) {
         return null;
     }
+
     var format = strictParsing ? this.getStrictModeFormat(targetFormat) : this.getNormalizedFormat(targetFormat);
     var value = strictParsing ? this.getStrictModeDateTimeString(dateTimeString) : dateTimeString;
     var mDate = moment(value, format, this.getNormalizedLangLocale(locale), strictParsing);
-    if (mDate && mDate["isValid"]()) {
-        return mDate["toDate"]();
+    if (!mDate || !mDate["isValid"]()) {
+        return null;
     }
-    return null;
+
+    if (locale) {
+        this.logLocaleStats("parseDateTime", locale);
+    }
+
+    return mDate["toDate"]();
+
 };
 
 /**
@@ -844,10 +876,15 @@ AuraLocalizationService.prototype.parseDateTimeUTC = function(dateTimeString, ta
     var format = strictParsing ? this.getStrictModeFormat(targetFormat) : this.getNormalizedFormat(targetFormat);
     var value = strictParsing ? this.getStrictModeDateTimeString(dateTimeString) : dateTimeString;
     var mDate = moment["utc"](value, format, this.getNormalizedLangLocale(locale), strictParsing);
-    if (mDate && mDate["isValid"]()) {
-        return mDate["toDate"]();
+    if (!mDate || !mDate["isValid"]()) {
+        return null;
     }
-    return null;
+
+    if (locale) {
+        this.logLocaleStats("parseDateTimeUTC", locale);
+    }
+
+    return mDate["toDate"]();
 };
 
 /**
@@ -1312,6 +1349,36 @@ AuraLocalizationService.prototype.pad = function(n) {
  */
 AuraLocalizationService.prototype.doublePad = function(n) {
     return n < 10 ? '00' + n : n  < 100 ? '0' + n : n;
+};
+
+/**
+ * Log locale parameter usage statistics to server.
+ *
+ * This function is temporarily added for tracking locale parameter usage to help evaluating the impact of
+ * the parameter's deprecation.
+ * @private
+ */
+AuraLocalizationService.prototype.logLocaleStats = function(fnName, locale) {
+
+    // from user Language setting
+    var language = $A.get("$Locale.language");
+    // from user Locale setting
+    var userLocaleLang = $A.get("$Locale.userLocaleLang");
+
+    var providedLocaleLang = locale.split('_')[0];
+    if (providedLocaleLang === language || providedLocaleLang === userLocaleLang) {
+        return;
+    }
+
+    // only log invalid cases
+    $A.metricsService.transaction("aura", "performance:invalid-locale", { "context": {
+        "attributes" : {
+            "functionName": fnName,
+            "providedLocale": locale,
+            "userLocale": userLocaleLang + "_" + $A.get("$Locale.userLocaleCountry"),
+            "langLocale": $A.get("$Locale.langLocale")
+        }
+    }});
 };
 
 Aura.Services.AuraLocalizationService = AuraLocalizationService;
