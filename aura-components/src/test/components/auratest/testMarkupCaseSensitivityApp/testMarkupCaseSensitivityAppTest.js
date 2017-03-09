@@ -19,8 +19,7 @@
      * Used to be that we had issues with the 'canonical' descriptor being set by first access. This test catches
      * that problem. All descriptors should be mapped to their canonical form now.
      */
-    /** W-3676967: Temporarily allow case sensitive namespaces */
-    _testMarkupNamespace: {
+    testMarkupNamespace: {
         test: function(cmp) {
             var facetsArray = cmp.getDef().getFacets()[0];
                     $A.test.assertEquals("markup://componentTest:hasBody",
@@ -63,8 +62,7 @@
         }
     },
 
-    /** W-3676967: Temporarily allow case sensitive namespaces */
-    _testMarkupNestedCmp : {
+    testMarkupNestedCmp : {
         test: function(cmp) {
             var strOuterCmp = "I'm outer cmp that contains a inner cmp in markup, the inner cmp's name has wrong case";
             var strInnerCmp = "I'm inner cmp that inside an outer cmp's markup";
