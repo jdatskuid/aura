@@ -297,35 +297,37 @@ Aura.Context.AuraContext.prototype.merge = function(otherContext) {
 
     this.enableAccessChecks=otherContext["enableAccessChecks"];
     this.isLockerServiceEnabled = this["isLockerServiceEnabled"] = $A.lockerService.containerSupportsRequiredFeatures() && otherContext["lockerEnabled"];
-
-    this.globalValueProviders.merge(otherContext["globalValueProviders"]);
-
-    if (otherContext["libraryDefs"]) {
-        defs = otherContext["libraryDefs"];
-        for (i = 0; i < defs.length; i++) {
-            $A.componentService.saveLibraryConfig(defs[i]);
-        }
-    }
-
-    if (otherContext["componentDefs"]) {
-        defs = otherContext["componentDefs"];
-        for (i = 0; i < defs.length; i++) {
-            // there are occasions when defs are just references (descriptor name)
-            if (defs[i]["descriptor"]) {
-                $A.componentService.saveComponentConfig(defs[i]);
+    
+    try {
+        this.globalValueProviders.merge(otherContext["globalValueProviders"]);        
+    } finally {
+        if (otherContext["libraryDefs"]) {
+            defs = otherContext["libraryDefs"];
+            for (i = 0; i < defs.length; i++) {
+                $A.componentService.saveLibraryConfig(defs[i]);
             }
         }
-    }
-
-    if (otherContext["eventDefs"]) {
-        defs = otherContext["eventDefs"];
-        for (i = 0; i < defs.length; i++) {
-            $A.eventService.saveEventConfig(defs[i]);
+    
+        if (otherContext["componentDefs"]) {
+            defs = otherContext["componentDefs"];
+            for (i = 0; i < defs.length; i++) {
+                // there are occasions when defs are just references (descriptor name)
+                if (defs[i]["descriptor"]) {
+                    $A.componentService.saveComponentConfig(defs[i]);
+                }
+            }
         }
+    
+        if (otherContext["eventDefs"]) {
+            defs = otherContext["eventDefs"];
+            for (i = 0; i < defs.length; i++) {
+                $A.eventService.saveEventConfig(defs[i]);
+            }
+        }
+    
+        this.joinComponentConfigs(otherContext["components"], ""+this.getNum());
+        this.joinLoaded(otherContext["loaded"]);
     }
-
-    this.joinComponentConfigs(otherContext["components"], ""+this.getNum());
-    this.joinLoaded(otherContext["loaded"]);
 };
 
 /**
