@@ -89,12 +89,17 @@ public class RegistryTrie implements RegistrySet {
         return prefixMap;
     }
 
+    private String getNamespaceKey(String namespace) {
+        // W-3676967: temporarily allow a case-sensitive "duplicate" namespace, should be lower-cased otherwise
+    	return "ONE".equals(namespace) ? namespace : namespace.toLowerCase();
+    }
+    
     private Map<String,Object> insertNamespaceReg(Map<String, Object> namespaceMap, DefRegistry<?> reg) {
         if (namespaceMap == null) {
             namespaceMap = Maps.newHashMap();
         }
         for (String namespaceUnknown : reg.getNamespaces()) {
-            String namespace = namespaceUnknown.toLowerCase();
+            String namespace = getNamespaceKey(namespaceUnknown);
             Object orig = namespaceMap.get(namespace);
             EnumMap<DefType, DefRegistry<?>> defTypeMap;
 
@@ -119,7 +124,7 @@ public class RegistryTrie implements RegistrySet {
         for (DefRegistry<?> reg : allRegistries) {
             insertPrefixReg(root, reg);
             for (String ns : reg.getNamespaces()) {
-                allNamespaces.add(ns.toLowerCase());
+                allNamespaces.add(getNamespaceKey(ns));
             }
         }
         allNamespaces.remove("*");
@@ -181,7 +186,7 @@ public class RegistryTrie implements RegistrySet {
         if (ns == null) {
             ns = "*";
         } else {
-            ns = ns.toLowerCase();
+            ns = getNamespaceKey(ns);
         }
         Object top = root.get(prefix);
         if (top == null) {
