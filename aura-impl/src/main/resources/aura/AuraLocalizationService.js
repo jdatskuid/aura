@@ -1375,8 +1375,11 @@ AuraLocalizationService.prototype.logLocaleStats = function(fnName, locale) {
         "attributes" : {
             "functionName": fnName,
             "providedLocale": locale,
-            "userLocale": userLocaleLang + "_" + $A.get("$Locale.userLocaleCountry"),
-            "langLocale": $A.get("$Locale.langLocale")
+            "langLocale": $A.get("$Locale.langLocale"),
+            "language": language,
+            "country": $A.get("$Locale.country"),
+            "userLocaleLang": userLocaleLang,
+            "userLocaleCountry": $A.get("$Locale.userLocaleCountry")
         }
     }});
 };
