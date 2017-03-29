@@ -95,7 +95,7 @@
     /**
      * Test single tab in overflow
      */
-    testZeroTabInOverflow : {
+    _testZeroTabInOverflow : {
     	attributes : {"numTabs" : 2},
     	test: [function(cmp) {
             this.testContainer = "testTabContainerFixed";
