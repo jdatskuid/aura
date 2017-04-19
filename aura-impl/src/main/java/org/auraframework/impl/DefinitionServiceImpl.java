@@ -28,6 +28,7 @@ import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 
+import org.apache.log4j.Logger;
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.cache.Cache;
@@ -75,8 +76,6 @@ import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-
-import org.apache.log4j.Logger;
 
 /**
  * The public access to definitions inside Aura.
@@ -1599,7 +1598,7 @@ public class DefinitionServiceImpl implements DefinitionService {
 
         DefType [] types = new DefType [] { DefType.LIBRARY, DefType.COMPONENT, DefType.APPLICATION };
 
-        for(DefRegistry<?> registry : context.getRegistries().getAllRegistries()) {
+        for (DefRegistry registry : context.getRegistries().getAllRegistries()) {
             if (registry instanceof CompilingDefRegistry) {
                 logger.info("warmCaches: PROCESSING CompilingDefRegistry with namespace="+registry.getNamespaces());
                 for (String namespace : registry.getNamespaces()) {
@@ -1659,11 +1658,7 @@ public class DefinitionServiceImpl implements DefinitionService {
                             logger.warn("warmCaches: Nested add of " + cd.descriptor);
                         }
                         try {
-                            if (cd.def instanceof HasJavascriptReferences) {
-                                ((HasJavascriptReferences) cd.def).validateReferences(true);
-                            } else {
-                                cd.def.validateReferences();
-                            }
+                            cd.def.validateReferences();
                         } catch (QuickFixException qfe) {
                             logger.error("warmCaches: Failed to validate "+cd.descriptor, qfe);
                         }
