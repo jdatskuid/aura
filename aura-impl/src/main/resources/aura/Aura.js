@@ -30,7 +30,6 @@ Aura.bootstrapMark = function (mark, value) {
     this["bootstrap"][mark] = value || this.time();
 };
 
-
 // bootstrap robustness:
 // - all files required for bootstrap are loaded with sync <script> tags
 // - DOMContentLoaded is fired after DOM is ready, which includes executing all sync <script> tags
