@@ -20,6 +20,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 
 import org.auraframework.Aura;
 import org.auraframework.builder.ComponentDefRefBuilder;
@@ -34,13 +35,13 @@ import org.auraframework.def.DefinitionReference;
 import org.auraframework.def.RegisterEventDef;
 import org.auraframework.impl.root.DefinitionReferenceImpl;
 import org.auraframework.service.DefinitionService;
-import org.auraframework.system.AuraContext;
 import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.quickfix.AttributeNotFoundException;
 import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import com.google.common.collect.Lists;
 
@@ -71,7 +72,7 @@ public class ComponentDefRefImpl extends DefinitionReferenceImpl<ComponentDef> i
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
         ComponentDef def = descriptor.getDef();
         if (def == null) {
             throw new DefinitionNotFoundException(descriptor);
@@ -87,8 +88,7 @@ public class ComponentDefRefImpl extends DefinitionReferenceImpl<ComponentDef> i
             }
         }
 
-        AuraContext context = Aura.getContextService().getCurrentContext();
-        validateAttributesValues(context.getCurrentCallingDescriptor());
+        validateAttributesValues(validationContext);
 
         // validateMissingAttributes();
 
@@ -100,9 +100,9 @@ public class ComponentDefRefImpl extends DefinitionReferenceImpl<ComponentDef> i
      * Example: in the component instantiation of myMS:widget validates the specified attributes foo and bar
      * <myNS:uberWidget foo="123" bar="blah"/>
      *
-     * @param referencingDesc referencing descriptor
+     * @param validationContext the validation context.
      */
-    private void validateAttributesValues(DefDescriptor<?> referencingDesc) throws QuickFixException {
+    private void validateAttributesValues(ReferenceValidationContext validationContext) throws QuickFixException {
         ComponentDef def = descriptor.getDef();
         Map<DefDescriptor<AttributeDef>, AttributeDef> atts = def.getAttributeDefs();
         Map<String, RegisterEventDef> registeredEvents = def.getRegisterEventDefs();
@@ -118,18 +118,18 @@ public class ComponentDefRefImpl extends DefinitionReferenceImpl<ComponentDef> i
                             getLocation());
                 }
 
-                definitionService.assertAccess(referencingDesc, registeredEvent);
+                definitionService.assertAccess(validationContext.getReferencingDescriptor(), registeredEvent);
             } else {
-                if (referencingDesc != null) {
+                if (validationContext.getReferencingDescriptor() != null) {
                     // Validate that the referencing component has access to the attribute
-                    definitionService.assertAccess(referencingDesc, attributeDef);
+                    definitionService.assertAccess(validationContext.getReferencingDescriptor(), attributeDef);
                 }
 
                 // so it was an attribute, make sure to parse it
                 entry.getValue().parseValue(attributeDef.getTypeDef());
             }
 
-            entry.getValue().validateReferences();
+            entry.getValue().validateReferences(validationContext);
             // heres where some type validation would go
         }
     }
@@ -198,7 +198,7 @@ public class ComponentDefRefImpl extends DefinitionReferenceImpl<ComponentDef> i
             ComponentDefRefImpl other = (ComponentDefRefImpl) obj;
 
             // TODO: factor attributeDefs into this? #W-689622
-            return descriptor.equals(other.getDescriptor()) && location.equals(other.getLocation());
+            return Objects.equals(descriptor, other.getDescriptor()) && Objects.equals(location, other.getLocation());
         }
 
         return false;

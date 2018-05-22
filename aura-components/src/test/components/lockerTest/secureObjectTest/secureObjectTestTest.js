@@ -5,8 +5,8 @@
      */
 
     // LockerService not supported on IE
-    // TODO(W-3674741,W-3674751): FF and iOS browser versions in autobuilds are too far behind
-    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPHONE", "-IPAD"],
+    // TODO(W-3674741, W-4446969): FF and LockerService disabled for iOS browser in 212
+    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-SAFARI", "-IPHONE", "-IPAD"],
 
     setUp: function(cmp) {
         cmp.set("v.testUtils", $A.test);
@@ -26,7 +26,7 @@
                         "Failed to dynamically create initial components",
                         function() {
                             var expected = "Instance #1Instance #2Instance #3";
-                            var actual = $A.util.getText($A.getRoot().find("content").getElement());
+                            var actual = $A.util.getText(cmp.find("content").getElement());
                             $A.test.assertEquals(expected, actual, "Unexpected content of initial components dynamically created")
                         }
                 );
@@ -42,7 +42,7 @@
                         "Failed to remove first and last dynamically created components from list",
                         function() {
                             var expected = "Instance #2";
-                            var actual = $A.util.getText($A.getRoot().find("content").getElement());
+                            var actual = $A.util.getText(cmp.find("content").getElement());
                             $A.test.assertEquals(expected, actual);
                         }
                 );
@@ -57,7 +57,7 @@
                         "Failed to add an additional dynamically created component to list",
                         function() {
                             var expected = "Instance #2Instance #4";
-                            var actual = $A.util.getText($A.getRoot().find("content").getElement());
+                            var actual = $A.util.getText(cmp.find("content").getElement());
                             $A.test.assertEquals(expected, actual, "Unexpected content after adding additional dynamically created component")
                         }
                 );
@@ -113,6 +113,33 @@
     testUnfilteringOfArrayBuffer: {
         test: function(cmp) {
             cmp.testUnfilteringOfArrayBuffer();
+        }
+    },
+
+    testObjectConstructor: {
+        test: function(cmp) {
+            cmp.testObjectConstructor();
+        }
+    },
+
+    testArrayConstructor: {
+        test: function(cmp) {
+            cmp.testArrayConstructor();
+        }
+    },
+
+    // TODO: [W-4532392] Enable when href sanitizer is turned back on. 
+    _testSanitizeJSHref: {
+        test: function(cmp) {
+            cmp.testSanitizeJSHref();
+        }
+    },
+
+    // TODO: [W-4532392] Enable when src sanitizer is turned back on.
+    _testSanitizeJSSrc: {
+        test: function(cmp) {
+            cmp.testSanitizeJSSrc();
+
         }
     }
 })

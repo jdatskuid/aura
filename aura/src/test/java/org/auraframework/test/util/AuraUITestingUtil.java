@@ -21,25 +21,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.logging.Logger;
 
 import org.apache.commons.lang3.StringEscapeUtils;
 import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.json.JsonReader;
 import org.junit.Assert;
-import org.openqa.selenium.By;
-import org.openqa.selenium.JavascriptExecutor;
-import org.openqa.selenium.NoSuchElementException;
-import org.openqa.selenium.StaleElementReferenceException;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.WebDriverException;
-import org.openqa.selenium.WebElement;
+import org.openqa.selenium.*;
 import org.openqa.selenium.interactions.Actions;
 import org.openqa.selenium.remote.RemoteWebDriver;
 import org.openqa.selenium.support.ui.ExpectedCondition;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
-import com.google.common.base.Function;
 import com.google.common.collect.Lists;
 
 /**
@@ -48,8 +42,6 @@ import com.google.common.collect.Lists;
 
 public class AuraUITestingUtil {
     private final WebDriver driver;
-    private final String logPrefix;
-    private final Logger logger;
     private int timeoutInSecs = 30;
     private int rerunCount = 0;
     protected static final Random RAND = new Random(System.currentTimeMillis());
@@ -60,8 +52,6 @@ public class AuraUITestingUtil {
 
     public AuraUITestingUtil(WebDriver driver, Logger logger, String logPrefix) {
         this.driver = driver;
-        this.logPrefix = logPrefix == null ? "" : logPrefix;
-        this.logger = logger != null ? logger : Logger.getLogger(AuraUITestingUtil.class.getSimpleName());
     }
 
     public enum ActionDuringTransit {
@@ -254,12 +244,7 @@ public class AuraUITestingUtil {
     public boolean waitForElementNotPresent(String msg, final By locator) {
         WebDriverWait wait = new WebDriverWait(driver, timeoutInSecs);
         return wait.withMessage(msg)
-            .ignoring(StaleElementReferenceException.class).until(new ExpectedCondition<Boolean>() {
-                @Override
-                public Boolean apply(WebDriver d) {
-                    return d.findElements(locator).isEmpty();
-                }
-            });
+            .ignoring(StaleElementReferenceException.class).until((ExpectedCondition<Boolean>) d -> d.findElements(locator).isEmpty());
     }
 
     public WebElement findElementAndTypeEventNameInIt(String event) {
@@ -341,14 +326,6 @@ public class AuraUITestingUtil {
      */
     public String getValueFromCmpExpression(String cmp, String val) {
         return this.prepareReturnStatement(this.getCmpExpr(cmp) + ".get('" + val + "')");
-    }
-
-    public void pressEnter(WebElement e) {
-        e.sendKeys("\n");
-    }
-
-    public void pressTab(WebElement e) {
-        e.sendKeys("\t");
     }
 
     /**
@@ -554,16 +531,13 @@ public class AuraUITestingUtil {
      * @return
      */
     public <V> Function<? super WebDriver, V> addErrorCheck(final Function<? super WebDriver, V> function) {
-        return new Function<WebDriver, V>() {
-            @Override
-            public V apply(WebDriver driver) {
-                V value = function.apply(driver);
-                if ((value == null) || (Boolean.class.equals(value.getClass()) && !Boolean.TRUE.equals(value))) {
-                    String errors = (String) getRawEval("return (window.$A && window.$A.test) ? window.$A.test.getErrors() : '';");
-                    assertJsTestErrors(errors);
-                }
-                return value;
+        return (Function<WebDriver, V>) driver -> {
+            V value = function.apply(driver);
+            if ((value == null) || (Boolean.class.equals(value.getClass()) && !Boolean.TRUE.equals(value))) {
+                String errors = (String) getRawEval("return (window.$A && window.$A.test) ? window.$A.test.getErrors() : '';");
+                assertJsTestErrors(errors);
             }
+            return value;
         };
     }
 
@@ -609,17 +583,13 @@ public class AuraUITestingUtil {
     public List<WebElement> findDomElements(final By locator) {
         WebDriverWait wait = new WebDriverWait(driver, timeoutInSecs);
         return wait.withMessage("fail to find element in dom:" + locator.toString())
-                .ignoring(StaleElementReferenceException.class).until(new ExpectedCondition<List<WebElement>>() {
-
-                    @Override
-                    public List<WebElement> apply(WebDriver d) {
-                        List<WebElement> elements = driver.findElements(locator);
-                        if (elements.size() > 0 &&
-                                getBooleanEval("return arguments[0].ownerDocument === document", elements.get(0))) {
-                            return elements;
-                        }
-                        return null;
+                .ignoring(StaleElementReferenceException.class).until((ExpectedCondition<List<WebElement>>) d -> {
+                    List<WebElement> elements = driver.findElements(locator);
+                    if (elements.size() > 0 &&
+                            getBooleanEval("return arguments[0].ownerDocument === document", elements.get(0))) {
+                        return elements;
                     }
+                    return null;
                 });
     }
 
@@ -717,8 +687,6 @@ public class AuraUITestingUtil {
     }
 
     public void waitForAppCacheReady() {
-        final long start = System.currentTimeMillis();
-        logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAppCacheReady starting");
         waitUntilWithCallback(
                 new ExpectedCondition<Boolean>() {
                     @Override
@@ -726,9 +694,6 @@ public class AuraUITestingUtil {
                         boolean res = getBooleanEval("var cache=window.applicationCache;"
                                 + "return $A.util.isUndefinedOrNull(cache) || (cache.status===cache.UNCACHED)"
                                 + "||(cache.status===cache.IDLE)||(cache.status===cache.OBSOLETE);");
-                        if (res) {
-                            logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAppCacheReady finished " + (System.currentTimeMillis() - start));
-                        }
                         return res;
                     }
                 },
@@ -736,7 +701,6 @@ public class AuraUITestingUtil {
                     @Override
                     public String apply(WebDriver d) {
                         Object ret = getRawEval("return window.applicationCache.status");
-                        logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAppCacheReady timed_out " + (System.currentTimeMillis() - start));
                         return "Current AppCache status is " + appCacheStatusIntToString(((Long) ret).intValue());
                     }
                 },
@@ -748,18 +712,11 @@ public class AuraUITestingUtil {
      * @param timeoutSecs number of seconds to wait for test to finish
      */
     public void waitForAuraTestComplete(int timeoutSecs) {
-        final long start = System.currentTimeMillis();
-        logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAuraTestComplete starting");
         waitUntilWithCallback(
                 new ExpectedCondition<Boolean>() {
                     @Override
                     public Boolean apply(WebDriver d) {
-                        boolean res = getBooleanEval("return (window.$A && window.$A.test && window.$A.test.isComplete()) || false;");
-                        if (res) {
-                            logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAuraTestComplete finished "
-                                    + (System.currentTimeMillis() - start));
-                        }
-                        return res;
+                        return getBooleanEval("return (window.$A && window.$A.test && window.$A.test.isComplete()) || false;");
                     }
                 },
                 new ExpectedCondition<String>() {
@@ -769,8 +726,6 @@ public class AuraUITestingUtil {
                         if (dump == null || dump.toString().isEmpty()) {
                             dump = "no extra test information to display.";
                         }
-                        logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAuraTestComplete timed_out "
-                                + (System.currentTimeMillis() - start));
                         return "Test timed out on server.\n" + dump.toString();
                     }
                 },
@@ -800,15 +755,11 @@ public class AuraUITestingUtil {
      * Wait until Aura has finished initialization or encountered an error.
      */
     public void waitForAuraInit(final Set<String> expectedErrors) {
-        final long start = System.currentTimeMillis();
-        logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAuraInit starting");
         try {
             waitForDocumentReady();
             waitForAuraFrameworkReady(expectedErrors);
             waitForAppCacheReady();
-            logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAuraInit finished " + (System.currentTimeMillis() - start));
         } catch (Throwable t) {
-            logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAuraInit failed " + (System.currentTimeMillis() - start));
             throw t;
         }
     }
@@ -817,26 +768,17 @@ public class AuraUITestingUtil {
      * Wait for the document to enter the complete readyState.
      */
     public void waitForDocumentReady() {
-        final long start = System.currentTimeMillis();
-        logger.info(logPrefix + " ---->AuraUITestingUtil.waitForDocumentReady starting");
         waitUntilWithCallback(
                 new ExpectedCondition<Boolean>() {
                     @Override
                     public Boolean apply(WebDriver d) {
-                        boolean res = getBooleanEval("return document.readyState === 'complete'");
-                        if (res) {
-                            logger.info(logPrefix + " ---->AuraUITestingUtil.waitForDocumentReady finished "
-                                    + (System.currentTimeMillis() - start));
-                        }
-                        return res;
+                        return getBooleanEval("return document.readyState === 'complete'");
                     }
                 },
                 new ExpectedCondition<String>() {
                     @Override
                     public String apply(WebDriver d) {
                         String ret = (String) getRawEval("return document.readyState");
-                        logger.info(logPrefix + " ---->AuraUITestingUtil.waitForDocumentReady timed_out "
-                                + (System.currentTimeMillis() - start));
                         return "Current document.readyState is <" + ret + ">";
                     }
                 },
@@ -850,8 +792,6 @@ public class AuraUITestingUtil {
      * {@link #waitForDocumentReady()}.
      */
     public void waitForAuraFrameworkReady(final Set<String> expectedErrors) {
-        final long start = System.currentTimeMillis();
-        logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAuraFrameworkReady starting");
         String doNotAssign = "\nThis message means, you aren't even on Aura application at this point. " +
                 "Please do not assign this test failure to Aura team/s unless, Aura team/s is the owner of this test. ";
         WebDriverWait waitAuraPresent = new WebDriverWait(driver, timeoutInSecs);
@@ -860,12 +800,7 @@ public class AuraUITestingUtil {
                         new Function<WebDriver, Boolean>() {
                             @Override
                             public Boolean apply(WebDriver input) {
-                                Boolean res = (Boolean) getRawEval("return !!window.$A");
-                                if (res) {
-                                    logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAuraFrameworkReady framework_loaded "
-                                            + (System.currentTimeMillis() - start));
-                                }
-                                return res;
+                                return (Boolean) getRawEval("return !!window.$A");
                             }
                         });
 
@@ -877,12 +812,7 @@ public class AuraUITestingUtil {
                             @Override
                             public Boolean apply(WebDriver input) {
                                 assertNoAuraErrorMessage(expectedErrors);
-                                boolean res = isAuraFrameworkReady();
-                                if (res) {
-                                    logger.info(logPrefix + " ---->AuraUITestingUtil.waitForAuraFrameworkReady finished "
-                                            + (System.currentTimeMillis() - start));
-                                }
-                                return res;
+                                return isAuraFrameworkReady();
                             }
                         });
     }
@@ -960,14 +890,11 @@ public class AuraUITestingUtil {
      */
     public void waitForElementText(final By locator, final String text, final boolean toBePresent, String message,
             final Boolean matchFullText) {
-        waitForElementFunction(locator, new Function<WebElement, Boolean>() {
-            @Override
-            public Boolean apply(WebElement element) {
-                if (matchFullText == true) {
-                    return toBePresent == element.getText().equals(text);
-                } else {
-                    return toBePresent == element.getText().contains(text);
-                }
+        waitForElementFunction(locator, element -> {
+            if (matchFullText == true) {
+                return toBePresent == element.getText().equals(text);
+            } else {
+                return toBePresent == element.getText().contains(text);
             }
         }, message);
     }

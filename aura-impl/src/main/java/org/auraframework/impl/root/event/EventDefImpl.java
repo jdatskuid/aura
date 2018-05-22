@@ -37,17 +37,21 @@ import org.auraframework.throwable.AuraUnhandledException;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.util.json.JsonSerializationContext;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import com.google.common.collect.Lists;
-import org.auraframework.util.json.JsonSerializationContext;
 
 /**
  * The definition of an event, basically just defines shape, i.e. attributes
  */
 public class EventDefImpl extends RootDefinitionImpl<EventDef> implements EventDef {
-    private static final long serialVersionUID = 610875326950592992L;
+
+    private static final long serialVersionUID = -5328742464932470661L;
+
     private final EventType eventType;
     private final DefDescriptor<EventDef> extendsDescriptor;
+    private transient DefDescriptor<EventDef> extendsDescriptorCanonical;
     private final int hashCode;
     private static final DefDescriptor<EventDef> PROTO_COMPONENT_EVENT = new DefDescriptorImpl<>("markup", "aura",
             "componentEvent", EventDef.class);
@@ -91,26 +95,31 @@ public class EventDefImpl extends RootDefinitionImpl<EventDef> implements EventD
             if (serializationContext.isSerializing()) {
 
                 json.writeMapBegin();
-                json.writeMapEntry("descriptor", descriptor);
+                json.writeMapEntry(Json.ApplicationKey.DESCRIPTOR, descriptor);
                 json.writeMapEnd();
 
             } else {
+                if (extendsDescriptorCanonical == null) {
+                    extendsDescriptorCanonical = extendsDescriptor;
+                }
 
                 serializationContext.setSerializing(true);
                 json.writeMapBegin();
-                json.writeMapEntry("descriptor", getDescriptor());
-                json.writeMapEntry("type", eventType);
+                json.writeMapEntry(Json.ApplicationKey.DESCRIPTOR, getDescriptor());
+                json.writeMapEntry(Json.ApplicationKey.TYPE, eventType);
                 json.writeValue(getAccess());
-                if (extendsDescriptor != null) {
-                    json.writeMapEntry("superDef", Aura.getDefinitionService().getDefinition(extendsDescriptor));
+                if (extendsDescriptorCanonical != null
+                        && !extendsDescriptorCanonical.equals(PROTO_COMPONENT_EVENT)
+                        && !extendsDescriptorCanonical.equals(PROTO_APPLICATION_EVENT)) {
+                    json.writeMapEntry(Json.ApplicationKey.SUPERDEF, extendsDescriptorCanonical);
                 }
                 Map<DefDescriptor<AttributeDef>, AttributeDef> attrDefs = getAttributeDefs();
                 if (attrDefs.size() > 0) {
-                	json.writeMapEntry("attributes", getAttributeDefs());
+                    json.writeMapEntry(Json.ApplicationKey.ATTRIBUTES, attrDefs);
                 }
                 
                 if (requiredVersionDefs != null && requiredVersionDefs.size() > 0) {
-                    json.writeMapEntry("requiredVersionDefs", requiredVersionDefs);
+                    json.writeMapEntry(Json.ApplicationKey.REQUIREDVERSIONDEFS, requiredVersionDefs);
                 }
                 json.writeMapEnd();
                 serializationContext.setSerializing(false);
@@ -142,9 +151,9 @@ public class EventDefImpl extends RootDefinitionImpl<EventDef> implements EventD
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
         if (extendsDescriptor != null) {
-            EventDef extended = Aura.getDefinitionService().getDefinition(extendsDescriptor);
+            EventDef extended = validationContext.getAccessibleDefinition(extendsDescriptor);
             if (extended == null) {
                 throw new InvalidDefinitionException(String.format("Event %s cannot extend %s", getDescriptor(),
                         getExtendsDescriptor()), getLocation());
@@ -154,11 +163,12 @@ public class EventDefImpl extends RootDefinitionImpl<EventDef> implements EventD
                 throw new InvalidDefinitionException(String.format("Event %s cannot extend %s", getDescriptor(),
                         getExtendsDescriptor()), getLocation());
             }
+            extendsDescriptorCanonical = extended.getDescriptor();
             // need to resolve duplicated attributes from supers
         }
 
         for (AttributeDef att : this.attributeDefs.values()) {
-            att.validateReferences();
+            att.validateReferences(validationContext);
         }
     }
 

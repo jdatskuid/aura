@@ -25,46 +25,58 @@
  * @export
  */
 function ComponentDef(config) {
-    var descriptor = new DefDescriptor(config["descriptor"]);
+    var descriptor = new DefDescriptor(config[Json.ApplicationKey.DESCRIPTOR]);
     this.descriptor = descriptor;
-    this.hasRemoteDeps = config["hasServerDeps"] || false;
+    this.hasRemoteDeps = descriptor.toString().indexOf("layout://") !== 0 && (config[Json.ApplicationKey.HASSERVERDEPENDENCIES] || false);
     this.access = config[Json.ApplicationKey.ACCESS];
 
-    this.superDef = this.initSuperDef(config["superDef"]);
-    this.styleDef = config["styleDef"] ? new StyleDef(config["styleDef"]) : undefined;
-    this.flavoredStyleDef = config["flavoredStyleDef"] ? new StyleDef(config["flavoredStyleDef"]) : undefined;
+    this.styleDef = config[Json.ApplicationKey.STYLEDEF] ? new StyleDef(config[Json.ApplicationKey.STYLEDEF]) : undefined;
+    this.flavoredStyleDef = config[Json.ApplicationKey.FLAVOREDSTYLEDEF] ? new StyleDef(config[Json.ApplicationKey.FLAVOREDSTYLEDEF]) : undefined;
 
-    this.controllerDef = config["controllerDef"] ? $A.componentService.createControllerDef(config["controllerDef"]) : undefined;
-    this.modelDef = config["modelDef"] ? $A.componentService.createModelDef(config["modelDef"]) : undefined;
-    this.methodDefs = config["methodDefs"] ? config["methodDefs"]: undefined;
-    this.tokens = config["tokens"] ? config["tokens"] : undefined;
+    this.controllerDef = config[Json.ApplicationKey.CONTROLLERDEF] ? $A.componentService.createControllerDef(config[Json.ApplicationKey.CONTROLLERDEF]) : undefined;
+    this.modelDef = config[Json.ApplicationKey.MODELDEF] ? $A.componentService.createModelDef(config[Json.ApplicationKey.MODELDEF]) : undefined;
+    this.methodDefs = config[Json.ApplicationKey.METHODDEFS] ? config[Json.ApplicationKey.METHODDEFS]: undefined;
+    this.tokens = config[Json.ApplicationKey.TOKENS] ? config[Json.ApplicationKey.TOKENS] : undefined;
+    this.minVersion = config[Json.ApplicationKey.MINVERSION] ? config[Json.ApplicationKey.MINVERSION] : undefined;
 
     this.interfaces = {};
-    var intfConfig = config["interfaces"];
+    var intfConfig = config[Json.ApplicationKey.INTERFACES];
     if (intfConfig) {
         for (var m = 0; m < intfConfig.length; m++) {
             var intf = new DefDescriptor(intfConfig[m]);
-            var intfName = intf.getNamespace() + ":" + intf.getName();
+            var intfName = intf.getFullName();
             this.interfaces[intfName] = true;
         }
     }
 
-    // Initialize the concrete component class if provided
-    if (config.hasOwnProperty("componentClass")) {
-		var componentClass = $A.util.json.decode(config["componentClass"]);
-    	componentClass();
+    // Initialize superDef, defaulting to an aura:component unless dealing with an aura:rootComponent
+    var superDef = config[Json.ApplicationKey.SUPERDEF];
+    if (superDef === undefined && !this.interfaces["aura:rootComponent"]) {
+        superDef = "markup://aura:component";
     }
-    
+
+    this.superDef = this.initSuperDef(superDef);
+    // Initialize the concrete component class if provided
+    if (config.hasOwnProperty(Json.ApplicationKey.COMPONENTCLASS)) {
+        try {
+            var componentClass = $A.clientService.evalExporter(config[Json.ApplicationKey.COMPONENTCLASS], descriptor.toString());
+            componentClass();
+        } catch (e) {
+            var auraError = new $A.auraError("ComponentDef initialization error", e);
+            auraError.setComponent(descriptor.getQualifiedName());
+            throw auraError;
+        }
+    }
 
     var appHandlerDefs;
     var cmpHandlerDefs;
     var valueHandlerDefs;
 
-    this.facets = config["facets"];
-    this.isAbs = !!config["isAbstract"];
+    this.facets = config[Json.ApplicationKey.FACETS];
+    this.isAbs = !!config[Json.ApplicationKey.ABSTRACT];
 
-    if (config["locationChangeEventDef"]) {
-        this.locationChangeEventDef = $A.eventService.createEventDef(config["locationChangeEventDef"]);
+    if (config[Json.ApplicationKey.LOCATIONCHANGEEVENTDEF]) {
+        this.locationChangeEventDef = $A.eventService.createEventDef(config[Json.ApplicationKey.LOCATIONCHANGEEVENTDEF]);
     } else {
         this.locationChangeEventDef = null;
     }
@@ -73,61 +85,70 @@ function ComponentDef(config) {
     this.registerEventDefs = registerEventDefs;
     var allEvents = [];
     this.allEvents = allEvents;
-    var cred = config["registerEventDefs"];
+    var cred = config[Json.ApplicationKey.REGISTEREVENTDEFS];
     if (cred) {
         for (var i = 0; i < cred.length; i++) {
             var regConfig = cred[i];
-            var name = regConfig["attributeName"];
+            var name = regConfig[Json.ApplicationKey.NAME];
             allEvents.push(name);
-            registerEventDefs[name] = $A.eventService.createEventDef(regConfig["eventDef"]);
+            var eventDef = {};
+            eventDef[Json.ApplicationKey.DESCRIPTOR] = regConfig[Json.ApplicationKey.EVENTDEF];
+            registerEventDefs[name] = $A.eventService.createEventDef(eventDef);
         }
     }
 
-    var handlerDefConfigs = config["handlerDefs"];
+    var handlerDefConfigs = config[Json.ApplicationKey.HANDLERDEFS];
     if (handlerDefConfigs) {
         for (var j = 0; j < handlerDefConfigs.length; j++) {
             var handlerConfig = handlerDefConfigs[j];
-            if (handlerConfig["eventDef"]) {
+            if (handlerConfig[Json.ApplicationKey.EVENTDEF]) {
                 // We cannot modify handlerConfig directly, as it is sometimes stored in localStorage.
                 // and the json serialize-deserialize loses the object prototype.
-                if (handlerConfig.name) {
+                if (handlerConfig[Json.ApplicationKey.NAME]) {
                     if (!cmpHandlerDefs) {
                         cmpHandlerDefs = [];
                     }
                     cmpHandlerDefs.push({
-                        "name"          : handlerConfig["name"],
-                        "action"        : handlerConfig["action"],
-                        "phase"         : handlerConfig["phase"],
-                        "includeFacets" : handlerConfig["includeFacets"],
-                        "eventDef"      : $A.eventService.createEventDef(handlerConfig["eventDef"])
+                        "name"          : handlerConfig[Json.ApplicationKey.NAME],
+                        "action"        : handlerConfig[Json.ApplicationKey.ACTION],
+                        "phase"         : handlerConfig[Json.ApplicationKey.PHASE],
+                        "includeFacets" : handlerConfig[Json.ApplicationKey.INCLUDEFACETS],
+                        "eventDef"      : $A.eventService.createEventDef(handlerConfig[Json.ApplicationKey.EVENTDEF])
                     });
                 } else {
                     if (!appHandlerDefs) {
                         appHandlerDefs = [];
                     }
                     appHandlerDefs.push({
-                        "action"        : handlerConfig["action"],
-                        "phase"         : handlerConfig["phase"],
-                        "includeFacets" : handlerConfig["includeFacets"],
-                        "eventDef"      : $A.eventService.createEventDef(handlerConfig["eventDef"])
+                        "action"        : handlerConfig[Json.ApplicationKey.ACTION],
+                        "phase"         : handlerConfig[Json.ApplicationKey.PHASE],
+                        "includeFacets" : handlerConfig[Json.ApplicationKey.INCLUDEFACETS],
+                        "eventDef"      : $A.eventService.createEventDef(handlerConfig[Json.ApplicationKey.EVENTDEF])
                     });
                 }
 
-            } else if (handlerConfig["value"]) {
+            } else if (handlerConfig[Json.ApplicationKey.VALUE]) {
                 if (!valueHandlerDefs) {
                     valueHandlerDefs = [];
                 }
-                valueHandlerDefs.push(handlerConfig);
+                valueHandlerDefs.push({
+                    "name"          : handlerConfig[Json.ApplicationKey.NAME],
+                    "action"        : handlerConfig[Json.ApplicationKey.ACTION],
+                    "value"         : handlerConfig[Json.ApplicationKey.VALUE]
+                });
             } else {
                 if (!cmpHandlerDefs) {
                     cmpHandlerDefs = [];
                 }
-                cmpHandlerDefs.push(handlerConfig);
+                cmpHandlerDefs.push({
+                    "name"          : handlerConfig[Json.ApplicationKey.NAME],
+                    "action"        : handlerConfig[Json.ApplicationKey.ACTION]
+                });
             }
 
         }
     }
-    var subDefs = config["subDefs"];
+    var subDefs = config[Json.ApplicationKey.SUBDEFS];
     if (subDefs) {
         for (var k = 0; k < subDefs.length; k++) {
             $A.componentService.getDef(subDefs[k]);
@@ -137,36 +158,36 @@ function ComponentDef(config) {
     this.appHandlerDefs = appHandlerDefs || null;
     this.cmpHandlerDefs = cmpHandlerDefs || null;
     this.valueHandlerDefs = valueHandlerDefs || null;
-    this.isCSSPreloaded = config["isCSSPreloaded"] || false;
+    this.isCSSPreloaded = config[Json.ApplicationKey.CSSPRELOADED] || false;
 
-    if (config["defaultFlavor"]) {
-        this.defaultFlavor = config["defaultFlavor"];
+    if (config[Json.ApplicationKey.DEFAULTFLAVOR]) {
+        this.defaultFlavor = config[Json.ApplicationKey.DEFAULTFLAVOR];
     }
-    if (config["hasFlavorableChild"]) {
+    if (config[Json.ApplicationKey.FLAVORABLECHILD]) {
         this.flavorableChild = true;
     }
-    if (config["dynamicallyFlavorable"]) {
+    if (config[Json.ApplicationKey.DYNAMICALLYFLAVORABLE]) {
         // TODONM remove
-        this.dynamicallyFlavorable = config["dynamicallyFlavorable"];
+        this.dynamicallyFlavorable = config[Json.ApplicationKey.DYNAMICALLYFLAVORABLE];
     }
 
-    if (config["flavorOverrides"]) { // for applications
-        this.flavorOverrides = new FlavorsDef(config["flavorOverrides"]);
+    if (config[Json.ApplicationKey.FLAVOROVERRIDES]) { // for applications
+        this.flavorOverrides = new FlavorsDef(config[Json.ApplicationKey.FLAVOROVERRIDES]);
     }
-    
-    if (config["locatorDefs"]) {
-        this.locatorDefs = config["locatorDefs"];
+
+    if (config[Json.ApplicationKey.LOCATORDEFS]) {
+        this.locatorDefs = config[Json.ApplicationKey.LOCATORDEFS];
     }
-    
-    this.attributeDefs = new AttributeDefSet(config["attributeDefs"],this.descriptor.getNamespace());
-    this.requiredVersionDefs = new RequiredVersionDefSet(config["requiredVersionDefs"]);
+
+    this.attributeDefs = new AttributeDefSet(config[Json.ApplicationKey.ATTRIBUTEDEFS],this.descriptor.getNamespace());
+    this.requiredVersionDefs = new RequiredVersionDefSet(config[Json.ApplicationKey.REQUIREDVERSIONDEFS]);
     this.initStyleDefs();
     this.hasInitHandler;
 }
 
 ComponentDef.prototype.hasInit = function() {
-    if(this.hasInitHandler === undefined) {
-        if(!this.valueHandlerDefs) {
+    if (this.hasInitHandler === undefined) {
+        if (!this.valueHandlerDefs) {
             this.hasInitHandler = false;
         } else {
             for(var c=0;c<this.valueHandlerDefs.length;c++) {
@@ -222,7 +243,7 @@ ComponentDef.prototype.getSuperDef = function() {
  * @export
  */
 ComponentDef.prototype.getHelper = function() {
-    var name = this.getDescriptor().getQualifiedName();
+    var name = this.descriptor.getQualifiedName();
     var componentClass = $A.componentService.getComponentClass(name);
     return componentClass ? componentClass.prototype["helper"] : undefined;
 };
@@ -575,7 +596,7 @@ ComponentDef.prototype.getValueHandlerDefs = function() {
  * @export
  */
 ComponentDef.prototype.toString = function() {
-    return this.getDescriptor().getQualifiedName();
+    return this.descriptor.getQualifiedName();
 };
 
 /**
@@ -590,7 +611,7 @@ ComponentDef.prototype.toString = function() {
  * @export
  */
 ComponentDef.prototype.isInstanceOf = function(name) {
-    var thisName = this.descriptor.getNamespace() + ":" + this.descriptor.getName();
+    var thisName = this.descriptor.getFullName();
     if (thisName === name || this.implementsDirectly(name)) {
         return true;
     }
@@ -643,13 +664,20 @@ ComponentDef.prototype.getLocatorDefs = function() {
  * @private
  */
 ComponentDef.prototype.initSuperDef = function(config) {
-    if (config) {
-        var sDef = $A.componentService.createComponentDef(config);
-        $A.assert(sDef, "Super def undefined for " + this.descriptor + " value = " + config["descriptor"]);
-        return sDef;
+    if (!config) {
+        return null;
     }
 
-    return null;
+    var superDef = $A.componentService.createComponentDef(config);
+    if (!superDef) {
+        var failingCmp = this.descriptor.getFullName();
+        var superCmp = config["descriptor"]? config["descriptor"] : config;
+        var auraError = new $A.auraError("Super component's def (" + superCmp + ") is missing for " + failingCmp);
+        auraError.setComponent(failingCmp);
+        throw auraError;
+    }
+
+    return superDef;
 };
 
 /**
@@ -680,6 +708,29 @@ ComponentDef.prototype.initStyleDefs = function() {
     }
     if (this.flavoredStyleDef) {
         this.allFlavoredStyleDefs.push(this.flavoredStyleDef);
+    }
+};
+
+/**
+ * Returns the minimum API version that a component should be at to use this component
+ * @returns {undefined | String}
+ * @private
+ */
+ComponentDef.prototype.getMinVersion = function() {
+    return this.minVersion;
+};
+
+/**
+ * Returns the API Version of the ComponentDef
+ *
+ * @private
+ * @return {String | undefined} The API version string.
+ */
+ComponentDef.prototype.getApiVersion = function() {
+    // Hacky way of getting bundle API version for component def bundles on platform
+    if (!$A.clientService.isInternalNamespace(this.descriptor.getNamespace())) {
+        var requiredVersionDef = this.getRequiredVersionDefs().getDef("aura");
+        return requiredVersionDef ? requiredVersionDef.getVersion() : null;
     }
 };
 

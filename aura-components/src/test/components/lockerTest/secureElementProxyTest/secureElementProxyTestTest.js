@@ -6,7 +6,7 @@
 
     // LockerService not supported on IE
     // TODO: Re-enable for Firefox and iOS when autobuilds use a version that supports all Proxy traps we implement
-    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPAD", "-IPHONE"],
+    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-SAFARI", "-IPHONE", "-IPAD"],
 
     setUp: function(cmp) {
         cmp.set("v.testUtils", $A.test);
@@ -63,6 +63,32 @@
     testDelete: {
         test: function(cmp) {
             cmp.testDelete();
+        }
+    },
+
+    testAddOptionsToSelect: {
+        test: function(cmp) {
+            cmp.testAddOptionsToSelect();
+        }
+    },
+
+    testDefineCheckedProperty: {
+        test: function(cmp) {
+            var node = cmp.testDefineCheckedProperty();
+            $A.test.assertEquals(false, node.checked, "Custom setter for node attribute 'checked' should change the raw node");
+        }
+    },
+
+    testDefineValueProperty: {
+        test: function(cmp) {
+            var node = cmp.testDefineValueProperty();
+            $A.test.assertEquals("white", node.value, "Custom setter for node attribute 'value' should change the raw node");
+        }
+    },
+
+    testValuePropertyOnNonInputElement: {
+        test: function(cmp) {
+            cmp.testValuePropertyOnNonInputElement();
         }
     }
 })

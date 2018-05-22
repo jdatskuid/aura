@@ -5,8 +5,8 @@
      */
 
     // LockerService not supported on IE
-    // TODO(W-3674741,W-3674751): FF and iOS browser versions in autobuilds are too far behind
-    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPHONE", "-IPAD"],
+    // TODO(W-3674741, W-4446969): FF and LockerService disabled for iOS browser in 212
+    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-SAFARI", "-IPHONE", "-IPAD"],
 
     setUp: function(cmp) {
         cmp.set("v.testUtils", $A.test);
@@ -98,9 +98,9 @@
         }
     },
 
-    testDocumentBodyConstructorNotExposed: {
+    testDocumentBodyConstructorNotInvocable: {
         test: function(cmp) {
-            cmp.testDocumentBodyConstructorNotExposed();
+            cmp.testDocumentBodyConstructorNotInvocable();
         }
     },
 
@@ -138,12 +138,6 @@
         }
     },
 
-    testDocumentImplementationHTMLDocumentCreation: {
-        test: function(cmp) {
-            cmp.testDocumentImplementationHTMLDocumentCreation();
-        }
-    },
-
     /**
      * Previously, documentElement was a clone of the raw value. This caused issues when trying to read values off of
      * the cloned object since they will all be reset. Verify we get a real value back as a basic test.
@@ -157,6 +151,36 @@
     testDocumentConstructorPassesInstanceOf: {
         test: function(cmp) {
             cmp.testDocumentConstructorPassesInstanceOf();
+        }
+    },
+
+    testBlockedApis: {
+        test: function(cmp) {
+            cmp.testBlockedApis();
+        }
+    },
+
+    testJavascriptPseudoScheme: {
+        test: function(component) {
+            component.testJavascriptPseudoScheme();
+        }
+    },
+
+    testLocationAssign: {
+        test: function(component) {
+            component.testLocationAssign();
+        }
+    },
+
+    testCreateHTMLStyleTag: {
+        test: function(cmp) {
+            cmp.testCreateHTMLStyleTag();
+        }
+    },
+
+    testCreateSVGStyleTag: {
+        test: function(cmp) {
+            cmp.testCreateSVGStyleTag();
         }
     }
 })

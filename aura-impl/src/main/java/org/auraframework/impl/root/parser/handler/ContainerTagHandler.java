@@ -15,19 +15,21 @@
  */
 package org.auraframework.impl.root.parser.handler;
 
+import java.util.Set;
+
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.DefinitionParserAdapter;
 import org.auraframework.def.ComponentDefRef;
-import org.auraframework.def.DefinitionReference;
-import org.auraframework.def.DefinitionReference.Load;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.Definition;
 import org.auraframework.def.DefinitionAccess;
+import org.auraframework.def.DefinitionReference.Load;
 import org.auraframework.def.HtmlTag;
-import org.auraframework.def.RootDefinition;
 import org.auraframework.expression.PropertyReference;
 import org.auraframework.impl.DefinitionAccessImpl;
-import org.auraframework.impl.root.component.DefRefDelegate;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.TextSource;
@@ -36,10 +38,6 @@ import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.InvalidAccessValueException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
-import java.util.Set;
-
 
 /**
  * Abstract handler for tags that contain other tags.
@@ -47,7 +45,13 @@ import java.util.Set;
 public abstract class ContainerTagHandler<T extends Definition> extends XMLHandler<T>
         implements ExpressionContainerHandler {
     public static final String SCRIPT_TAG = "script";
+    public static final String LINK_TAG = "link";
+    public static final String AURA_HTML_TAG = "aura:html";
     public static final String ATTRIBUTE_ACCESS = "access";
+    public static final String ATTRIBUTE_TAG = "tag";
+    public static final String ATTRIBUTE_REL = "rel";
+    public static final String ATTRIBUTE_REL_IMPORT = "import";
+
     protected final boolean isInInternalNamespace;
     protected DefDescriptor<T> defDescriptor;
 
@@ -88,9 +92,8 @@ public abstract class ContainerTagHandler<T extends Definition> extends XMLHandl
 
     @Override
     public void addExpressionReferences(Set<PropertyReference> propRefs) {
-        // TODO: this should be a typed exception
-        throw new AuraRuntimeException("Expressions are not allowed inside a " + defDescriptor.getDefType()
-                + " definition", propRefs.iterator().next().getLocation());
+        // We do a null operation here, and allow for overrides. This is probably
+        // actually incorrect, as expressions in methods do not get handled.
     }
 
     public final void process() throws XMLStreamException, QuickFixException {
@@ -117,7 +120,7 @@ public abstract class ContainerTagHandler<T extends Definition> extends XMLHandl
                 a.validate(namespace, allowAuthenticationAttribute(), allowPrivateAttribute(), configAdapter);
             } catch (InvalidAccessValueException e) {
                 // re-throw with location
-                throw new InvalidAccessValueException(e.getMessage(), getLocation());
+                throw new InvalidAccessValueException(e.getMessage(), getLocation(), e);
             }
             return a;
         }
@@ -145,12 +148,19 @@ public abstract class ContainerTagHandler<T extends Definition> extends XMLHandl
     protected void finishDefinition() throws QuickFixException {
     }
 
-    protected <P extends RootDefinition> ParentedTagHandler<? extends ComponentDefRef, ?> getDefRefHandler(
-            RootTagHandler<P> parentHandler) throws DefinitionNotFoundException {
+    protected <P extends Definition> ParentedTagHandler<? extends ComponentDefRef, ?> getDefRefHandler(
+            ContainerTagHandler<P> parentHandler) throws DefinitionNotFoundException {
         String tag = getTagName();
         if (HtmlTag.allowed(tag)) {
-            if (!parentHandler.getAllowsScript() && SCRIPT_TAG.equals(tag.toLowerCase())) {
+            String lowerTag = tag.toLowerCase();
+            boolean isScript = SCRIPT_TAG.equals(lowerTag) || (AURA_HTML_TAG.equals(lowerTag) && SCRIPT_TAG.equalsIgnoreCase(getAttributeValue(ATTRIBUTE_TAG)));
+            if (!parentHandler.getAllowsScript() && isScript) {
                 throw new AuraRuntimeException("script tags only allowed in templates", getLocation());
+            }
+            if ((LINK_TAG.equals(lowerTag) || (AURA_HTML_TAG.equals(lowerTag) &&
+                                               LINK_TAG.equalsIgnoreCase(getAttributeValue(ATTRIBUTE_TAG))))
+                  && ATTRIBUTE_REL_IMPORT.equals(getAttributeValue(ATTRIBUTE_REL))){
+                throw new AuraRuntimeException("import attribute is not allowed in link tags", getLocation());
             }
             return new HTMLComponentDefRefHandler<>(parentHandler, tag, xmlReader, source, isInInternalNamespace,
                     definitionService, configAdapter, definitionParserAdapter);
@@ -173,15 +183,6 @@ public abstract class ContainerTagHandler<T extends Definition> extends XMLHandl
             return new ComponentDefRefHandler<>(parentHandler, xmlReader, source, isInInternalNamespace,
                     definitionService, configAdapter, definitionParserAdapter);
         }
-    }
-
-    protected DefinitionReference createDefRefDelegate(ComponentDefRef defRef) throws DefinitionNotFoundException {
-        return new DefRefDelegate(defRef);
-    }
-
-    protected <P extends RootDefinition> DefinitionReference createDefRefDelegate(RootTagHandler<P> parentHandler)
-            throws QuickFixException, XMLStreamException {
-        return createDefRefDelegate(getDefRefHandler(parentHandler).getElement());
     }
 
     /**
@@ -214,5 +215,15 @@ public abstract class ContainerTagHandler<T extends Definition> extends XMLHandl
      */
     protected DefinitionAccess getAccess(boolean isInInternalNamespace) {
         return new DefinitionAccessImpl(isInInternalNamespace ? AuraContext.Access.INTERNAL : AuraContext.Access.PUBLIC);
+    }
+
+    /**
+     * Determines whether HTML parsing will allow script tags to be embedded.
+     * False by default, so must be overridden to allow embedded script tag.
+     *
+     * @return - return true if your instance should allow embedded script tags in HTML
+     */
+    public boolean getAllowsScript() {
+        return false;
     }
 }

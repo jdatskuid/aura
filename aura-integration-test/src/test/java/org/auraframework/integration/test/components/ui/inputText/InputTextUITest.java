@@ -18,6 +18,7 @@ package org.auraframework.integration.test.components.ui.inputText;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.integration.test.util.WebDriverTestCase;
+import org.auraframework.integration.test.util.WebDriverTestCase.ExcludeBrowsers;
 import org.auraframework.test.util.WebDriverUtil.BrowserType;
 import org.auraframework.util.test.annotation.PerfTest;
 import org.auraframework.util.test.annotation.UnAdaptableTest;
@@ -32,12 +33,13 @@ import org.openqa.selenium.support.ui.ExpectedCondition;
 /**
  * UI tests for inputText Component
  */
+@ExcludeBrowsers({ BrowserType.IPAD, BrowserType.IPHONE} )
 public class InputTextUITest extends WebDriverTestCase {
 
     public static final String TEST_CMP = "/uitest/inputtext_updateontest.cmp";
     public static final String TEST_CMP_WITH_LABELS = "/uitest/inputtext_updateonwithlabeltest.cmp";
 
-    @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET })
+    @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPHONE, BrowserType.IPAD })
     @Test
     public void testUpdateOnAttribute_UsingStringSource() throws Exception {
         String event = "blur";
@@ -347,7 +349,7 @@ public class InputTextUITest extends WebDriverTestCase {
         WebElement outputValue = findDomElement(By.cssSelector(".outputValue"));
 
         // IE < 9 uses values 1, 2, 4 for left, right, middle click (respectively)
-        String expectedVal = (BrowserType.IE7.equals(getBrowserType()) || BrowserType.IE8.equals(getBrowserType())) ? "1"
+        String expectedVal = BrowserType.IE8.equals(getBrowserType()) ? "1"
                 : "0";
         input.click();
         assertEquals("Left click not performed ", expectedVal, outputValue.getText());
@@ -383,7 +385,7 @@ public class InputTextUITest extends WebDriverTestCase {
         assertEquals("Value of Input text shoud be updated", inputText, actualText);
     }
 
-    @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET })
+    @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE})
     @Test
     public void testInputTextWithEmptyLabel() throws Exception {
         open(TEST_CMP_WITH_LABELS);

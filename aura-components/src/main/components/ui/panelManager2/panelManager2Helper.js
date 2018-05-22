@@ -27,7 +27,7 @@
         this.containerManager = sharedContainer ? containerManager.getSharedInstance() : containerManager.createInstance(cmp.find('container'));
         this.initializeRegisteredPanels(cmp);
     },
-
+    
     /*
     * Store internal defs
     * @private
@@ -152,6 +152,10 @@
     * @private
     */
     createPanelInstance: function (cmp, config) {
+        // Internal usage of panel will rely on AVP to work properly, and no access check issue.
+        // but if panel is created by overlayLibrary, it means the body could be custom component
+        // for example c:modalContent which can't access ui namespace.
+        var isCustomPanel = config.panelConfig && config.panelConfig.isCustomPanel;
         var panel = this.containerManager.createContainer({
                 containerType          : config.panelType,
                 containerConfig        : config.panelConfig,
@@ -161,13 +165,15 @@
         var header  = panel.get('v.header'),
             body    = panel.get('v.body'),
             footer  = panel.get('v.footer'),
-            avp, i, length;
+            avp     = panel, 
+            i, length;
 
         if (!$A.util.isEmpty(body)) {
             body[0].setAttributeValueProvider(panel);
-            avp = body[0];
-        } else {
-            avp = panel;
+            // if panel isn't created by overlayLibrary, set AVP to body[0], otherwise keep with panel.
+            if (isCustomPanel !== true) {
+                avp = body[0];
+            }            
         }
 
         if (!$A.util.isEmpty(header)) {
@@ -190,7 +196,7 @@
             panelObj   = this.PANELS_INSTANCE[panelId],
             panel      = panelObj.panel;
 
-        this.setReturnFocusElement(panel);
+        this.pushReturnFocusElement(panel);
                 
         $A.assert(panelObj, 'Couldnt find instance to show');
 
@@ -203,6 +209,7 @@
     * @private
     */
     destroyPanel: function (cmp, config, doActivateNext) {
+        config = config || {};
         var stack             = this.PANELS_STACK,
             shouldReturnFocus = config.shouldReturnFocus,
             panelParam        = config.panelInstance,
@@ -221,11 +228,8 @@
 
         stack.splice(index, 1);
 
-        // Update the return focus element if the panel has a selector specified.
-        var returnFocusElementSelector = panel.get("v.returnFocusElementSelector");
-        if (returnFocusElementSelector) {
-            cmp.returnFocus = document.querySelector(returnFocusElementSelector);
-        }
+        // pop return focus before panel is destroyed.
+        var returnFocus = this.popReturnFocusElement(panel);
 
         this.containerManager.destroyContainer(panel);
 
@@ -244,19 +248,20 @@
         
         // Set the return focus. This has to happen after activating the next panel (above), otherwise activate will steal the focus.
         if (panel.closedBy !== "closeOnClickOut" &&
-            shouldReturnFocus === true && cmp.returnFocus) {
-            cmp.returnFocus.focus();
-            cmp.returnFocus = null;
+            shouldReturnFocus === true && returnFocus) {
+            returnFocus.focus();
         }
 
         // this will happen if a panel is destroyed
         // without being closed first
 
-        if(!panelObj.panel._transitionEndFired) {
+        if(!panelObj.panel._transitionEndFired) {            
+            var element = panelObj.panel && panelObj.panel.isValid() ? panelObj.panel.getElement() : null;
             // listeners still need to know the panel is gone
             $A.getEvt("markup://ui:panelTransitionEnd").setParams({
                 action: 'hide', 
-                panelId: panelId
+                panelId: panelId,
+                hasGlassBackground: (element || document).querySelector(".modal-glass") !== null
             }).fire();
         }
 
@@ -381,17 +386,32 @@
     },
 
     /**
-     * returns the element to be focused when the panel is destroyed.
+     * Stack the element to be focused when the panel is destroyed.
      * @param panelComponent
      * @private
      */
-    setReturnFocusElement: function(panelComponent) {
-        var returnFocusElement = panelComponent.get('v.returnFocusElement');
+    pushReturnFocusElement: function(panel) {
+        var returnFocusElement = panel.get('v.returnFocusElement');
 
         if ($A.util.isUndefinedOrNull(returnFocusElement)) {
         	returnFocusElement = document.activeElement;
         }
 
         this.focusLib.stackUtil.stackFocus(returnFocusElement);
+    },
+
+    /**
+     * return the element to be focused when the panel is destroyed.
+     * @param panel
+     * @param cmp
+     * @private
+     */
+    popReturnFocusElement: function(panel) {
+        var selector = panel.get("v.returnFocusElementSelector");
+        var focusElement = this.focusLib.stackUtil.popFocus(panel);
+        if (selector) {
+            focusElement = document.querySelector(selector);
+        }
+        return focusElement;
     }
 })// eslint-disable-line semi

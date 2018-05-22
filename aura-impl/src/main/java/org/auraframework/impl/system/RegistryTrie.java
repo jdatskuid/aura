@@ -19,6 +19,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -41,6 +42,7 @@ import com.google.common.collect.Sets;
 public class RegistryTrie implements RegistrySet {
 
     private final Collection<DefRegistry> allRegistries;
+    private final String stringValue;
 
     // a map of map of maps
     private final Map<DefType, Map<String, PrefixNode>> root = new EnumMap<>(DefType.class);
@@ -75,6 +77,7 @@ public class RegistryTrie implements RegistrySet {
 
     public RegistryTrie(Collection<DefRegistry> registries) {
         allRegistries = Collections.unmodifiableCollection(registries);
+        stringValue = allRegistries.toString();
         initializeHashes();
     }
 
@@ -100,11 +103,26 @@ public class RegistryTrie implements RegistrySet {
 
         for (DefRegistry reg : this.allRegistries) {
             boolean found = false;
-
-            for (String prefix : reg.getPrefixes()) {
-                if (matcher.matchPrefix(prefix)) {
-                    found = true;
-                    break;
+            
+            List<DefType> matcherDefTypes = matcher.getDefTypes();
+            if (matcherDefTypes == null) {
+                found = true;
+            } else {
+                for (DefType defType : matcherDefTypes) {
+                    if (reg.getDefTypes().contains(defType)) {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (found) {
+                found = false;
+                for (String prefix : reg.getPrefixes()) {
+                    if (matcher.matchPrefix(prefix)) {
+                        found = true;
+                        break;
+                    }
                 }
             }
             if (found) {
@@ -129,6 +147,11 @@ public class RegistryTrie implements RegistrySet {
             }
         }
         return null;
+    }
+
+    @Override
+    public String toString() {
+        return stringValue;
     }
 
     /**

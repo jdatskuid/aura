@@ -14,7 +14,13 @@
  * limitations under the License.
  */
 ({
-  browsers: ["-IE7","-IE8"],
+  browsers: ["-IE8"],
+  
+  selector: {
+      vMenuWithTriggerLabel: ".menuWithTriggerLabel.virtualMenuContainer",
+      vMenuWithCustomTriggerBody: ".menuWithCustomTriggerBody.virtualMenuContainer",
+      menuList: ".uiMenu .uiMenuList"
+  },
   
   /**************************************************HELPER FUNCTIONS**************************************************/
   
@@ -160,5 +166,27 @@
     	  	var renderedData = this.getRenderedRows(cmp);
             this.compareArray(initialData, renderedData, "The virtualList rendered data correctly after Row "+ rowNumber +" was changed");
       }]
+  },
+  
+  /**
+   * Test verifying that virtualMenuWrapper allows lazily loading menu in virtual list
+   */
+  testMenuLazyLoaded: {
+      attributes: {
+          pageSize: 1
+      },
+      test: function(cmp) {
+          var menuListSel = this.selector.vMenuWithTriggerLabel + " " + this.selector.menuList;
+          var menu = $A.test.select(menuListSel)[0];
+          $A.test.assertUndefinedOrNull(menu);
+
+          var triggerSel = this.selector.vMenuWithTriggerLabel + " a";
+          var trigger = $A.test.select(triggerSel)[0];
+          $A.test.clickOrTouch(trigger);
+
+          $A.test.addWaitForWithFailureMessage(true, function() {
+              return !!$A.test.select(menuListSel)[0];
+          }, "Menu list should exist after menu link is triggered.");
+      }
   }
 })

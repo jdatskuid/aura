@@ -26,8 +26,9 @@
 
         // Create the events for delegation
         helper.createEventDelegates(cmp, container);
-
-        container.appendChild(fragment);
+        if (container) {
+            container.appendChild(fragment);
+        }
         return dom;
 
     },
@@ -49,10 +50,5 @@
             container.removeChild(container.firstChild);
         }
         container.appendChild(fragment);
-    },
-    unrender: function (cmp, helper) {
-        helper._destroyShapes(cmp);
-        
-        this.superUnrender();
     }
 })// eslint-disable-line semi

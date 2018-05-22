@@ -17,15 +17,22 @@ package org.auraframework.impl.root.parser.handler;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import javax.xml.stream.XMLStreamReader;
 
+import com.google.common.base.Splitter;
+import com.google.common.collect.Sets;
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.DefinitionParserAdapter;
-import org.auraframework.def.*;
+import org.auraframework.def.ApplicationDef;
+import org.auraframework.def.ComponentDef;
+import org.auraframework.def.DefDescriptor;
+import org.auraframework.def.EventDef;
+import org.auraframework.def.FlavorsDef;
+import org.auraframework.def.module.ModuleDef;
 import org.auraframework.impl.root.DependencyDefImpl;
 import org.auraframework.impl.root.application.ApplicationDefImpl;
-import org.auraframework.impl.system.DefDescriptorImpl;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.TextSource;
@@ -37,6 +44,28 @@ import com.google.common.collect.ImmutableSet;
 public class ApplicationDefHandler extends BaseComponentDefHandler<ApplicationDef, ApplicationDefImpl.Builder> {
 
     public static final String TAG = "aura:application";
+
+    private static final String ATTRIBUTE_PRELOAD = "preload";
+    private static final String ATTRIBUTE_TRACK = "track";
+    private static final String ATTRIBUTE_SERVICES = "services";
+    private static final String ATTRIBUTE_LOCATION_CHANGE_EVENT = "locationChangeEvent";
+    private static final String ATTRIBUTE_APPCACHE_ENABLED = "useAppcache";
+    private static final String ATTRIBUTE_ADDITIONAL_APPCACHE_URLS = "additionalAppCacheURLs";
+    private static final String ATTRIBUTE_TOKEN_OVERRIDES = "tokens";
+    private static final String ATTRIBUTE_FLAVOR_OVERRIDES = "flavorOverrides";
+    private static final String ATTRIBUTE_BOOTSTRAP_PUBLIC_CACHE_EXPIRATION = "bootstrapPublicCacheExpiration";
+
+    private static final Set<String> ALLOWED_ATTRIBUTES = new ImmutableSet.Builder<String>()
+            .add(ATTRIBUTE_APPCACHE_ENABLED, ATTRIBUTE_ADDITIONAL_APPCACHE_URLS)
+            .add(ATTRIBUTE_TEMPLATE)
+            .addAll(BaseComponentDefHandler.ALLOWED_ATTRIBUTES).build();
+
+    private static final Set<String> INTERNAL_ALLOWED_ATTRIBUTES = new ImmutableSet.Builder<String>().add(
+            ATTRIBUTE_PRELOAD, ATTRIBUTE_TRACK, ATTRIBUTE_LOCATION_CHANGE_EVENT,
+            ATTRIBUTE_TOKEN_OVERRIDES, ATTRIBUTE_SERVICES, ATTRIBUTE_FLAVOR_OVERRIDES, ATTRIBUTE_BOOTSTRAP_PUBLIC_CACHE_EXPIRATION)
+            .addAll(ALLOWED_ATTRIBUTES)
+            .addAll(BaseComponentDefHandler.INTERNAL_ALLOWED_ATTRIBUTES)
+            .build();
 
     public ApplicationDefHandler() {
         super();
@@ -108,6 +137,20 @@ public class ApplicationDefHandler extends BaseComponentDefHandler<ApplicationDe
             }
         }
 
+        String servicesAttribute = getAttributeValue(ATTRIBUTE_SERVICES);
+        Set<String> serviceDescriptors = Sets.newHashSet(configAdapter.getRequiredServices());
+        if (!AuraTextUtil.isNullEmptyOrWhitespace(servicesAttribute)) {
+            for (String name : Splitter.on(',').trimResults().omitEmptyStrings().split(servicesAttribute)) {
+                serviceDescriptors.add(name);
+            }
+        }
+        if (!serviceDescriptors.isEmpty()) {
+            Set<DefDescriptor<ModuleDef>> services = serviceDescriptors.stream()
+                    .map(service->definitionService.getDefDescriptor(service, ModuleDef.class))
+                    .collect(Collectors.toSet());
+            builder.setModuleServices(services);
+        }
+
         String isAppcacheEnabled = getAttributeValue(ATTRIBUTE_APPCACHE_ENABLED);
         if (!AuraTextUtil.isNullEmptyOrWhitespace(isAppcacheEnabled)) {
             builder.isAppcacheEnabled = Boolean.parseBoolean(isAppcacheEnabled);
@@ -118,13 +161,6 @@ public class ApplicationDefHandler extends BaseComponentDefHandler<ApplicationDe
             builder.additionalAppCacheURLs = additionalAppCacheURLs;
         }
 
-        String isOnePageApp = getAttributeValue(ATTRIBUTE_IS_ONE_PAGE_APP);
-        if (!AuraTextUtil.isNullEmptyOrWhitespace(isOnePageApp)) {
-            builder.isOnePageApp = Boolean.parseBoolean(isOnePageApp);
-        } else {
-            builder.isOnePageApp = false;
-        }
-        
         String tokenOverrides = getAttributeValue(ATTRIBUTE_TOKEN_OVERRIDES);
         if (!AuraTextUtil.isNullEmptyOrWhitespace(tokenOverrides)) {
             builder.setTokenOverrides(tokenOverrides);
@@ -134,10 +170,8 @@ public class ApplicationDefHandler extends BaseComponentDefHandler<ApplicationDe
         if (!AuraTextUtil.isNullEmptyOrWhitespace(flavorOverrides)) {
             builder.setFlavorOverrides(definitionService.getDefDescriptor(flavorOverrides, FlavorsDef.class));
         } else {
-            // see if there is a flavors file in the bundle
-            DefDescriptor<FlavorsDef> flavors = DefDescriptorImpl.getAssociateDescriptor(
-                    builder.getDescriptor(), FlavorsDef.class, DefDescriptor.MARKUP_PREFIX);
-            if (flavors.exists()) {
+            FlavorsDef flavors = getBundledDef(FlavorsDef.class, DefDescriptor.MARKUP_PREFIX);
+            if (flavors != null) {
                 builder.setFlavorOverrides(flavors);
             }
         }
@@ -152,26 +186,4 @@ public class ApplicationDefHandler extends BaseComponentDefHandler<ApplicationDe
     protected boolean allowAuthenticationAttribute() {
         return true;
     }
-
-    private static final String ATTRIBUTE_PRELOAD = "preload";
-    private static final String ATTRIBUTE_TRACK = "track";
-    private static final String ATTRIBUTE_LOCATION_CHANGE_EVENT = "locationChangeEvent";
-    private static final String ATTRIBUTE_APPCACHE_ENABLED = "useAppcache";
-    private static final String ATTRIBUTE_ADDITIONAL_APPCACHE_URLS = "additionalAppCacheURLs";
-    private static final String ATTRIBUTE_IS_ONE_PAGE_APP = "isOnePageApp";
-    private static final String ATTRIBUTE_TOKEN_OVERRIDES = "tokens";
-    private static final String ATTRIBUTE_FLAVOR_OVERRIDES = "flavorOverrides";
-    private static final String ATTRIBUTE_BOOTSTRAP_PUBLIC_CACHE_EXPIRATION = "bootstrapPublicCacheExpiration";
-
-    private static final Set<String> ALLOWED_ATTRIBUTES = new ImmutableSet.Builder<String>()
-            .add(ATTRIBUTE_APPCACHE_ENABLED, ATTRIBUTE_ADDITIONAL_APPCACHE_URLS)
-            .add(ATTRIBUTE_TEMPLATE)
-            .addAll(BaseComponentDefHandler.ALLOWED_ATTRIBUTES).build();
-
-    private static final Set<String> INTERNAL_ALLOWED_ATTRIBUTES = new ImmutableSet.Builder<String>().add(
-            ATTRIBUTE_PRELOAD, ATTRIBUTE_TRACK, ATTRIBUTE_LOCATION_CHANGE_EVENT, ATTRIBUTE_IS_ONE_PAGE_APP,
-            ATTRIBUTE_TOKEN_OVERRIDES, ATTRIBUTE_FLAVOR_OVERRIDES, ATTRIBUTE_BOOTSTRAP_PUBLIC_CACHE_EXPIRATION)
-            .addAll(ALLOWED_ATTRIBUTES)
-            .addAll(BaseComponentDefHandler.INTERNAL_ALLOWED_ATTRIBUTES)
-            .build();
 }

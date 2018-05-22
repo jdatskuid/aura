@@ -15,17 +15,18 @@
  */
 package org.auraframework.integration.test.service;
 
+import java.util.List;
+
+import javax.inject.Inject;
+
+import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.impl.AuraImplTestCase;
 import org.auraframework.impl.SerializationServiceImpl;
-import org.auraframework.instance.Component;
 import org.auraframework.service.SerializationService;
 import org.junit.Test;
 
-import javax.inject.Inject;
-import java.io.StringWriter;
-import java.util.HashMap;
-import java.util.Map;
+import com.google.common.collect.ImmutableList;
 
 public class AuraSerializationServiceImplTest extends AuraImplTestCase {
     @Inject
@@ -36,18 +37,27 @@ public class AuraSerializationServiceImplTest extends AuraImplTestCase {
         assertTrue(serializationService instanceof SerializationServiceImpl);
     }
 
-    @Test
-    public void testWriteJson() throws Exception {
+    private static class Findable {
+        public final String format;
+        public final Class<?> clazz;
 
-        StringWriter out = new StringWriter();
-        Map<String, Object> attributes = new HashMap<>();
-        attributes.put("attr", "yo");
-        Component c = instanceService.getInstance("test:child1", ComponentDef.class, attributes);
-        serializationService.write(c, null, Component.class, out);
-        goldFileJson(out.toString());
-        attributes.put("invalid", "joe");
-        c = instanceService.getInstance("test:child1", ComponentDef.class, attributes);
-        serializationService.write(c, null, Component.class, out);
-        assertFalse(out.toString().contains("invalid"));
+        public Findable(String format, Class<?> clazz) {
+            this.format = format;
+            this.clazz = clazz;
+        }
     }
+
+    private final List<Findable> findable = new ImmutableList.Builder<Findable>()
+        .add(new Findable("HTML", ApplicationDef.class))
+        .add(new Findable("HTML", ComponentDef.class))
+        .build();
+
+    @Test
+    public void testGetFormatAdapter() throws Exception {
+        for (Findable item : findable) {
+            assertNotNull("Did not find format adapter for "+item.format+"://"+item.clazz,
+                    serializationService.getFormatAdapter(item.format, item.clazz));
+        }
+    }
+
 }

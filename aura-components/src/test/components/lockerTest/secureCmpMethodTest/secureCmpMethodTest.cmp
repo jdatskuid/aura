@@ -1,0 +1,46 @@
+<!--
+
+    Copyright (C) 2013 salesforce.com, inc.
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+            http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+-->
+<aura:component implements="aura:requireLocker">
+    <aura:attribute name="testUtils" type="Object"/>
+
+    <aura:attribute name="booleanAttr" type="Boolean"/>
+    <aura:attribute name="dateAttr" type="Date"/>
+    <aura:attribute name="dateTimeAttr" type="DateTime"/>
+    <aura:attribute name="decimalAttr" type="Decimal"/>
+    <aura:attribute name="doubleAttr" type="Double"/>
+    <aura:attribute name="integerAttr" type="Integer"/>
+    <aura:attribute name="longAttr" type="Long"/>
+    <aura:attribute name="stringAttr" type="String"/>
+    <aura:attribute name="stringArrayAttr" type="String[]"/>
+    <aura:attribute name="objectAttr" type="Object"/>
+    <aura:attribute name="listAttr" type="List"/>
+    <aura:attribute name="mapAttr" type="Map"/> 
+    <aura:attribute name="setAttr" type="Set"/>
+
+    <aura:method name="testMethodParamFilteringOnLockerFacetInSame"/>
+    <aura:method name="testMethodParamFilteringOnNonLockerFacetInSame"/>
+    <aura:method name="testMethodParamFilteringOnLockerFacetInDifferent"/>
+    <aura:method name="testMethodParamFilteringOnNonLockerFacetInDifferent"/>
+
+    <div aura:id="resultHolder"></div>
+
+    <lockerTest:facet aura:id="lockerFacetInSame"/>
+    <lockerTest:nonlockerizedFacet aura:id="nonLockerFacetInSame"/>
+    <lockerTestOtherNamespace:facetLocked aura:id="lockerFacetInDifferent"/>
+    <lockerTestOtherNamespace:facetUnlocked aura:id="nonLockerFacetInDifferent"/>
+</aura:component>

@@ -59,6 +59,16 @@ public interface CachingService extends AuraService {
     Cache<String, String> getStringsCache();
 
     Cache<String, String> getAltStringsCache();
+    
+    /**
+     * Gets the cache for css strings, e.g., app.css.
+     * <p>
+     * This allows for core to override how app.css is cached. This separation from the main strings cache can be
+     * removed once core is ready override the cache for all strings.
+     */
+    default Cache<String, String> getCssStringsCache() {
+        return null; // FIXME remove default method...
+    }
 
     Cache<String, Set<DefDescriptor<?>>> getDescriptorFilterCache();
 
@@ -76,5 +86,5 @@ public interface CachingService extends AuraService {
 
     void notifyDependentSourceChange(
             Collection<WeakReference<SourceListener>> listeners,
-            DefDescriptor<?> source, SourceMonitorEvent event, String filePath);
+            SourceMonitorEvent event, String filePath);
 }

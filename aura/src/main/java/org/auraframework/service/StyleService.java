@@ -28,6 +28,8 @@ import org.auraframework.throwable.quickfix.QuickFixException;
  * Instances of all AuraServices should be retrieved from {@link Aura}.
  */
 public interface StyleService extends AuraService {
+	String applyTokens(DefDescriptor<TokensDef> tokens) throws QuickFixException;
+	
     /**
      * Apply a single {@link TokensDef} to a single {@link StyleDef}.
      * <p>
@@ -109,22 +111,4 @@ public interface StyleService extends AuraService {
      */
     String applyTokensContextual(Iterable<DefDescriptor<TokensDef>> tokens, Iterable<DefDescriptor<? extends BaseStyleDef>> extraStyles)
             throws QuickFixException;
-
-    /**
-     * Same as {@link #applyTokensContextual(Iterable, Iterable)}, except this lets you explicitly specify the client
-     * loaded descriptors instead of having them automatically determined.
-     * <p>
-     * This is usually <em>not</em> the method you want. The other method is pretty good at figuring out what styles
-     * need to be updated, but you might need to use this in cases where you load definitions in special ways. This
-     * might include certain usages of providers and dynamically created namespaces.
-     * 
-     * 
-     * @param tokens The token definitions.
-     * @param extraStyles Optional extra style defs.
-     * @param clientLoaded Explicit list of client loaded style defs.
-     * @return Combined CSS containing rules and declarations that were affected by the token files.
-     * @throws QuickFixException
-     */
-    String applyTokensContextual(Iterable<DefDescriptor<TokensDef>> tokens, Iterable<DefDescriptor<? extends BaseStyleDef>> extraStyles,
-            Iterable<DefDescriptor<? extends BaseStyleDef>> clientLoaded) throws QuickFixException;
 }

@@ -84,9 +84,9 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
         assertClientErrorLogContains(log, expectedMessage, requireErrorId, failingDescriptor);
     }
 
+    @Ignore("Passing in locale, but failing in jenkins")
     @Test
-    @Ignore("disable because test is run with Chrome/49.0.2623.112")
-    public void testClientErrorFromActionCallback() throws Exception {
+    public void _testClientErrorFromActionCallback() throws Exception {
         open("/auratest/errorHandlingApp.app?handleSystemError=true", Mode.PROD);
         // generate a client error in a server action callback
         findAndClickElement(By.cssSelector(".errorFromAppTable .errorFromServerActionCallbackButton"));
@@ -99,7 +99,7 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
 
         boolean requireErrorId = true;
         String expectedMessage = "Error in $A.getCallback() [Error from server action callback in app]";
-        String failingDescriptor = "markup://auratest:errorHandlingApp";
+        String failingDescriptor = "auratest:errorHandlingApp";
         assertClientErrorLogContains(log, expectedMessage, requireErrorId, failingDescriptor);
     }
 
@@ -107,7 +107,6 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
      * Verify expected logs are sent to server when a client error occurs in a callback function wrapped in $A.getCallback()
      */
     @Test
-    @Ignore("disable because test is run with Chrome/49.0.2623.112")
     public void testClientErrorFromGetcallbackWrappedFunction() throws Exception {
         open("/auratest/errorHandlingApp.app?handleSystemError=true", Mode.PROD);
         // generate a client error in a callback function wrapped in $A.getCallback()
@@ -121,7 +120,7 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
 
         boolean requireErrorId = true;
         String expectedMessage = "Error in $A.getCallback() [Error from function wrapped in getCallback in app]";
-        String failingDescriptor = "markup://auratest:errorHandlingApp";
+        String failingDescriptor = "auratest:errorHandlingApp";
         assertClientErrorLogContains(log, expectedMessage, requireErrorId, failingDescriptor);
     }
 
@@ -138,7 +137,7 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
         String log = logs.get(0);
 
         boolean requireErrorId = true;
-        String failingDescriptor = "markup://auratest:errorHandlingApp";
+        String failingDescriptor = "auratest:errorHandlingApp";
         String expectedMessage = String.format("rerender threw an error in '%s' [Error from app rerender]", failingDescriptor);
         assertClientErrorLogContains(log, expectedMessage, requireErrorId, failingDescriptor);
     }
@@ -177,9 +176,9 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
         assertClientErrorLogContains(log, expectedMessage, requireErrorId, failingDescriptor);
     }
 
+    @Ignore("Passing in locale, but failing in jenkins")
     @Test
-    @Ignore("disable because test is run with Chrome/49.0.2623.112")
-    public void testClientErrorFromContainedCmpActionCallback() throws Exception {
+    public void _testClientErrorFromContainedCmpActionCallback() throws Exception {
         open("/auratest/errorHandlingApp.app?handleSystemError=true", Mode.PROD);
         findAndClickElement(By.cssSelector(".errorFromCmpTable .errorFromServerActionCallbackButton"));
         findAndClickElement(By.className("serverActionButton"));
@@ -190,12 +189,11 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
 
         boolean requireErrorId = true;
         String expectedMessage = "Error in $A.getCallback() [Error from component server action callback]";
-        String failingDescriptor = "markup://auratest:errorHandling";
+        String failingDescriptor = "auratest:errorHandling";
         assertClientErrorLogContains(log, expectedMessage, requireErrorId, failingDescriptor);
     }
 
     @Test
-    @Ignore("disable because test is run with Chrome/49.0.2623.112")
     public void testClientErrorFromGetcallbackWrappedFunctionInContainCmp() throws Exception {
         open("/auratest/errorHandlingApp.app?handleSystemError=true", Mode.PROD);
         findAndClickElement(By.cssSelector(".errorFromCmpTable .errorFromFunctionWrappedInGetCallbackButton"));
@@ -207,7 +205,7 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
 
         boolean requireErrorId = true;
         String expectedMessage = "Error in $A.getCallback() [Error from function wrapped in getCallback in component]";
-        String failingDescriptor = "markup://auratest:errorHandling";
+        String failingDescriptor = "auratest:errorHandling";
         assertClientErrorLogContains(log, expectedMessage, requireErrorId, failingDescriptor);
     }
 
@@ -222,7 +220,7 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
         String log = logs.get(0);
 
         boolean requireErrorId = true;
-        String failingDescriptor = "markup://auratest:errorHandling";
+        String failingDescriptor = "auratest:errorHandling";
         String expectedMessage = String.format("rerender threw an error in '%s' [Error from component rerender]", failingDescriptor);
         assertClientErrorLogContains(log, expectedMessage, requireErrorId, failingDescriptor);
     }
@@ -238,7 +236,7 @@ public class ErrorHandlingLoggingUITest extends AbstractLoggingUITest {
         String log = logs.get(0);
 
         boolean requireErrorId = true;
-        String failingDescriptor = "markup://auratest:errorHandling";
+        String failingDescriptor = "auratest:errorHandling";
         String expectedMessage = String.format("unrender threw an error in '%s' [Error from component unrender]", failingDescriptor);
         assertClientErrorLogContains(log, expectedMessage, requireErrorId, failingDescriptor);
     }

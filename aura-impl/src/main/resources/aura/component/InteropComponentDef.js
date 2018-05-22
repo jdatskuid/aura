@@ -25,8 +25,8 @@
  * @export
  */
 function InteropComponentDef(config) {
-    this.interop = true;
-    this.access = 'G';
+    this.interop          = true;
+    this.access           = config.access;
     this.descriptor       = new DefDescriptor(config.descriptor);
     this.dependencies     = config.dependencies;
     this.definition       = config.definition;
@@ -34,7 +34,125 @@ function InteropComponentDef(config) {
     this.interopClass     = config.interopClass;
     this.elementName      = this.moduleName;
     this.interopClassName = this.descriptor.getNamespace() + "$" + this.descriptor.getName();
+    this.minVersion       = config.minVersion;
+    this.attributeDefs    = new AttributeDefSet(config.attributeDefs, this.descriptor.getNamespace());
+
+    if (typeof this.interopClass === 'function') {
+        this.interopDef = $A.componentService.moduleEngine['getComponentDef'](this.interopClass);
+        this.setupPropAttrMap(this.interopClass['interopMap'], this.interopDef['props']);
+    }
 }
+
+/**
+ * This method cant be initialized @construnction time because we dont have this.interopDef["props"] (window["Engine"]['getComponentDef'](interopClass)) for libraries
+ *
+ * @param interopMap in 'props' contains a mapping in the form 'prop' => 'attr' ( (lwc name) => (aura name) )
+ * @param props
+ */
+InteropComponentDef.prototype.setupPropAttrMap = function (interopMap, props) {
+    var propNames = Object.keys(props);
+    var interopPropOverride = interopMap && $A.util.isObject(interopMap['props']) ? interopMap['props'] : {};
+    var propName, attrName;
+
+    this.attrNameToPropMap = {};
+    this.propNameToAttrMap = {};
+
+    for (var i = 0; i < propNames.length; i++) {
+        propName = propNames[i];
+        attrName = (
+            interopPropOverride[propName] ||
+            InteropComponentDef.prototype.DOM_PROPS_TO_AURA_ATTRS[propName] ||
+            propName
+        );
+
+        this.attrNameToPropMap[attrName] = propName;
+        this.propNameToAttrMap[propName] = attrName;
+    }
+};
+
+// Mapping taken from https://github.com/salesforce/lwc/blob/5fd64c2b760d07e1e1f95cdf89d61ff6d9cf6af0/packages/lwc-template-compiler/src/parser/constants.ts#L52-L124
+InteropComponentDef.prototype.HTML_ATTRS_TO_DOM_PROPS = {
+    'accesskey': 'accessKey',
+    'readonly': 'readOnly',
+    'tabindex': 'tabIndex',
+    'bgcolor': 'bgColor',
+    'colspan': 'colSpan',
+    'rowspan': 'rowSpan',
+    'contenteditable': 'contentEditable',
+    'crossorigin': 'crossOrigin',
+    'datetime': 'dateTime',
+    'formaction': 'formAction',
+    'ismap': 'isMap',
+    'maxlength': 'maxLength',
+    'minlength': 'minLength',
+    'novalidate': 'noValidate',
+    'usemap': 'useMap',
+    'for': 'htmlFor',
+
+    'aria-activedescendant': 'ariaActiveDescendant',
+    'aria-atomic': 'ariaAtomic',
+    'aria-autocomplete': 'ariaAutoComplete',
+    'aria-busy': 'ariaBusy',
+    'aria-checked': 'ariaChecked',
+    'aria-colcount': 'ariaColCount',
+    'aria-colindex': 'ariaColIndex',
+    'aria-colspan': 'ariaColSpan',
+    'aria-controls': 'ariaControls',
+    'aria-current': 'ariaCurrent',
+    'aria-describedby': 'ariaDescribedBy',
+    'aria-details': 'ariaDetails',
+    'aria-disabled': 'ariaDisabled',
+//  'aria-dropeffect': 'ariaDropEffect', /* Deprecated in ARIA 1.1 */
+    'aria-errormessage': 'ariaErrorMessage',
+    'aria-expanded': 'ariaExpanded',
+    'aria-flowto': 'ariaFlowTo',
+//  'aria-grabbed': 'ariaGrabbed', /* Deprecated in ARIA 1.1 */
+    'aria-haspopup': 'ariaHasPopup',
+    'aria-hidden': 'ariaHidden',
+    'aria-invalid': 'ariaInvalid',
+    'aria-keyshortcuts': 'ariaKeyShortcuts',
+    'aria-label': 'ariaLabel',
+    'aria-labelledby': 'ariaLabelledBy',
+    'aria-level': 'ariaLevel',
+    'aria-live': 'ariaLive',
+    'aria-modal': 'ariaModal',
+    'aria-multiline': 'ariaMultiLine',
+    'aria-multiselectable': 'ariaMultiSelectable',
+    'aria-orientation': 'ariaOrientation',
+    'aria-owns': 'ariaOwns',
+    'aria-placeholder': 'ariaPlaceholder',
+    'aria-posinset': 'ariaPosInSet',
+    'aria-pressed': 'ariaPressed',
+    'aria-readonly': 'ariaReadOnly',
+    'aria-relevant': 'ariaRelevant',
+    'aria-required': 'ariaRequired',
+    'aria-roledescription': 'ariaRoleDescription',
+    'aria-rowcount': 'ariaRowCount',
+    'aria-rowindex': 'ariaRowIndex',
+    'aria-rowspan': 'ariaRowSpan',
+    'aria-selected': 'ariaSelected',
+    'aria-setsize': 'ariaSetSize',
+    'aria-sort': 'ariaSort',
+    'aria-valuemax': 'ariaValueMax',
+    'aria-valuemin': 'ariaValueMin',
+    'aria-valuenow': 'ariaValueNow',
+    'aria-valuetext': 'ariaValueText'
+};
+
+// Invert the (attr => prop) map to (prop => attr) while filtering out
+// attribute names that are incompatible with Aura (e.g., aria-*). If we didn't
+// filter these out here, users would be able to <x:y aria-checked="mixed"/>
+// which is currently not supported in Aura. Side note: data-* attributes are
+// supported in Aura, but only on HTML elements.
+InteropComponentDef.prototype.DOM_PROPS_TO_AURA_ATTRS = Object.keys(
+    InteropComponentDef.prototype.HTML_ATTRS_TO_DOM_PROPS
+).reduce(function(map, attr) {
+    if (attr.indexOf('-') === -1) {
+        var prop = InteropComponentDef.prototype.HTML_ATTRS_TO_DOM_PROPS[attr];
+        map[prop] = attr;
+    }
+    return map;
+}, {});
 
 InteropComponentDef.prototype.hasInit = function() {
    
@@ -93,6 +211,26 @@ InteropComponentDef.prototype.getHelper = function() {
  */
 InteropComponentDef.prototype.getRequiredVersionDefs = function() {
     return this.requiredVersionDefs;
+};
+
+/**
+ * Returns the minimum API version that a component should be at to use this component
+ * @returns {undefined | String}
+ * @private
+ */
+InteropComponentDef.prototype.getMinVersion = function() {
+    return this.minVersion;
+};
+
+
+/**
+ * Returns the API Version of the ComponentDef
+ *
+ * @private
+ * @return {String | undefined} The API version string.
+ */
+InteropComponentDef.prototype.getApiVersion = function() {
+    return undefined;
 };
 
 /**

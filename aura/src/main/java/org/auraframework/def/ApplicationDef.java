@@ -17,7 +17,9 @@ package org.auraframework.def;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
+import org.auraframework.def.module.ModuleDef;
 import org.auraframework.throwable.quickfix.QuickFixException;
 
 /**
@@ -35,11 +37,11 @@ public interface ApplicationDef extends BaseComponentDef {
 
     List<String> getAdditionalAppCacheURLs() throws QuickFixException;
 
-    Boolean isOnePageApp() throws QuickFixException;
-    
     Integer getBootstrapPublicCacheExpiration() throws QuickFixException;
 
     Map<String, String> getTokens();
+
+    Set<DefDescriptor<ModuleDef>> getModuleServices() throws QuickFixException;
     
     /**
      * Gets the application-wide token overrides.
@@ -50,5 +52,13 @@ public interface ApplicationDef extends BaseComponentDef {
      * Gets the application-wide default flavor override.
      * @throws QuickFixException
      */
+    FlavorsDef getFlavorOverridesDef() throws QuickFixException;
+
+    /**
+     * Gets the application-wide default flavor override.
+     * @deprecated use #getFlavorOverridesDef()
+     * @throws QuickFixException
+     */
+    @Deprecated
     DefDescriptor<FlavorsDef> getFlavorOverrides() throws QuickFixException;
 }

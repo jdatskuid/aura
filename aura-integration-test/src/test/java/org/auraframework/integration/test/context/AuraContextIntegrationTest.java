@@ -15,14 +15,10 @@
  */
 package org.auraframework.integration.test.context;
 
-import java.io.IOException;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-
-import javax.inject.Inject;
-
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Iterables;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.auraframework.css.StyleContext;
 import org.auraframework.def.ActionDef;
 import org.auraframework.def.ApplicationDef;
@@ -59,16 +55,20 @@ import org.auraframework.util.json.JsonSerializable;
 import org.auraframework.util.json.JsonSerializerFactory;
 import org.auraframework.util.json.Serialization;
 import org.auraframework.util.json.Serialization.ReferenceType;
+import org.auraframework.util.test.annotation.ThreadHostileTest;
 import org.auraframework.util.test.annotation.UnAdaptableTest;
 import org.auraframework.util.test.util.AuraPrivateAccessor;
 import org.junit.Test;
 import org.mockito.Mockito;
 
-import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
+import javax.inject.Inject;
+import java.io.IOException;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
+@ThreadHostileTest("Tests modify if locker service is enabled")
 public class AuraContextIntegrationTest extends AuraImplTestCase {
 
     @Inject
@@ -810,5 +810,28 @@ public class AuraContextIntegrationTest extends AuraImplTestCase {
 
         String res = JsonEncoder.serialize(ctx, serCtx);
         goldFileJson(res);
+    }
+
+    /**
+     * Verify action-public-caching-enabled (acpe) and action-public-cache-key properties are added to JSON when action 
+     * public caching is enabled in Full encoding style
+     */
+    @ThreadHostileTest("Tests modify if public action caching enabled")
+    @Test
+    public void testSerializeWithActionPublicCaching() throws Exception {
+        getMockConfigAdapter().setActionPublicCachingEnabled(true);
+
+        AuraContext ctx = contextService.startContext(Mode.UTEST, Format.JSON, Authentication.UNAUTHENTICATED);
+        ctx.setActionPublicCacheKey("someKey");
+
+        String res = ctx.serialize(AuraContext.EncodingStyle.Full);
+
+        assertTrue(res.contains("\"apce\":1"));
+        assertTrue(res.contains("\"apck\":\"someKey\""));
+
+        res = ctx.serialize(AuraContext.EncodingStyle.Normal);
+
+        assertTrue(!res.contains("\"apce\":1"));
+        assertTrue(!res.contains("\"apck\":\"someKey\""));
     }
 }

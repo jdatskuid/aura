@@ -5,8 +5,8 @@
      */
 
     // LockerService not supported on IE
-    // TODO(W-3674741,W-3674751): FF and iOS browser versions in autobuilds are too far behind
-    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPHONE", "-IPAD"],
+    // TODO(W-3674741, W-4446969): FF and LockerService disabled for iOS browser in 212
+    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-SAFARI", "-IPHONE", "-IPAD"],
 
     setUp: function(cmp) {
         cmp.set("v.testUtils", $A.test);
@@ -21,6 +21,15 @@
     testLanguage: {
         test: function(cmp) {
             cmp.testLanguage();
+        }
+    },
+
+    /**
+     * navigator.mediaDevices is enabled only for 2 specific namespaces in SecureObject.addRTCMediaApis
+     */
+    testMediaDevicesBlocked: {
+        test: function(cmp) {
+            cmp.testMediaDevicesBlocked();
         }
     }
 })

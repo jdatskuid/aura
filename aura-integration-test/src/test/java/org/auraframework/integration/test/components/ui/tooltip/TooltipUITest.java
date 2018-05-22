@@ -20,10 +20,9 @@ import org.auraframework.integration.test.util.WebDriverTestCase.ExcludeBrowsers
 import org.auraframework.test.util.WebDriverUtil.BrowserType;
 import org.junit.Ignore;
 import org.junit.Test;
-import org.openqa.selenium.By;
-import org.openqa.selenium.WebElement;
+import org.openqa.selenium.*;
 
-@ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPHONE, BrowserType.IPAD, BrowserType.IE7, BrowserType.IE8})
+@ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPHONE, BrowserType.IPAD, BrowserType.IE8})
 public class TooltipUITest extends WebDriverTestCase {
 	private final String URL_FULL_CMP = "/uitest/tooltip_FullTest.cmp";
 
@@ -44,12 +43,12 @@ public class TooltipUITest extends WebDriverTestCase {
 		turnOffToggleGuard();
 
 		// close by sending enter key
-		getAuraUITestingUtil().pressEnter(trigger);
+		trigger.sendKeys(Keys.ENTER);
 		waitForToolTipAbsent();
 		turnOffToggleGuard();
 
 		// open by sending enter key
-		getAuraUITestingUtil().pressEnter(trigger);
+		trigger.sendKeys(Keys.ENTER);
 		waitForToolTipPresent();
 	}
 	

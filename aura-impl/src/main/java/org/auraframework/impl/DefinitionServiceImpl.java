@@ -15,12 +15,14 @@
  */
 package org.auraframework.impl;
 
+
+import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
+import java.util.stream.Collector;
 import java.util.stream.Collectors;
 
 import javax.annotation.CheckForNull;
@@ -31,22 +33,34 @@ import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.cache.Cache;
 import org.auraframework.def.ActionDef;
+import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.ClientLibraryDef;
+import org.auraframework.def.ComponentDef;
 import org.auraframework.def.ControllerDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.DefDescriptor.DescriptorKey;
 import org.auraframework.def.Definition;
-import org.auraframework.def.DefinitionAccess;
 import org.auraframework.def.DescriptorFilter;
-import org.auraframework.def.ParentedDef;
-import org.auraframework.def.RootDefinition;
+import org.auraframework.def.InterfaceDef;
 import org.auraframework.def.TypeDef;
-import org.auraframework.impl.controller.AuraStaticControllerDefRegistry;
+import org.auraframework.expression.PropertyReference;
+import org.auraframework.impl.controller.AuraGlobalControllerDefRegistry;
+import org.auraframework.impl.linker.AccessChecker;
+import org.auraframework.impl.linker.AuraLinker;
+import org.auraframework.impl.linker.LinkingDefinition;
+import org.auraframework.impl.system.BundleAwareDefRegistry;
+import org.auraframework.impl.system.CompilingDefRegistry;
 import org.auraframework.impl.system.DefDescriptorImpl;
 import org.auraframework.impl.system.SubDefDescriptorImpl;
 import org.auraframework.impl.type.AuraStaticTypeDefRegistry;
+import org.auraframework.impl.visitor.GlobalReferenceVisitor;
+import org.auraframework.impl.visitor.UsageMap;
+import org.auraframework.impl.visitor.UsageMapCombiner;
+import org.auraframework.impl.visitor.UsageMapSupplier;
+import org.auraframework.instance.AuraValueProviderType;
+import org.auraframework.instance.GlobalValueProvider;
 import org.auraframework.service.CachingService;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
@@ -57,22 +71,22 @@ import org.auraframework.system.BundleSource;
 import org.auraframework.system.DefRegistry;
 import org.auraframework.system.DependencyEntry;
 import org.auraframework.system.Location;
-import org.auraframework.system.RegistrySet;
 import org.auraframework.system.Source;
 import org.auraframework.system.SubDefDescriptor;
 import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.ClientOutOfSyncException;
-import org.auraframework.throwable.NoAccessException;
+import org.auraframework.throwable.quickfix.CompositeValidationException;
 import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
+import org.auraframework.throwable.quickfix.InvalidExpressionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.text.GlobMatcher;
 import org.auraframework.util.text.Hash;
 
 import com.google.common.base.Optional;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+
 
 /**
  * The public access to definitions inside Aura.
@@ -84,30 +98,36 @@ import com.google.common.collect.Sets;
 public class DefinitionServiceImpl implements DefinitionService {
     private static final long serialVersionUID = -2488984746420077688L;
 
-    private ContextService contextService;
+    protected ContextService contextService;
 
     private CachingService cachingService;
 
     private LoggingService loggingService;
-    
+
     private ConfigAdapter configAdapter;
-    
+
+    private AccessChecker accessChecker;
+
+    private AuraGlobalControllerDefRegistry globalControllerDefRegistry;
+
     @Override
     public <T extends Definition> DefDescriptor<T> getDefDescriptor(String qualifiedName, Class<T> defClass) {
         return getDefDescriptor(qualifiedName, defClass, null);
     }
 
-    @SuppressWarnings("unchecked")
     @Override
-    public <T extends Definition, B extends Definition> DefDescriptor<T> getDefDescriptor(String qualifiedName,
-            Class<T> defClass, DefDescriptor<B> bundle) {
+    @CheckForNull
+    public <T extends Definition, B extends Definition> DefDescriptor<T> getDefDescriptor(
+            @CheckForNull String qualifiedName, @CheckForNull Class<T> defClass,
+            @CheckForNull DefDescriptor<B> bundle) {
+
+        if (qualifiedName == null || defClass == null) {
+            //FIXME: we should not throw here.
+            throw new AuraRuntimeException("descriptor is null");
+        }
         if (defClass == ActionDef.class) {
             return SubDefDescriptorImpl.getInstance(qualifiedName, defClass, ControllerDef.class);
         }
-        if (qualifiedName == null || defClass == null) {
-            throw new AuraRuntimeException("descriptor is null");
-        }
-
         DescriptorKey dk = new DescriptorKey(qualifiedName, defClass, bundle);
 
         Cache<DescriptorKey, DefDescriptor<? extends Definition>> cache = null;
@@ -117,6 +137,7 @@ public class DefinitionServiceImpl implements DefinitionService {
 
         DefDescriptor<T> result = null;
         if (cache != null) {
+            @SuppressWarnings("unchecked")
             DefDescriptor<T> cachedResult = (DefDescriptor<T>) cache.getIfPresent(dk);
             result = cachedResult;
         }
@@ -124,10 +145,12 @@ public class DefinitionServiceImpl implements DefinitionService {
             if (defClass == TypeDef.class && qualifiedName.indexOf("://") == -1) {
                 TypeDef typeDef = AuraStaticTypeDefRegistry.INSTANCE.getInsensitiveDef(qualifiedName);
                 if (typeDef != null) {
-                    return (DefDescriptor<T>) typeDef.getDescriptor();
+                    @SuppressWarnings("unchecked")
+                    DefDescriptor<T> typeDescriptor = (DefDescriptor<T>) typeDef.getDescriptor();
+                    return typeDescriptor;
                 }
             }
-            result = new DefDescriptorImpl<>(qualifiedName, defClass, bundle);
+            result = new DefDescriptorImpl<>(qualifiedName, defClass, bundle, contextService);
 
             // Our input names may not be qualified, but we should ensure that
             // the fully-qualified is properly cached to the same object.
@@ -136,6 +159,7 @@ public class DefinitionServiceImpl implements DefinitionService {
             if (!dk.getName().equals(result.getQualifiedName())) {
                 DescriptorKey fullDK = new DescriptorKey(result.getQualifiedName(), defClass, result.getBundle());
 
+                @SuppressWarnings("unchecked")
                 DefDescriptor<T> fullResult = (DefDescriptor<T>) cache.getIfPresent(fullDK);
                 if (fullResult == null) {
                     cache.put(fullDK, result);
@@ -160,6 +184,23 @@ public class DefinitionServiceImpl implements DefinitionService {
         return DefDescriptorImpl.getAssociateDescriptor(desc, defClass, prefix);
     }
 
+    // TEMPORARY HACK TO SUPPORT TEST SUITES IN MAIN WITHOUT CHANGES
+    private <T extends Definition> DefDescriptor<T> replaceBundleOnTestSuiteDescriptor(DefDescriptor<T> descriptor) {
+        DefDescriptor<? extends BaseComponentDef> bundle = null;
+
+        if (descriptor.getDefType() != DefType.TESTSUITE || descriptor.getBundle() != null) {
+            return descriptor;
+        }
+        @SuppressWarnings("unchecked")
+        Class<T> clazz = (Class<T>)descriptor.getDefType().getPrimaryInterface();
+        bundle = getDefDescriptor(descriptor, DefDescriptor.MARKUP_PREFIX, ComponentDef.class);
+        if (!exists(bundle)) {
+            bundle = getDefDescriptor(descriptor, DefDescriptor.MARKUP_PREFIX, ApplicationDef.class);
+        }
+        return getDefDescriptor(descriptor.getQualifiedName(), clazz, bundle);
+    }
+    // END TEMPORARY HACK TO SUPPORT TEST SUITES IN MAIN WITHOUT CHANGES
+
     /**
      * Get a definition.
      *
@@ -175,13 +216,16 @@ public class DefinitionServiceImpl implements DefinitionService {
     public <T extends Definition> T getDefinition(@CheckForNull DefDescriptor<T> descriptor) throws QuickFixException {
         contextService.assertEstablished();
 
+
         AuraContext context = contextService.getCurrentContext();
         T def = null;
 
         if (descriptor == null) {
             return null;
         }
-            
+
+        descriptor = replaceBundleOnTestSuiteDescriptor(descriptor);        // TESTSUITE HACK.
+
         // TODO: Clean up so that we just walk up descriptor trees and back down them.
         Optional<T> optLocalDef = null;
         if (descriptor instanceof SubDefDescriptor) {
@@ -191,33 +235,16 @@ public class DefinitionServiceImpl implements DefinitionService {
         } else if ((optLocalDef = context.getLocalDef(descriptor)) != null) {
             // Case 2: LocalDef
             def = optLocalDef.orNull();
-        } else if (threadContext.get() != null) {
+        } else if (threadLinker.get() != null) {
             // Case 2: Nested get. This should be removed, but is somewhat complicated, because we compile
             // in-line.
             //
-            // If our current context is not null, we want to recurse in to properly include the defs when we
+            // If our current linker is not null, we want to recurse in to properly include the defs when we
             // are compiling. Note that in this case, we already own the lock, so it can be outside the locking below.
             // When we are 'building' instead of 'compiling' we should already have the def somewhere, so we just
             // fill it in and continue. If no def is present, we explode.
             //
-            CompileContext currentCC = threadContext.get();
-            if (currentCC.compiled.containsKey(descriptor)) {
-                CompilingDef<T> cd = (CompilingDef<T>) currentCC.compiled.get(descriptor);
-                if (cd.def == null && !currentCC.compiling) {
-                    fillCompilingDef(cd, currentCC);
-                }
-                if (cd.def != null) {
-                    def = cd.def;
-                }
-            } else if (!currentCC.compiling) {
-                throw new IllegalStateException("Attempting to add missing def "+descriptor+" to "+currentCC.topLevel);
-            } else {
-                //
-                // If we are nested, compileDef will do the right thing.
-                // This is a bit ugly though.
-                //
-                def = compileDef(descriptor, currentCC, true);
-            }
+            def = threadLinker.get().getDefinitionDuringLink(descriptor);
         } else {
             // Case 3: Have to find the def.
             Lock rLock = cachingService.getReadLock();
@@ -241,11 +268,7 @@ public class DefinitionServiceImpl implements DefinitionService {
                         throw de.qfe;
                     }
 
-                    //
-                    // Now we need to actually do the build..
-                    //
-                    buildDE(de, descriptor);
-
+                    loadDE(de);
                     Optional<T> optionalDef = context.getLocalDef(descriptor);
                     def = (optionalDef != null)? context.getLocalDef(descriptor).orNull() : null;
                 }
@@ -318,6 +341,7 @@ public class DefinitionServiceImpl implements DefinitionService {
         AuraContext context = contextService.getCurrentContext();
         boolean regExists;
 
+        descriptor = replaceBundleOnTestSuiteDescriptor(descriptor);        // TESTSUITE HACK.
         Optional<D> optLocalDef = context.getLocalDef(descriptor);
         if (optLocalDef != null) {
             return optLocalDef.isPresent();
@@ -412,6 +436,7 @@ public class DefinitionServiceImpl implements DefinitionService {
             DefDescriptor<?> singleMatch = getDefDescriptor(
                     prefix, matcher.getNamespaceMatch().toString(), matcher.getNameMatch().toString(),
                     matcher.getDefTypes().get(0));
+            singleMatch = replaceBundleOnTestSuiteDescriptor(singleMatch);        // TESTSUITE HACK.
             if (exists(singleMatch)) {
                 matched.add(singleMatch);
             }
@@ -428,7 +453,8 @@ public class DefinitionServiceImpl implements DefinitionService {
                 // we will make them undesirable.
                 //
                 boolean cacheable = configAdapter.isCacheable(matcher) && namespaceMatcher.isConstant();
-                for (DefRegistry reg : context.getRegistries().getRegistries(matcher)) {
+                Collection<DefRegistry> matchedRegistries = context.getRegistries().getRegistries(matcher);
+                for (DefRegistry reg : matchedRegistries) {
                     if (reg.hasFind()) {
                         //
                         // Now we walk then entire set of registries, and check to see if our namespace
@@ -478,7 +504,10 @@ public class DefinitionServiceImpl implements DefinitionService {
                                 matched.addAll(registryResults.stream()
                                         .filter(regRes -> {
                                             try {
-                                                return computeAccess(referenceDescriptor.getDescriptor(), regRes.getDef()) == null;
+                                                return accessChecker.checkAccess(
+                                                    referenceDescriptor.getDescriptor(),
+                                                    getUnlinkedDefinition(regRes),
+                                                    context.getAccessCheckCache());
                                             } catch (QuickFixException e) {
                                                 return false;
                                             }
@@ -496,6 +525,67 @@ public class DefinitionServiceImpl implements DefinitionService {
             }
         }
 
+        return matched;
+    }
+
+    @Override
+    public Set<DefDescriptor<?>> findByTags(final Set<String> namespaces, Set<String> tags) {
+        final String filterKey = tags.toString();
+        Set<DefDescriptor<?>> matched = Sets.newHashSet();
+        AuraContext context = contextService.getCurrentContext();
+        Cache<String, Set<DefDescriptor<?>>> descriptorFilterCache = cachingService.getDescriptorFilterCache();
+        Lock rLock = cachingService.getReadLock();
+
+        rLock.lock();
+        try {
+            //
+            // We _never_ cache non-constant namespaces. We'd like to make them illegal, but for the moment
+            // we will make them undesirable.
+            //
+            Collection<DefRegistry> registries = context.getRegistries().getAllRegistries();
+            for (DefRegistry reg : registries) {
+                if (reg.hasFind()) {
+                    Set<DefDescriptor<?>> registryResults = null;
+                    boolean partial_overlap = false;
+
+                    if (namespaces != null) {
+                        //
+                        // If we have a namespace filter, we may need to filter the results from the
+                        // registry, and we may be able to ignore some registries, so do that calculation
+                        // here.
+                        //
+                        int ns_overlap = Sets.intersection(reg.getNamespaces(), namespaces).size();
+                        if (ns_overlap == 0) {
+                            // No namespaces from the registry are included... bolt.
+                            continue;
+                        }
+                        if (ns_overlap != reg.getNamespaces().size()) {
+                            // not all namespaces from the registry are included.
+                            partial_overlap = true;
+                        }
+                    }
+                    if (reg.isCacheable()) {
+                        // cache results per registry
+                        String cacheKey = filterKey + "|" + reg.toString();
+                        registryResults = descriptorFilterCache.getIfPresent(cacheKey);
+                        if (registryResults == null) {
+                            registryResults = reg.findByTags(tags);
+                            descriptorFilterCache.put(cacheKey, registryResults);
+                        }
+                    } else {
+                        registryResults = reg.findByTags(tags);
+                    }
+                    if (partial_overlap) {
+                        registryResults = registryResults.stream()
+                            .filter(x -> namespaces.contains(x.getNamespace()))
+                            .collect(Collectors.toSet());
+                    }
+                    matched.addAll(registryResults);
+                }
+            }
+        } finally {
+            rLock.unlock();
+        }
         return matched;
     }
 
@@ -526,21 +616,21 @@ public class DefinitionServiceImpl implements DefinitionService {
     @Override
     public void updateLoaded(DefDescriptor<?> loading) throws QuickFixException, ClientOutOfSyncException {
         AuraContext context;
-        Set<DefDescriptor<?>> loaded = Sets.newHashSet();
-        Set<DefDescriptor<?>> prev = Sets.newHashSet();
-        Set<DefDescriptor<?>> remove = null;
 
         contextService.assertEstablished();
         context = contextService.getCurrentContext();
         if (context.getPreloadedDefinitions() == null) {
+            Set<DefDescriptor<?>> remove = null;
+            Map<DefDescriptor<?>, String> clientLoaded = context.getClientLoaded();
+            context.setPreloadedDefinitions(Collections.emptySet());
             //
             // TODO (optimize): we could reverse this set randomly to try
             // to sanitize the list in opposite directions. No need to be
             // exact (hard to test though).
             //
-            for (Map.Entry<DefDescriptor<?>, String> entry : context.getClientLoaded().entrySet()) {
+            for (Map.Entry<DefDescriptor<?>, String> entry : clientLoaded.entrySet()) {
                 DefDescriptor<?> descriptor = entry.getKey();
-                if (loaded.contains(descriptor)) {
+                if (context.getPreloadedDefinitions().contains(descriptor)) {
                     context.dropLoaded(descriptor);
                 } else {
                     // validate the uid.
@@ -567,33 +657,34 @@ public class DefinitionServiceImpl implements DefinitionService {
                         throw qfe;
                     }
                     Set<DefDescriptor<?>> deps = getDependencies(uid);
-                    loaded.addAll(deps);
-                    for (DefDescriptor<?> x : prev) {
-                        if (deps.contains(x)) {
-                            if (remove == null) {
-                                remove = Sets.newHashSet();
+                    context.addPreloadedDefinitions(deps);
+                    if (!deps.isEmpty()) {
+                        for (DefDescriptor<?> x : clientLoaded.keySet()) {
+                            if (x == descriptor) break;         // only look at the descriptors before the current one in the list 
+                            if (deps.contains(x)) {
+                                if (remove == null) {
+                                    remove = Sets.newHashSetWithExpectedSize(clientLoaded.size());
+                                }
+                                remove.add(x);
                             }
-                            remove.add(x);
                         }
                     }
-                    prev.add(descriptor);
                 }
             }
-            context.setPreloadedDefinitions(loaded);
-        } else {
-            loaded = context.getPreloadedDefinitions();
-        }
-        if (remove != null) {
-            for (DefDescriptor<?> x : remove) {
-                context.dropLoaded(x);
+            
+            if (remove != null) {
+                for (DefDescriptor<?> x : remove) {
+                    context.dropLoaded(x);
+                }
             }
-        }
+        } 
+
         //
         // Now make sure that our current definition is somewhere there
         // If this fails, we will throw an exception, and all will be
         // well.
         //
-        if (loading != null && !loaded.contains(loading) && !context.getLoaded().containsKey(loading)) {
+        if (loading != null && !context.getPreloadedDefinitions().contains(loading) && !context.getLoaded().containsKey(loading)) {
             String uid = getUid(null, loading);
 
             if (uid == null) {
@@ -688,6 +779,12 @@ public class DefinitionServiceImpl implements DefinitionService {
     @Inject
     public void setConfigAdapter(ConfigAdapter configAdapter) {
         this.configAdapter = configAdapter;
+        this.accessChecker = new AccessChecker(configAdapter);
+    }
+
+    @Inject
+    public void setAuraGlobalControllerDefRegistry(AuraGlobalControllerDefRegistry globalControllerDefRegistry) {
+        this.globalControllerDefRegistry = globalControllerDefRegistry;
     }
 
     /**
@@ -724,12 +821,18 @@ public class DefinitionServiceImpl implements DefinitionService {
         try {
             de = getDE(uid, descriptor);
             if (de == null) {
+                if (threadLinker.get() != null) {
+                    throw new AuraRuntimeException("Ugh, nested getUID on " + threadLinker.toString()
+                            + " trying to get a UID for " + descriptor);
+                }
                 de = compileDE(descriptor);
                 //
                 // If we can't find our descriptor, we just give back a null.
                 if (de == null) {
                     return null;
                 }
+            } else if (de.dependencyMap != null) {
+                loadDE(de);
             }
         } finally {
             rLock.unlock();
@@ -738,6 +841,23 @@ public class DefinitionServiceImpl implements DefinitionService {
             throw de.qfe;
         }
         return de.uid;
+    }
+
+    /**
+     * Get the cacheable flag for a uid.
+     *
+     * @param uid the UID for the definition (must have called {@link #getUid(String, DefDescriptor<?>)}).
+     */
+    @Override
+    public boolean isDependencySetCacheable(String uid) {
+        if (uid == null) {
+            return false;
+        }
+        DependencyEntry de = contextService.getCurrentContext().getLocalDependencyEntry(uid);
+        if (de == null) {
+            return false;
+        }
+        return de.cacheable;
     }
 
     /**
@@ -755,8 +875,8 @@ public class DefinitionServiceImpl implements DefinitionService {
         }
         DependencyEntry de = contextService.getCurrentContext().getLocalDependencyEntry(uid);
 
-        if (de != null) {
-            return de.dependencies;
+        if (de != null && de.dependencyMap != null) {
+            return Collections.unmodifiableSet(de.dependencyMap.keySet());
         }
         return null;
     }
@@ -780,19 +900,35 @@ public class DefinitionServiceImpl implements DefinitionService {
         return null;
     }
 
+    @Override
+    public Set<PropertyReference> getGlobalReferences(String uid, String root) {
+        if (uid == null) {
+            return null;
+        }
+        DependencyEntry de = contextService.getCurrentContext().getLocalDependencyEntry(uid);
+
+        if (de != null) {
+            Set<PropertyReference> refs = (de.globalReferencesMap != null ? de.globalReferencesMap.get(root) : null);
+            if (refs == null) {
+                try {
+                    return buildRefs(root, de.dependencyMap);
+                } catch (QuickFixException qfe) {
+                    return null;
+                }
+            }
+            return refs;
+        }
+        return null;
+    }
+
     /**
      * assert that the referencingDescriptor has access to the definition.
      */
     @Override
     public <D extends Definition> void assertAccess(DefDescriptor<?> referencingDescriptor, D def)
             throws QuickFixException {
-        String status = computeAccess(referencingDescriptor, def);
-        if (status != null) {
-            DefDescriptor<? extends Definition> descriptor = def.getDescriptor();
-            String message = configAdapter.isProduction() ? DefinitionNotFoundException.getMessage(
-                    descriptor.getDefType(), descriptor.getName()) : status;
-                    throw new NoAccessException(message);
-        }
+        accessChecker.assertAccess(referencingDescriptor, def, 
+                contextService.getCurrentContext().getAccessCheckCache());
     }
 
     /**
@@ -801,7 +937,8 @@ public class DefinitionServiceImpl implements DefinitionService {
     @Override
     public <D extends Definition> void assertAccess(DefDescriptor<?> referencingDescriptor, DefDescriptor<?> accessDescriptor)
             throws QuickFixException {
-        assertAccess(referencingDescriptor, getDefinition(accessDescriptor));
+        accessChecker.assertAccess(referencingDescriptor, getDefinition(accessDescriptor),
+                contextService.getCurrentContext().getAccessCheckCache());
     }
 
     /**
@@ -810,7 +947,8 @@ public class DefinitionServiceImpl implements DefinitionService {
     @Override
     public boolean hasAccess(DefDescriptor<?> referencingDescriptor, DefDescriptor<?> accessDescriptor)
             throws QuickFixException {
-        return computeAccess(referencingDescriptor, getDefinition(accessDescriptor)) == null;
+        return accessChecker.checkAccess(referencingDescriptor, getDefinition(accessDescriptor),
+                contextService.getCurrentContext().getAccessCheckCache());
     }
 
     /**
@@ -819,105 +957,38 @@ public class DefinitionServiceImpl implements DefinitionService {
     @Override
     public <D extends Definition> boolean hasAccess(DefDescriptor<?> referencingDescriptor, D def)
             throws QuickFixException {
-        return computeAccess(referencingDescriptor, def) == null;
+
+        return accessChecker.checkAccess(referencingDescriptor, def,
+                contextService.getCurrentContext().getAccessCheckCache());
+        
     }
 
-    private <D extends Definition> String computeAccess(DefDescriptor<?> referencingDescriptor, D def) {
+    @Override
+    public boolean hasInterface(DefDescriptor<? extends BaseComponentDef> descriptor, DefDescriptor<InterfaceDef> interfaceDef) throws QuickFixException {
+        if (descriptor == null) {
+            return false;
+        }
+        BaseComponentDef def = getDefinition(descriptor);
         if (def == null) {
-            return null;
+            return false;
         }
-
-        // If the def is access="global" or does not require authentication then anyone can see it
-        DefinitionAccess access = def.getAccess();
-        if (access == null) {
-            throw new RuntimeException("Missing access declaration for " + def.getDescriptor()
-                    + " of type "+def.getClass().getSimpleName());
-        }
-        if (access.isGlobal() || !access.requiresAuthentication()) {
-            return null;
-        }
-        if (access.isPrivate()) {
-            // make sure private is really private.
-            if (def.getDescriptor().equals(referencingDescriptor)) {
-                return null;
+        Set<DefDescriptor<InterfaceDef>> interfaces = def.getInterfaces();
+        DefDescriptor<? extends BaseComponentDef> parent = def.getExtendsDescriptor();
+        while (interfaces != null && interfaces.size() > 0 || (parent != null)) {
+            if (interfaces.contains(interfaceDef)) {
+                return true;
             }
+            if (parent == null) {
+                break;
+            }
+            def = getDefinition(parent);
+            if (def == null) {
+                return false;
+            }
+            interfaces = def.getInterfaces();
+            parent = def.getExtendsDescriptor();
         }
-        String referencingNamespace = null;
-        if (referencingDescriptor != null) {
-            String prefix = referencingDescriptor.getPrefix();
-            if (configAdapter.isUnsecuredPrefix(prefix)) {
-                return null;
-            }
-
-            referencingNamespace = referencingDescriptor.getNamespace();
-
-            // The caller is in an internal namespace let them through
-            if (configAdapter.isInternalNamespace(referencingNamespace)) {
-                return null;
-            }
-
-            // Both access of def and referencingNamespace are privileged so we allow
-            if (access.isPrivileged() && configAdapter.isPrivilegedNamespace(referencingNamespace)) {
-                return null;
-            }
-        }
-
-        DefDescriptor<?> desc = def.getDescriptor();
-
-        String namespace;
-        String target;
-
-        if (def instanceof ParentedDef) {
-            ParentedDef parentedDef = (ParentedDef) def;
-            DefDescriptor<? extends RootDefinition> parentDescriptor = parentedDef.getParentDescriptor();
-            namespace = parentDescriptor.getNamespace();
-            target = String.format("%s:%s.%s", namespace, parentDescriptor.getName(), desc.getName());
-        } else {
-            namespace = desc.getNamespace();
-            target = String.format("%s:%s", namespace, desc.getName());
-        }
-
-        // Cache key is of the form "referencingNamespace>defNamespace:defName[.subDefName].defTypeOrdinal"
-        DefType defType = desc.getDefType();
-        String key = String.format("%s>%s.%d", referencingNamespace == null ? "" : referencingNamespace, target,
-                defType.ordinal());
-
-        Cache<String, String> accessCheckCache = contextService.getCurrentContext().getAccessCheckCache();
-        String status = accessCheckCache.getIfPresent(key);
-        if (status == null) {
-            // System.out.printf("** MDR.miss.assertAccess() cache miss for: %s\n", key);
-            // We may re-enter this code, but only in race conditions. We should generate the
-            // same string, and the only way to protect against this is to lock it.
-
-            DefDescriptor<? extends Definition> descriptor = def.getDescriptor();
-            if (!configAdapter.isUnsecuredNamespace(namespace)
-                    && !configAdapter.isUnsecuredPrefix(descriptor.getPrefix())) {
-                if (referencingNamespace == null || referencingNamespace.isEmpty()) {
-                    status = String
-                            .format("Access to %s '%s' is not allowed: referencing namespace was empty or null",
-                                    defType, target);
-                } else if (!referencingNamespace.equals(namespace)) {
-                    // The caller and the def are not in the same namespace
-                    status = String
-                            .format("Access to %s '%s' with access '%s' from namespace '%s' in '%s(%s)' is not allowed",
-                                    defType.toString().toLowerCase(), target, def.getAccess().toString(),
-                                    referencingNamespace, referencingDescriptor, referencingDescriptor.getDefType());
-                } else if (access.isPrivate()) {
-                    status = String
-                            .format("Access to %s '%s' with access PRIVATE from namespace '%s' in '%s(%s)' is not allowed",
-                                    defType.toString().toLowerCase(), target, referencingNamespace,
-                                    referencingDescriptor, referencingDescriptor.getDefType());
-                }
-            }
-            if (status == null) {
-                status = "";
-            }
-            accessCheckCache.put(key, status);
-        } else {
-            // System.out.printf("** MDR.hit.assertAccess() cache hit for: %s\n", key);
-        }
-
-        return status.isEmpty() ? null : status;
+        return false;
     }
 
     // FIXME: These should move to caching service.
@@ -925,19 +996,16 @@ public class DefinitionServiceImpl implements DefinitionService {
     /**
      * Creates a key for the localDependencies, using DefType, FQN, and modules
      * */
-    private String makeLocalKey(@Nonnull DefDescriptor<?> descriptor, boolean modulesEnabled) {
+    private String makeLocalKey(@Nonnull DefDescriptor<?> descriptor) {
         String key = descriptor.getDefType().toString() + ":" + descriptor.getQualifiedName().toLowerCase();
-        if (modulesEnabled) {
-            key += ":m";
-        }
         return key;
     }
 
     /**
      * Creates a key for the global {@link CachingServiceImpl#defsCache}, using UID, type, FQN, and modules
      */
-    private String makeGlobalKey(String uid, @Nonnull DefDescriptor<?> descriptor, boolean modulesEnabled) {
-        return uid + "/" + makeLocalKey(descriptor, modulesEnabled);
+    private String makeGlobalKey(String uid, @Nonnull DefDescriptor<?> descriptor) {
+        return uid + "/" + makeLocalKey(descriptor);
     }
 
     /**
@@ -945,8 +1013,8 @@ public class DefinitionServiceImpl implements DefinitionService {
      *
      * @param descriptor - the descriptor use for the key
      */
-    private String makeNonUidGlobalKey(@Nonnull DefDescriptor<?> descriptor, boolean modulesEnabled) {
-        return makeLocalKey(descriptor, modulesEnabled);
+    private String makeNonUidGlobalKey(@Nonnull DefDescriptor<?> descriptor) {
+        return makeLocalKey(descriptor);
     }
 
     /**
@@ -968,49 +1036,45 @@ public class DefinitionServiceImpl implements DefinitionService {
      * </ul>
      *
      * @param descriptor the incoming descriptor to compile
-     * @return the definition compiled from the descriptor, or null if not found.currentCC
+     * @return the definition compiled from the descriptor, or null if not found.
      * @throws QuickFixException if the definition failed to compile.
      */
     @CheckForNull
     protected <T extends Definition> DependencyEntry compileDE(@Nonnull DefDescriptor<T> descriptor) throws QuickFixException{
         // See localDependencies comment
-        CompileContext currentCC = threadContext.get();
+        AuraLinker linker = threadLinker.get();
         AuraContext context = contextService.getCurrentContext();
-        boolean modulesEnabled = context.isModulesEnabled();
-        String key = makeLocalKey(descriptor, modulesEnabled);
+        String key = makeLocalKey(descriptor);
         Cache<DefDescriptor<?>, Optional<? extends Definition>> defsCache = cachingService.getDefsCache();
 
-        if (currentCC != null) {
-            throw new AuraRuntimeException("Ugh, nested compileDE/buildDE on " + currentCC.topLevel
-                    + " trying to build " + descriptor);
-        }
+        linker = new AuraLinker(descriptor, defsCache,
+                cachingService.getDefDescriptorByNameCache(),
+                loggingService, configAdapter, accessChecker, context.getAuraLocalStore(),
+                context.getAccessCheckCache(), context.getRegistries());
 
-        List<ClientLibraryDef> clientLibs = Lists.newArrayList();
-        currentCC = new CompileContext(descriptor, context, defsCache, clientLibs);
-        threadContext.set(currentCC);
+        threadLinker.set(linker);
         try {
-            currentCC.addMap(AuraStaticControllerDefRegistry.getInstance(this).getAll());
-            Definition def = compileDef(descriptor, currentCC, false);
+            linker.addMap(globalControllerDefRegistry.getAll());
+            Definition def;
+            loggingService.startTimer(LoggingService.TIMER_DEFINITION_CREATION);
+            try {
+                def = linker.linkDefinition(descriptor, false);
+            } finally {
+                loggingService.stopTimer(LoggingService.TIMER_DEFINITION_CREATION);
+            }
 
             if (def == null) {
                 return null;
             }
 
-            List<CompilingDef<?>> compiled = Lists.newArrayList(currentCC.compiled.values());
-
-            // Sort based on descriptor only (not level) for uid calculation.
-            // There are situations where components dependencies are read at different
-            // levels affecting the ordering of dependencies and creates different uid.
-            //
-            // Using descriptor only produces a more consistent UID
-            Collections.sort(compiled, Comparator.comparing(cd2 -> cd2.descriptor));
+            Collection<LinkingDefinition<?>> sorted = linker.getNameSort();
 
             //
             // Now walk the sorted list, building up our dependencies, and uid
             //
             StringBuilder sb = new StringBuilder(256);
             Hash.StringBuilder globalBuilder = new Hash.StringBuilder();
-            for (CompilingDef<?> cd : compiled) {
+            for (LinkingDefinition<?> cd : sorted) {
                 if (cd.def == null) {
                     // actually, this should never happen.
                     throw new DefinitionNotFoundException(cd.descriptor);
@@ -1040,19 +1104,35 @@ public class DefinitionServiceImpl implements DefinitionService {
             if (de != null) {
                 return de;
             }
+            Map<DefDescriptor<? extends Definition>, Definition> deps = Maps.newLinkedHashMap();
+            // level sorting is important for css and aura:library dependency ordering
+            sorted = linker.getDepthSort();
 
-            de = createDependencyEntry(compiled, uid, clientLibs);
+            sorted.stream().forEach(cd -> deps.put(cd.descriptor, cd.def));
 
-            CompilingDef<T> cd = currentCC.getCompiling(descriptor);
+            Map<String,Set<PropertyReference>> globalRefs = null;
+            if (descriptor.getDefType() == DefType.APPLICATION) {
+                globalRefs = Maps.newHashMap();
+                Set<PropertyReference> labels = buildRefs(AuraValueProviderType.LABEL.getPrefix(), deps);
+                globalRefs.put(AuraValueProviderType.LABEL.getPrefix(), labels);
+            }
+
+
+            de = new DependencyEntry(uid, deps, linker.getClientLibs(),
+                    linker.getShouldCacheDependencies(), globalRefs);
+
             Cache<String, DependencyEntry> depsCache = cachingService.getDepsCache();
-            if (cd.cacheable) {
-                // put UID-qualified descriptor key for dependency
-                depsCache.put(makeGlobalKey(de.uid, descriptor, modulesEnabled), de);
 
+            // put UID-qualified descriptor key for dependency
+            // This is always placed in cache, which means that we will not trigger COOSE for components
+            // that have already been put in cache, and have the UID on the client.
+            // This behaviour is the same as historical behaviour, and we will not change it at the
+            // moment. Note that it also helps perf markedly.
+            depsCache.put(makeGlobalKey(de.uid, descriptor), de);
+
+            if (linker.getShouldCacheDependencies()) {
                 // put unqualified descriptor key for dependency
-                if (currentCC.shouldCacheDependencies) {
-                    depsCache.put(makeNonUidGlobalKey(descriptor, modulesEnabled), de);
-                }
+                depsCache.put(makeNonUidGlobalKey(descriptor), de);
             }
 
             // See localDependencies comment
@@ -1064,21 +1144,8 @@ public class DefinitionServiceImpl implements DefinitionService {
             context.addLocalDependencyEntry(key, de);
             throw qfe;
         } finally {
-            threadContext.set(null);
+            threadLinker.set(null);
         }
-    }
-
-    private DependencyEntry createDependencyEntry(List<CompilingDef<?>> compiled, String uid,
-                                                  List<ClientLibraryDef> clientLibs) {
-        Set<DefDescriptor<? extends Definition>> deps = Sets.newLinkedHashSet();
-        // level sorting is important for css and aura:library dependency ordering
-        Collections.sort(compiled);
-
-        for (CompilingDef<?> cd : compiled) {
-            deps.add(cd.descriptor);
-        }
-
-        return new DependencyEntry(uid, Collections.unmodifiableSet(deps), clientLibs);
     }
 
     /**
@@ -1098,12 +1165,12 @@ public class DefinitionServiceImpl implements DefinitionService {
      * @param descriptor the descriptor, used for both global and local cache lookups.
      * @return the DependencyEntry or null if none present.
      */
+    @CheckForNull
     private DependencyEntry getDE(@CheckForNull String uid, @Nonnull DefDescriptor<?> descriptor) {
         // See localDependencies comment
         AuraContext context = contextService.getCurrentContext();
-        boolean modulesEnabled = context.isModulesEnabled();
         Cache<String, DependencyEntry> depsCache = cachingService.getDepsCache();
-        String key = makeLocalKey(descriptor, modulesEnabled);
+        String key = makeLocalKey(descriptor);
         DependencyEntry de;
 
         if (uid != null) {
@@ -1112,14 +1179,14 @@ public class DefinitionServiceImpl implements DefinitionService {
                 return de;
             }
             // retrieves correct DE via module addition to cache key
-            de = depsCache.getIfPresent(makeGlobalKey(uid, descriptor, modulesEnabled));
+            de = depsCache.getIfPresent(makeGlobalKey(uid, descriptor));
         } else {
             // See localDependencies comment
             de = context.getLocalDependencyEntry(key);
             if (de != null) {
                 return de;
             }
-            de = depsCache.getIfPresent(makeNonUidGlobalKey(descriptor, modulesEnabled));
+            de = depsCache.getIfPresent(makeNonUidGlobalKey(descriptor));
         }
         if (de != null) {
             // See localDependencies comment
@@ -1129,457 +1196,111 @@ public class DefinitionServiceImpl implements DefinitionService {
     }
 
     /**
-     * Build a DE 'in place' with no tree traversal.
+     * Load a DE 'in place' with no tree traversal.
      */
-    private <D extends Definition> void buildDE(@Nonnull DependencyEntry de, @Nonnull DefDescriptor<?> descriptor)
+    private <D extends Definition> void loadDE(@Nonnull DependencyEntry de) {
+        AuraContext context = contextService.getCurrentContext();
+        for (Map.Entry<DefDescriptor<?>, Definition> entry : de.dependencyMap.entrySet()) {
+            context.addLocalDef(entry.getKey(), entry.getValue());
+        }
+    }
+
+    private final ThreadLocal<AuraLinker> threadLinker = new ThreadLocal<>();
+
+    @Override
+    public void warmCaches() {
+        AuraContext context = contextService.getCurrentContext();
+        Cache<DefDescriptor<?>, Optional<? extends Definition>> defsCache = cachingService.getDefsCache();
+        AuraLinker linker = new AuraLinker(null, defsCache,
+                cachingService.getDefDescriptorByNameCache(),
+                loggingService, configAdapter, accessChecker, context.getAuraLocalStore(),
+                context.getAccessCheckCache(), context.getRegistries());
+        linker.addMap(globalControllerDefRegistry.getAll());
+        long startTime = System.currentTimeMillis();
+        long incremental;
+
+        DefType [] types = new DefType [] { DefType.LIBRARY, DefType.COMPONENT, DefType.MODULE, DefType.APPLICATION };
+
+        for (DefRegistry registry : context.getRegistries().getAllRegistries()) {
+            if (registry instanceof CompilingDefRegistry
+                    || (registry instanceof BundleAwareDefRegistry && registry.isCacheable())) {
+                incremental = System.currentTimeMillis();
+                for (String namespace : registry.getNamespaces()) {
+                    for (DefType type : types) {
+                        DescriptorFilter filter = new DescriptorFilter(namespace+":*", type);
+                        linker.warmDefinitions(registry.find(filter));
+                    }
+                }
+                incremental = System.currentTimeMillis() - incremental;
+                loggingService.info("warmCaches: PROCESSED CompilingDefRegistry with namespaces = "+registry.getNamespaces()
+                        +", time = "+incremental);
+            } else {
+                loggingService.warn("warmCaches: SKIP "+registry.getClass().getSimpleName()
+                            +" with prefixes="+registry.getPrefixes()
+                            +" with namespace="+registry.getNamespaces()
+                            +" with defTypes="+registry.getDefTypes());
+            }
+        }
+        long elapsedTime = System.currentTimeMillis() - startTime;
+        loggingService.info("warmCaches(END): Total time ="+elapsedTime);
+    }
+
+    private UsageMap<PropertyReference> getReferenceUsageMap(String root,
+            Map<DefDescriptor<? extends Definition>, Definition> defs) {
+        return defs.entrySet().stream().collect(
+                Collector.of(new UsageMapSupplier<PropertyReference>(),
+                    new GlobalReferenceVisitor(root),
+                    new UsageMapCombiner<PropertyReference>()));
+    }
+
+    private Set<PropertyReference> buildRefs(String root, Map<DefDescriptor<? extends Definition>, Definition> defs)
             throws QuickFixException {
-        CompileContext currentCC;
-        currentCC = new CompileContext(descriptor, contextService.getCurrentContext(),
-                cachingService.getDefsCache(), null);
-        threadContext.set(currentCC);
-        try {
-            validateHelper(currentCC, descriptor);
-            for (DefDescriptor<?> dd : de.dependencies) {
-                validateHelper(currentCC, dd);
-            }
-            finishValidation(currentCC);
-        } finally {
-            threadContext.set(null);
-        }
-    }
-
-    /**
-     * Typesafe helper for buildDE.
-     *
-     * This adds new definitions (unvalidated) to the list passed in. Definitions that were previously built are simply
-     * added to the local cache.
-     *
-     * The quick fix exception case is actually a race condition where we previously had a set of depenendencies, and
-     * something changed, making our set inconsistent. There are no guarantees that during a change all MDRs will have a
-     * correct set of definitions.
-     *
-     * @param descriptor the descriptor for which we need a definition.
-     * @return A compilingDef for the definition, or null if not needed.
-     * @throws QuickFixException if something has gone terribly wrong.
-     */
-    private <D extends Definition> void validateHelper(@Nonnull CompileContext currentCC,
-            @Nonnull DefDescriptor<D> descriptor) throws QuickFixException {
-        CompilingDef<D> compiling = new CompilingDef<>(descriptor);
-        currentCC.compiled.put(descriptor, compiling);
-        if (compiling.def == null && !fillCompilingDef(compiling, currentCC)) {
-            throw new DefinitionNotFoundException(compiling.descriptor);
-        }
-    }
-
-    /**
-     * A compiling definition.
-     *
-     * This embodies a definition that is in the process of being compiled. It stores the descriptor, definition, and
-     * the registry to which it belongs to avoid repeated lookups.
-     */
-    private static class CompilingDef<T extends Definition> implements Comparable<CompilingDef<?>> {
-        public CompilingDef(@Nonnull DefDescriptor<T> descriptor) {
-            this.descriptor = descriptor;
-        }
-
-        /**
-         * The descriptor we are compiling.
-         */
-        @Nonnull
-        public DefDescriptor<T> descriptor;
-
-        /**
-         * The compiled def.
-         *
-         * Should be non-null by the end of compile.
-         */
-        public T def;
-
-        /**
-         * Did we build this definition?.
-         *
-         * If this is true, we need to do the validation steps after finishing.
-         */
-        public boolean built = false;
-
-        /**
-         * The 'level' of this def in the compile tree.
-         */
-        public int level = 0;
-
-        /**
-         * Is this def cacheable?
-         */
-        public boolean cacheable = false;
-
-        /**
-         * have we validated this def yet?
-         */
-        public boolean validated = false;
-
-        @Override
-        public String toString() {
-            StringBuffer sb = new StringBuffer();
-
-            sb.append(descriptor);
-            if (def != null) {
-                sb.append("[");
-                sb.append(def.getOwnHash());
-                sb.append("]");
-
-                sb.append("<");
-                sb.append(level);
-                sb.append(">");
-            } else {
-                sb.append("[not-compiled]");
-            }
-            sb.append(" : built=");
-            sb.append(built);
-            sb.append(", cacheable=");
-            sb.append(cacheable);
-            return sb.toString();
-        }
-
-        @Override
-        public int compareTo(CompilingDef<?> o) {
-            if (o.level != this.level) {
-                return o.level - this.level;
-            }
-            return this.descriptor.compareTo(o.descriptor);
-        }
-    }
-
-    /**
-     * The compile context.
-     *
-     * This class holds the local information necessary for compilation.
-     */
-    private static class CompileContext {
-        public final AuraContext context;
-        public Map<DefDescriptor<? extends Definition>, CompilingDef<?>> compiled = Maps.newHashMap();
-        public final Cache<DefDescriptor<?>, Optional<? extends Definition>> defsCache;
-        public final List<ClientLibraryDef> clientLibs;
-        public final DefDescriptor<? extends Definition> topLevel;
-        public final RegistrySet registries;
-        public final boolean compiling;
-        public int level;
-
-        /** Is this def's dependencies cacheable? */
-        public boolean shouldCacheDependencies;
-
-        public CompileContext(DefDescriptor<? extends Definition> topLevel, AuraContext context,
-                Cache<DefDescriptor<?>, Optional<? extends Definition>> defsCache,
-                List<ClientLibraryDef> clientLibs) {
-            this.defsCache = defsCache;
-            this.context = context;
-            this.registries = context.getRegistries();
-            this.clientLibs = clientLibs;
-            this.topLevel = topLevel;
-            this.level = 0;
-            this.shouldCacheDependencies = true;
-            this.compiling = true;
-        }
-
-        public <D extends Definition> CompilingDef<D> getCompiling(DefDescriptor<D> descriptor) {
-            @SuppressWarnings("unchecked")
-            CompilingDef<D> cd = (CompilingDef<D>) compiled.get(descriptor);
-            if (cd == null) {
-                cd = new CompilingDef<>(descriptor);
-                compiled.put(descriptor, cd);
-            }
-            return cd;
-        }
-
-        private <D extends Definition> void addEntry(DefDescriptor<D> dd, Definition def) {
-            @SuppressWarnings("unchecked")
-            D realDef = (D)def;
-            CompilingDef<D> cd = getCompiling(dd);
-            cd.def = realDef;
-        }
-
-        public void addMap(Map<DefDescriptor<? extends Definition>,Definition> toAdd) {
-            for (Map.Entry<DefDescriptor<? extends Definition>,Definition> entry : toAdd.entrySet()) {
-                addEntry(entry.getKey(), entry.getValue());
-            }
-        }
-    }
-
-    private final ThreadLocal<CompileContext> threadContext = new ThreadLocal<>();
-
-    /**
-     * Fill a compiling def for a descriptor.
-     *
-     * This makes sure that we can get a registry for a given def, then tries to get the def from the global cache, if
-     * that fails, it retrieves from the registry, and marks the def as locally built.
-     *
-     * @param compiling the current compiling def (if there is one).
-     * @throws QuickFixException if validateDefinition caused a quickfix.
-     */
-    private <D extends Definition> boolean fillCompilingDef(CompilingDef<D> compiling,
-            CompileContext currentCC) throws QuickFixException {
-        assert compiling.def == null;
-
-        //
-        // First, check our local cached defs to see if we have a fully compiled version.
-        // in this case, we don't care about caching, since we are done.
-        //
-        // Already compiled defs are retrieved from cache even during recompilation for modules
-        //
-        Optional<D> optLocalDef = currentCC.context.getLocalDef(compiling.descriptor);
-        if (optLocalDef != null) {
-            D localDef = optLocalDef.orNull();
-            if (localDef != null) {
-                compiling.def = localDef;
-                // I think this is no longer possible.
-                compiling.built = !localDef.isValid();
-                if (compiling.built) {
-                    localDef.validateDefinition();
-                }
-                // do not perform expensive isLocalDefNotCacheable() unless needed
-                if (currentCC.shouldCacheDependencies && currentCC.context.isLocalDefNotCacheable(compiling.descriptor)) {
-                    currentCC.shouldCacheDependencies = false;
-                }
-                return true;
-            } else {
-                return false;
-            }
-        }
-
-        @SuppressWarnings("unchecked")
-        Optional<D> opt = (Optional<D>) currentCC.defsCache.getIfPresent(compiling.descriptor);
-        if (opt != null) {
-            D cachedDef = opt.orNull();
-
-            if (cachedDef != null) {
-                @SuppressWarnings("unchecked")
-                DefDescriptor<D> canonical = (DefDescriptor<D>) cachedDef.getDescriptor();
-
-                compiling.cacheable = true;
-                compiling.def = cachedDef;
-                compiling.descriptor = canonical;
-                compiling.built = false;
-                return true;
-            } else {
-                return false;
-            }
-        }
-
-        //
-        // If there is no local cache, we must first check to see if there is a registry, as we may not have
-        // a registry (depending on configuration). In the case that we don't find one, we are done here.
-        //
-        DefRegistry registry = currentCC.registries.getRegistryFor(compiling.descriptor);
-        if (registry == null) {
-            currentCC.context.addLocalDef(compiling.descriptor, null);
-            return false;
-        }
-
-        //
-        // Now, check if we can cache the def later, as we won't have the registry to check at a later time.
-        // If we can cache, look it up in the cache. If we find it, we have a built definition.
-        // Currently, static registries are neither cached, nor do they affect dependency caching
-        //
-        if (configAdapter.isCacheable(registry, compiling.descriptor)) {
-            compiling.cacheable = true;
-        } else {
-            currentCC.shouldCacheDependencies = false;
-            currentCC.context.setLocalDefNotCacheable(compiling.descriptor);
-        }
-
-        //
-        // The last case. This is our first compile or the def is uncacheable.
-        // In this case, we make sure that the initial validation is called, and put
-        // the def in the 'built' set.
-        //
-        compiling.def = registry.getDef(compiling.descriptor);
-        if (compiling.def == null) {
-            return false;
-        }
-        compiling.built = true;
-        @SuppressWarnings("unchecked")
-        DefDescriptor<D> canonical = (DefDescriptor<D>) compiling.def.getDescriptor();
-        compiling.descriptor = canonical;
-        if (!registry.isStatic()) {
-            loggingService.incrementNum(LoggingService.DEF_COUNT);
-            compiling.def.validateDefinition();
-        }
-
-        return true;
-    }
-
-    /**
-     * A private helper routine to make the compiler code more sane.
-     *
-     * @param descriptor the descriptor that we are currently handling, must not be in the compiling defs.
-     * @param cc the compile context to allow us to accumulate information.
-     * @param stack the incoming stack (linked hash set, so order is preserved).
-     * @param parent the direct parent of the definition we are looking up.
-     * @throws QuickFixException if the definition is not found, or validateDefinition() throws one.
-     */
-    private <D extends Definition> D getHelper(@Nonnull DefDescriptor<D> descriptor,
-            @Nonnull CompileContext cc, @Nonnull Set<DefDescriptor<?>> stack,
-            @CheckForNull Definition parent) throws QuickFixException {
-        loggingService.incrementNum(LoggingService.DEF_VISIT_COUNT);
-        CompilingDef<D> cd = cc.getCompiling(descriptor);
-        try {
-            if (stack.contains(descriptor)) {
-                // System.out.println("cycle at "+stack+" "+descriptor);
-                return null;
-            }
-            if (cc.level > cd.level) {
-                cd.level = cc.level;
-            } else {
-                if (cd.def != null) {
-                    return cd.def;
-                }
-            }
-            cc.level += 1;
-            stack.add(descriptor);
+        GlobalValueProvider provider = contextService.getCurrentContext().getGlobalProviders().get(root);
+        Map<Throwable, Collection<Location>> errors = Maps.newLinkedHashMap();
+        Set<PropertyReference> result = Sets.newHashSet();
+        UsageMap<PropertyReference> refs = getReferenceUsageMap(root, defs);
+        for (Map.Entry<PropertyReference, Set<Location>> entry: refs.entrySet()) {
             try {
-                //
-                // careful here. We don't just return with the non-null def because that breaks our levels.
-                // We need to walk the whole tree, which is unfortunate perf-wise.
-                //
-                if (cd.def == null) {
-                    if (!fillCompilingDef(cd, cc)) {
-                        // No def. Blow up.
-                        Location l = null;
-                        if (parent != null) {
-                            l = parent.getLocation();
-                        }
-                        stack.remove(descriptor);
-                        String stackInfo = null;
-                        if (stack.size() > 0) {
-                            stackInfo = stack.toString();
-                        }
-                        throw new DefinitionNotFoundException(descriptor, l, stackInfo);
-                    }
-                    // get client libs
-                    if (cc.clientLibs != null && cd.def instanceof BaseComponentDef) {
-                        BaseComponentDef baseComponent = (BaseComponentDef) cd.def;
-                        baseComponent.addClientLibs(cc.clientLibs);
-                    }
-                }
-
-                Set<DefDescriptor<?>> newDeps = Sets.newHashSet();
-                cd.def.appendDependencies(newDeps);
-
-                for (DefDescriptor<?> dep : newDeps) {
-                    getHelper(dep, cc, stack, cd.def);
-                }
-
-                return cd.def;
-            } finally {
-                cc.level -= 1;
-                stack.remove(descriptor);
-            }
-        } finally {
-            if (parent != null && cd.def != null) {
-                assertAccess(parent.getDescriptor(), cd.def);
+                provider.validate(entry.getKey());
+                result.add(entry.getKey());
+            } catch (InvalidExpressionException iee) {
+                errors.put(iee, entry.getValue());
             }
         }
+        if (errors.size() > 0) {
+            throw new CompositeValidationException("Unable to load values for "+root, errors);
+        }
+        return result;
     }
 
-    /**
-     * finish up the validation of a set of compiling defs.
-     *
-     */
-    private void finishValidation(CompileContext currentCC) throws QuickFixException {
-        int iteration = 0;
-        List<CompilingDef<?>> compiling = null;
+    @Override
+    public Set<String> getGlobalReferences(String root, Map<DefDescriptor<? extends Definition>, Definition> defs)
+            throws QuickFixException {
+        Set<PropertyReference> refs = buildRefs(root, defs);
+        Set<String> result = Sets.newHashSet();
 
-        //
-        // Validate our references. This part is uh, painful.
-        // Turns out that validating references can pull in things we didn't see, so we
-        // loop infinitely... or at least a few times.
-        //
-        // This can be changed once we remove the ability to nest, as we will never allow
-        // this. That way we won't have to copy our list so many times.
-        //
-        do {
-            compiling = Lists.newArrayList(currentCC.compiled.values());
-
-            for (CompilingDef<?> cd : compiling) {
-                currentCC.context.pushCallingDescriptor(cd.descriptor);
-                try {
-                    if (cd.built && !cd.validated) {
-                        if (iteration != 0) {
-                            //logger.warn("Nested add of " + cd.descriptor + " during validation of "
-                            //        + currentCC.topLevel);
-                            // throw new
-                            // AuraRuntimeException("Nested add of "+cd.descriptor+" during validation of "+currentCC.topLevel);
-                        }
-                            cd.def.validateReferences();
-                        cd.validated = true;
-                    }
-                } finally {
-                    currentCC.context.popCallingDescriptor();
-                }
-            }
-            iteration += 1;
-        } while (compiling.size() < currentCC.compiled.size());
-
-        //
-        // And finally, mark everything as happily compiled.
-        //
-        for (CompilingDef<?> cd : compiling) {
-            if (cd.def != null) {
-                currentCC.context.addLocalDef(cd.descriptor, cd.def);
-                if (cd.built) {
-                    if (cd.cacheable) { // false for non-internal namespaces, or non-cacheable registries
-                        currentCC.defsCache.put(cd.descriptor, Optional.of(cd.def));
-                    }
-                    cd.def.markValid();
-                }
-            } else {
-                throw new AuraRuntimeException("Missing def for " + cd.descriptor + " during validation of "
-                        + currentCC.topLevel);
-            }
+        for (PropertyReference pr : refs) {
+            result.add(pr.toString());
         }
+        return result;
     }
 
-    /**
-     * Compile a single definition, finding all of the static dependencies.
-     *
-     * This is the primary entry point for compiling a single definition. The basic guarantees enforced here are:
-     * <ol>
-     * <li>Each definition has 'validateDefinition()' called on it exactly once.</li>
-     * <li>No definition is marked as valid until all definitions in the dependency set have been validated</li>
-     * <li>Each definition has 'validateReferences()' called on it exactly once, after the definitions have been put in
-     * local cache</li>
-     * <li>All definitions are marked valid by the DefRegistry after the validation is complete</li>
-     * <li>No definition should be available to other threads until it is marked valid</li>
-     * <ol>
-     *
-     * In order to do all of this, we keep a set of 'compiling' definitions locally, and use that to calculate
-     * dependencies and walk the tree. Circular dependencies are handled gracefully, and no other thread can interfere
-     * because everything is local.
-     *
-     * FIXME: this should really cache invalid definitions and make sure that we don't bother re-compiling until there
-     * is some change of state. However, that is rather more complex than it sounds.... and shouldn't really manifest
-     * much in a released system.
-     *
-     * @param descriptor the descriptor that we wish to compile.
-     */
-    @CheckForNull
-    private <D extends Definition> D compileDef(@Nonnull DefDescriptor<D> descriptor,
-            @Nonnull CompileContext currentCC, boolean nested) throws QuickFixException {
-        D def;
-
-        if (!nested) {
-            loggingService.startTimer(LoggingService.TIMER_DEFINITION_CREATION);
+    @Override
+    public void populateGlobalValues(String root, Map<DefDescriptor<? extends Definition>, Definition> defs)
+            throws QuickFixException {
+        GlobalValueProvider provider = contextService.getCurrentContext().getGlobalProviders().get(root);
+        Map<Throwable, Collection<Location>> errors = Maps.newLinkedHashMap();
+        UsageMap<PropertyReference> refs = getReferenceUsageMap(root, defs);
+        for (Map.Entry<PropertyReference, Set<Location>> entry: refs.entrySet()) {
+            try {
+                provider.validate(entry.getKey());
+                provider.getValue(entry.getKey());
+            } catch (InvalidExpressionException iee) {
+                errors.put(iee, entry.getValue());
+            }
         }
-        try {
-            Set<DefDescriptor<?>> stack = Sets.newLinkedHashSet();
-            def = getHelper(descriptor, currentCC, stack, null);
-            if (!nested) {
-                finishValidation(currentCC);
-            }
-            return def;
-        } finally {
-            if (!nested) {
-                loggingService.stopTimer(LoggingService.TIMER_DEFINITION_CREATION);
-            }
+        if (errors.size() > 0) {
+            throw new CompositeValidationException("Unable to load values for "+root, errors);
         }
     }
 }

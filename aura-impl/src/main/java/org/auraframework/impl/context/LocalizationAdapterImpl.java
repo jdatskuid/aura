@@ -23,7 +23,6 @@ import java.util.TimeZone;
 
 import javax.inject.Inject;
 
-import org.apache.log4j.Logger;
 import org.auraframework.adapter.LocalizationAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.impl.util.AuraLocaleImpl;
@@ -36,7 +35,6 @@ import org.springframework.context.annotation.Lazy;
 @Lazy
 @ServiceComponent
 public class LocalizationAdapterImpl implements LocalizationAdapter, TestableLocalizationAdapter {
-    Logger logger = Logger.getLogger(LocalizationAdapterImpl.class);
 
     @Inject
     private ContextService contextService;
@@ -83,6 +81,18 @@ public class LocalizationAdapterImpl implements LocalizationAdapter, TestableLoc
         Map<String, String> tomorrowLabels = new HashMap<>();
         tomorrowLabels.put("en_US", "Tomorrow");
         labels.put("task_mode_tomorrow", tomorrowLabels);
+
+        Map<String, String> formatLabels = new HashMap<>();
+        formatLabels.put("en_US", "Format {0}");
+        labels.put("format_one", formatLabels);
+
+        formatLabels = new HashMap<>();
+        formatLabels.put("en_US", "Format {0} {1}");
+        labels.put("format_two", formatLabels);
+
+        formatLabels = new HashMap<>();
+        formatLabels.put("en_US", "Format {0} {1} {2}");
+        labels.put("format_three", formatLabels);
     }
 
     @Override
@@ -171,4 +181,8 @@ public class LocalizationAdapterImpl implements LocalizationAdapter, TestableLoc
         return section + "." + name;
     }
 
+    @Override
+    public Boolean showJapaneseImperialYear() {
+        return false;
+    }
 }

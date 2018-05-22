@@ -6,14 +6,22 @@
     testGetExternalAction : {
         test: [
             function(cmp) {
-                var eAction = $A.test.getExternalAction(cmp, "java://org.auraframework.components.test.java.controller.TestController/ACTION$getNamedComponent",
+                var eAction = $A.test.getExternalAction(cmp,
+                        // Action
+                        "java://org.auraframework.components.test.java.controller.TestController/ACTION$getNamedComponent",
+                        // Params
                         {"componentName":"markup://aura:text", 'attributes':{'value':'valuable'}},
+                        // Return Type
                         "java://org.auraframework.instance.component",
+                        // Callback
                         function(action){
                             $A.test.assertTrue(action.state === "SUCCESS");
                         });
-                $A.test.addWaitForWithFailureMessage(true, function() { return $A.test.areActionsComplete([eAction]); },
-                        "external action didn't finish");
+
+                $A.test.addWaitForWithFailureMessage(true, function() {
+                    return $A.test.areActionsComplete([eAction]);
+                }, "external action didn't finish");
+
                 $A.enqueueAction(eAction);
             }
         ]
@@ -319,7 +327,7 @@
             var callbackCalled = false;
             var action = cmp.get("c.executeInForeground");
 
-            cmp.destroy(false);
+            cmp.destroy();
             $A.test.assertFalse(cmp.isValid());
 
             $A.enqueueAction(action);
@@ -354,13 +362,16 @@
         }
     },
 
-    // the test will get into infinite reload because of coos so disable for now.
-    _testActionWithErrorsIsErrorState: {
+    testActionWithErrorsIsErrorState: {
         test: function(cmp) {
-            var callbackCalled = false;
-            var action = cmp.get("c.throwsClientOutOfSyncException");
+            var successCallbackCalled = false;
+            var errorCallbackCalled = false;
+            var action = cmp.get("c.throwsException");
             action.setCallback(this, function(a) {
-                callbackCalled = true;
+                successCallbackCalled = true;
+            }, "SUCCESS");
+            action.setCallback(this, function(a) {
+                errorCallbackCalled = true;
             }, "ERROR");
 
             $A.enqueueAction(action);
@@ -369,8 +380,10 @@
                 function(){ return $A.test.areActionsComplete([action]); },
                 function() {
                     $A.test.assertEquals("ERROR", action.getState());
-                    $A.test.assertFalse(callbackCalled,
-                            "ERROR callback should not get called.");
+                    $A.test.assertEquals(true, errorCallbackCalled,
+                        "ERROR callback should get called.");
+                    $A.test.assertEquals(false, successCallbackCalled,
+                        "SUCCESS callback should not get called.");
                 });
         }
     },
@@ -410,17 +423,6 @@
                 throw new Error("this is intentional");
             });
             $A.run(function() { $A.enqueueAction(a); });
-            $A.test.addWaitFor(true, function() { return $A.test.areActionsComplete([a]); });
-        }
-    },
-
-    testRunActionsCallbackJavascriptError : {
-        test : function(cmp) {
-            $A.test.expectAuraError("this is intentional");
-            var a = $A.test.getAction(cmp, "c.executeInForeground", null, function() {
-                throw new Error("this is intentional");
-            });
-            $A.enqueueAction(a);
             $A.test.addWaitFor(true, function() { return $A.test.areActionsComplete([a]); });
         }
     },
@@ -485,6 +487,7 @@
         test : function(cmp) {
             $A.test.expectAuraWarning("unused configs");
             var action = $A.get("c.aura://ComponentController.getComponent");
+            var actionComplete = false;
             action.setParams({
                 "name" : "markup://loadLevelTest:serverComponent"
             });
@@ -492,12 +495,13 @@
                 if (a.getState() === "SUCCESS") {
                     // Here is where the config should normally be consumed
                 }
+                actionComplete = true;
             });
             $A.run(function(){
                 $A.enqueueAction(action);
             });
 
-            $A.test.addWaitFor(false, $A.test.isActionPending, function(){
+            $A.test.addWaitFor(true, function(){return actionComplete}, function(){
                 // This test will fail if we don't get the warning specificed by the $A.test.expectAuraWarning()
                 // call above. This wait is just to ensure the Action code finishes.
             });
@@ -548,7 +552,35 @@
 
                 // Wait for the callback to successfully come back
                 $A.test.addWaitFor(expected, function() { return actual; }, function(){});
+            },
+
+            /**
+             * Call getComponent directly.
+             */
+            function(cmp) {
+                var expected = "SUCCESS";
+                var actual = null;
+                var action = $A.get("c.aura://ComponentController.getComponent");
+                action.setParams({
+                    "name" : "markup://aura:if",
+                    "attributes": {
+                        "isTrue": true,
+                        "body": [cmp]
+                    }
+                });
+                action.setCallback(this, function(a, state, error) {
+                    var error = a.getError()[0];
+                    if(error) {
+                        $A.test.fail("Receieved an error from the server: " + error.message);
+                    }
+                    actual = a.getState();
+                });
+
+                $A.enqueueAction(action);
+
+                $A.test.addWaitFor(expected, function() { return actual; }, function(){});
             }
+
         ]
     },
 

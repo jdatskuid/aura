@@ -29,6 +29,7 @@ import org.auraframework.system.AuraContext;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 /**
  * Client Library Definition: Specifies name, url, type, and modes of client library
@@ -41,6 +42,7 @@ public final class ClientLibraryDefImpl extends DefinitionImpl<ClientLibraryDef>
     private final Type type;
     private final Set<AuraContext.Mode> modes;
     private final int myHashCode;
+    private final boolean shouldPrefetch;
 
     protected ClientLibraryDefImpl(Builder builder) {
         super(builder);
@@ -48,6 +50,7 @@ public final class ClientLibraryDefImpl extends DefinitionImpl<ClientLibraryDef>
         this.type = builder.type;
         this.name = builder.name;
         this.modes = builder.modes;
+        this.shouldPrefetch = builder.shouldPrefetch;
 
         int val = 0;
 
@@ -86,8 +89,8 @@ public final class ClientLibraryDefImpl extends DefinitionImpl<ClientLibraryDef>
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
-        super.validateReferences();
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        super.validateReferences(validationContext);
     }
 
     @Override
@@ -103,6 +106,11 @@ public final class ClientLibraryDefImpl extends DefinitionImpl<ClientLibraryDef>
     @Override
     public Set<AuraContext.Mode> getModes() {
         return this.modes;
+    }
+    
+    @Override
+    public boolean shouldPrefetch() {
+        return this.shouldPrefetch;
     }
 
     @Override
@@ -169,6 +177,7 @@ public final class ClientLibraryDefImpl extends DefinitionImpl<ClientLibraryDef>
         private String name;
         private Type type;
         private Set<AuraContext.Mode> modes;
+        private boolean shouldPrefetch;
 
         public Builder() {
             super(ClientLibraryDef.class);
@@ -196,6 +205,13 @@ public final class ClientLibraryDefImpl extends DefinitionImpl<ClientLibraryDef>
         @Override
         public ClientLibraryDefBuilder setModes(Set<AuraContext.Mode> modes) {
             this.modes = modes;
+            return this;
+        }
+        
+
+        @Override
+        public ClientLibraryDefBuilder setShouldPrefetch(boolean shouldPrefetch) {
+            this.shouldPrefetch = shouldPrefetch;
             return this;
         }
 

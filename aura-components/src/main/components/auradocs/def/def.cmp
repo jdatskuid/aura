@@ -75,12 +75,12 @@
 	        	<auradocs:stretchEditorPanel title="Source" descriptor="{!v.descriptor}" defType="{!v.defType}"/>
 	       	</aura:if>
 	 
-	        <aura:iteration items="{!m.defs}" var="def">
-	            <auradocs:stretchEditorPanel title="{!def.name}" descriptor="{!def.descriptor}" defType="{!def.defType}" includeDefName="{! def.includeDefName}"/>
+	        <aura:iteration items="{!m.defs}" var="item">
+	            <auradocs:stretchEditorPanel title="{!item.name}" descriptor="{!item.descriptor}" defType="{!item.defType}" includeDefName="{! item.includeDefName}"/>
 	        </aura:iteration>
 	
-	        <aura:iteration items="{!m.includeDefs}" var="def">
-	            <auradocs:stretchEditorPanel title="{!def.includeDefName + '.js'}" descriptor="{!def.descriptor}" defType="{!def.defType}" includeDefName="{! def.includeDefName}"/>
+	        <aura:iteration items="{!m.includeDefs}" var="item">
+	            <auradocs:stretchEditorPanel title="{!item.includeDefName + '.js'}" descriptor="{!item.descriptor}" defType="{!item.defType}" includeDefName="{! item.includeDefName}"/>
 	        </aura:iteration>
 
 	        <auradocs:stretchTab title="Dependencies">
@@ -89,9 +89,11 @@
 
         <!-- findInstancesOf cannot traverse if or renderIf -->
         <!--aura:if isTrue="{!m.documentation != null &amp;&amp; m.documentation.hasExamples}"-->
-	        <auradocs:stretchTab title="Examples">
-	            <auradocs:examplesc name="{!v.descriptor}"/>
-	        </auradocs:stretchTab>
+            <aura:if isTrue="{! !equals(m.namespace,'lightning') }">
+    	        <auradocs:stretchTab title="Examples">
+    	            <auradocs:examplesc name="{!v.descriptor}"/>
+    	        </auradocs:stretchTab>
+            </aura:if>
 	    <!--/aura:if--> 
 
 	        <!-- Only show source for tests -->

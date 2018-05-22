@@ -165,7 +165,7 @@
     // test date picker focus on initial render when setFocus = false
     testDatePickerSetFocusFalse: {
         browsers: ['DESKTOP'],
-        attributes: {"renderItem": "testDatepickerSetFocus", "setFocus": "false"},
+        attributes: {"renderItem": "testDatepickerSetFocus", "setFocus": false},
         test: function(cmp) {
 
             $A.test.addWaitFor(true, function(){return !!document.querySelector("td.slds-is-today.slds-is-selected")},
@@ -181,12 +181,13 @@
     // test date picker focus on initial render when setFocus = true
     testDatePickerSetFocusTrue: {
         browsers: ['DESKTOP'],
-        attributes: {"renderItem": "testDatepickerSetFocus", "setFocus": "true"},
+        attributes: {"renderItem": "testDatepickerSetFocus", "setFocus": true},
         test: [function(cmp) {
-            var tagName = $A.test.getActiveElement().tagName;
-            $A.test.assertEquals('TD', tagName,
-                'with SetFocus=true, focused elm should be a "TD" tag'
-            );
+            $A.test.addWaitForWithFailureMessage(true, function(){
+                var actualTagName = $A.test.getActiveElement().tagName;
+                var expectedTagName = "TD";
+                return expectedTagName == actualTagName;
+            }, 'with SetFocus=true, focused elm should be a "TD" tag but was '+ $A.test.getActiveElement().tagName +' tag');
         }]
     },
 

@@ -20,31 +20,27 @@ minimum_code_coverage_percentage: 0
 
 # Content between here and the end of the file, while it must be valid YAML,
 # is currently read textually by Zen. The order of the sections cannot change.
-itest:
-  codeline: main
-  modules:
-    aura:
-      optional_history_file: null
-      properties_name: org.auraframework
-  ftest_labels: [~ignore,aura.sanity,aura.precheckin,one.precheckin,precheckin,precheckin.phantomjs]
-  ab_enabled: true
 
 script:
   localedef -v -c -i en_US -f UTF-8 en_US.UTF-8
   rm -r {node,node_modules} || true
   wget --quiet --recursive --no-parent --reject "index.html*" --level=99 http://localhost/node_modules/ || true
   wget --quiet --recursive --no-parent --reject "index.html*" --level=99 http://localhost/node/ || true
+  nodedir="`pwd`/node"
   chmod -R 0755 localhost
   sudo unmount /dev/shm
   sudo mount -t tmpfs -o rw,nosuid,nodev,noexec,relatime,size=512M,tmpfs /dev/shm
   mv localhost/* .
-  mkdir -p /home/mvn-user/.m2
-  sed -i 's/1024x768x24/960x640x16/g' /home/mvn-user/.profile
   cp settings.xml /home/mvn-user/.m2/settings.xml
   chown -R mvn-user /home/mvn-user/.m2
   chown -R mvn-user $(pwd)
-  sudo -iu mvn-user bash -c "cd $(pwd);mvn clean deploy $MAVEN_ARGS -Dmaven.repo.local=$(pwd)/.m2/repository -DaltDeploymentRepository=zen::default::file://$(pwd)/$LOCAL_DEPLOY_DIR -Dnode.download.root.url=http://localhost/node/ -Dchromedriver.download.root.url=http://localhost/chromedriver -Dnpm.download.root.url=http://localhost/npm/" || export status=$? || true
-  sudo -iu mvn-user bash -c "cd $(pwd);set -x;export LANG=\"en_US.UTF-8\";mvn post-integration-test $MAVEN_ARGS -Dmaven.repo.local=$(pwd)/.m2/repository -DaltDeploymentRepository=zen::default::file://$(pwd)/$LOCAL_DEPLOY_DIR -Dnode.download.root.url=http://localhost/node/ -Dchromedriver.download.root.url=http://localhost/chromedriver -Dnpm.download.root.url=http://localhost/npm/ -Pdesktop -DskipJsDoc -DskipComponentCompile -DskipUnitTests -DrunIntTests -Dwebdriver.browser.type=GOOGLECHROME -Dwebdriver.chrome.nosandbox=true -Dwebdriver.reusebrowser=true -Dwebdriver.timeout=90 -Dwebdriver.timeout.getdriver=30 -DtestThreadCount=3" || export status=$? || true
+  status=0
+  rm */target/eslint-output || true
+  sudo -iu mvn-user bash -c "cd $(pwd);mvn pre-clean $MAVEN_ARGS -Dmaven.repo.local=$(pwd)/.m2/repository -Dnode.download.root.url=http://localhost/node/ -Dnpm.download.root.url=http://localhost/npm/ -Deslint.enabled -Peslint || { cat */target/eslint-output; exit 1; }" || export status=$? || true
+  [ ${status} -eq 0 ] && sudo -iu mvn-user bash -c "cd $(pwd);mvn -pl aura-modules tools:eslint-lwc" || export status=$? || true
+  [ ${status} -eq 0 ] && sudo -iu mvn-user bash -c "cd $(pwd);set -x;export LANG=\"en_US.UTF-8\";${nodedir}/node aura-util/src/test/tools/xUnit/xUnit.js.Console.js /dependency:aura-util/src/test/tools/xUnit/dependencies /strict:false /verbose:false aura-impl/src/test/javascript/ aura-components/src/test/javascript" || export status=$? || true
+  [ ${status} -eq 0 ] && sudo -iu mvn-user bash -c "cd $(pwd);mvn clean deploy $MAVEN_ARGS -Dmaven.repo.local=$(pwd)/.m2/repository -DaltDeploymentRepository=zen::default::file://$(pwd)/$LOCAL_DEPLOY_DIR -Dnode.download.root.url=http://localhost/node/ -Dchromedriver.download.root.url=http://localhost/chromedriver -Dnpm.download.root.url=http://localhost/npm/ -Deslint.enabled" || export status=$? || true
+  [ ${status} -eq 0 ] && sudo -iu mvn-user bash -c "cd $(pwd);set -x;export LANG=\"en_US.UTF-8\";mvn verify $MAVEN_ARGS -Dmaven.repo.local=$(pwd)/.m2/repository -DaltDeploymentRepository=zen::default::file://$(pwd)/$LOCAL_DEPLOY_DIR -Dnode.download.root.url=http://localhost/node/ -Dchromedriver.download.root.url=http://localhost/chromedriver -Dnpm.download.root.url=http://localhost/npm/ -Pdesktop -DskipJsDoc -DskipComponentCompile -DskipUnitTests -DrunIntTests -Dwebdriver.browser.type=GOOGLECHROME -Dwebdriver.chrome.nosandbox=true -Dwebdriver.reusebrowser=true -Dwebdriver.timeout=90 -Dwebdriver.timeout.getdriver=30 -DtestThreadCount=3" || export status=$? || true
   chown -R $ORIG_UID:$ORIG_UID $(pwd)
   exit ${status:-0}
 # It is currently required that there be an empty line following the script: section
@@ -53,8 +49,7 @@ script:
 # container, the commands in the script: section will be executed. No Zen-specific content
 # can be added.
 build:
-  image: ops0-artifactrepo1-0-prd.data.sfdc.net/dci/centos-aura-tools@sha256:a93bef87b76ccd5adae296acd22ee7b7b70f49d4540e41e83ac477f39c7ac979
-  pull: true
+  image: ops0-artifactrepo1-0-prd.data.sfdc.net/aura/aura-build-base:0c4c3d8@sha256:adf3275858adf94af041304a4b91f51b803aa5c315633d0065e164c436c3139b
   auth_config:
     username: $$DOCKER_USERNAME
     password: $$DOCKER_PASSWORD
@@ -62,14 +57,13 @@ build:
     ORIG_UID: $$UID
     MAVEN_ARGS: $$MAVEN_ARGS
     LOCAL_DEPLOY_DIR: $$LOCAL_DEPLOY_DIR
-  add_hosts:
-    - external-tools
+  extra_hosts:
+    - external-deps
   commands:
     - ./.zenbuild.sh
 compose:
-  external-tools:
-    image: ops0-artifactrepo1-0-prd.data.sfdc.net/dci/alpine-aura-tools-external@sha256:8b4febf1eff36ef5fca0d17b6561ef9305c86a6bd194e1372152c9bc2ffc1a05
-    pull: true
+  external-deps:
+    image: ops0-artifactrepo1-0-prd.data.sfdc.net/aura/aura-build-external-deps:f2520e5@sha256:cf345c72e641882504e69d07b949f7c42a0f1ab0231d667e05d369d212595559
     auth_config:
       username: $$DOCKER_USERNAME
       password: $$DOCKER_PASSWORD

@@ -22,6 +22,7 @@ import org.auraframework.def.Definition;
 import org.auraframework.impl.util.AuraUtil;
 import org.auraframework.impl.util.TypeParser;
 import org.auraframework.impl.util.TypeParser.Type;
+import org.auraframework.service.ContextService;
 import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.AuraTextUtil;
@@ -44,7 +45,6 @@ public class DefDescriptorImpl<T extends Definition> implements DefDescriptor<T>
     private final int hashCode;
 
     public DefDescriptorImpl(DefDescriptor<?> associate, Class<T> defClass, String newPrefix) {
-        this.bundle = null;
         this.defType = DefType.getDefType(defClass);
         this.prefix = newPrefix;
         this.name = associate.getName();
@@ -53,6 +53,12 @@ public class DefDescriptorImpl<T extends Definition> implements DefDescriptor<T>
         this.descriptorName = buildDescriptorName(prefix, namespace, name);
         int pos = name.indexOf('<');
         this.nameParameters = pos >= 0 ? name.substring(pos).replaceAll("\\s", "") : null;
+        // FIXME This is a bit ugly.
+        if (this.defType == DefType.TESTSUITE) {
+            this.bundle = associate;
+        } else {
+            this.bundle = null;
+        }
         this.hashCode = createHashCode();
     }
 
@@ -76,7 +82,7 @@ public class DefDescriptorImpl<T extends Definition> implements DefDescriptor<T>
     }
 
     @Deprecated
-    public DefDescriptorImpl(String qualifiedName, Class<T> defClass, DefDescriptor<?> bundle) {
+    public DefDescriptorImpl(String qualifiedName, Class<T> defClass, DefDescriptor<?> bundle, ContextService contextService) {
         this.bundle = bundle;
         this.defType = DefType.getDefType(defClass);
         if (AuraTextUtil.isNullEmptyOrWhitespace(qualifiedName)) {
@@ -144,6 +150,7 @@ public class DefDescriptorImpl<T extends Definition> implements DefDescriptor<T>
             case LIBRARY:
             case DOCUMENTATION:
             case EXAMPLE:
+            case META:
             case TOKENS:
             case DESIGN:
             case SVG:
@@ -165,7 +172,7 @@ public class DefDescriptorImpl<T extends Definition> implements DefDescriptor<T>
         }
 
         if (AuraTextUtil.isNullEmptyOrWhitespace(prefix)) {
-            prefix = Aura.getContextService().getCurrentContext().getDefaultPrefix(defType);
+            prefix = contextService.getCurrentContext().getDefaultPrefix(defType);
             if (prefix != null) {
                 qualifiedName = buildQualifiedName(prefix, namespace, name);
             }
@@ -179,8 +186,8 @@ public class DefDescriptorImpl<T extends Definition> implements DefDescriptor<T>
         this.nameParameters = nameParameters;
     }
 
-    protected DefDescriptorImpl(String qualifiedName, Class<T> defClass) {
-        this(qualifiedName, defClass, null);
+    protected DefDescriptorImpl(String qualifiedName, Class<T> defClass, ContextService contextService) {
+        this(qualifiedName, defClass, null, contextService);
     }
 
     public static String buildQualifiedName(String prefix, String namespace, String name) {
@@ -239,8 +246,10 @@ public class DefDescriptorImpl<T extends Definition> implements DefDescriptor<T>
             return value;
         }
 
-        return compare(dd1.getBundle(), dd2.getBundle());
+        value = compare(dd1.getBundle(), dd2.getBundle());
+        return value;
     }
+
     private int createHashCode() {
         return (bundle == null ? 0 : bundle.hashCode())
                 + AuraUtil.hashCodeLowerCase(name, namespace, prefix, defType.ordinal());
@@ -289,11 +298,7 @@ public class DefDescriptorImpl<T extends Definition> implements DefDescriptor<T>
     @Override
     public boolean equals(Object o) {
         if (o instanceof DefDescriptor) {
-            DefDescriptor<?> e = (DefDescriptor<?>) o;
-            return (bundle == e.getBundle() || (bundle != null && bundle.equals(e.getBundle())))
-                    && getDefType() == e.getDefType() && name.equalsIgnoreCase(e.getName())
-                    && (namespace == null ? e.getNamespace() == null : namespace.equalsIgnoreCase(e.getNamespace()))
-                    && (prefix == null ? e.getPrefix() == null : prefix.equalsIgnoreCase(e.getPrefix()));
+            return compare(this, (DefDescriptor<?>)o) == 0;
         }
         return false;
     }
@@ -333,7 +338,7 @@ public class DefDescriptorImpl<T extends Definition> implements DefDescriptor<T>
     public T getDef() throws QuickFixException {
         return Aura.getDefinitionService().getDefinition(this);
     }
-
+    
     public static <E extends Definition> DefDescriptor<E> getAssociateDescriptor(DefDescriptor<?> desc,
             Class<E> defClass, String newPrefix) {
         if (desc == null) {

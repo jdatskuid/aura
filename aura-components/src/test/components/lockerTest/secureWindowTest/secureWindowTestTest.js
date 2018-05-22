@@ -5,16 +5,19 @@
      */
 
     // LockerService not supported on IE
-    // TODO(W-3674741,W-3674751): FF and iOS browser versions in autobuilds are too far behind
-    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPHONE", "-IPAD"],
+    // TODO(W-3674741, W-4446969): FF and LockerService disabled for iOS browser in 212
+    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-SAFARI", "-IPHONE", "-IPAD"],
 
     setUp: function(cmp) {
         cmp.set("v.testUtils", $A.test);
     },
 
-    test$AExposedOnWindow: {
+    /**
+     * Test that $A is available on window
+     */
+    testDollarAExposedOnWindow: {
         test: function(cmp) {
-            cmp.test$AExposedOnWindow();
+            cmp.testDollarAExposedOnWindow();
         }
     },
 
@@ -47,12 +50,15 @@
 
     testLocationExposedOnWindow: {
         test: function(cmp) {
+            // v.expectedPath is a string and will not be altered by Locker filtering
+            cmp.set("v.expectedPath", window.location.pathname);
             cmp.testLocationExposedOnWindow();
         }
     },
 
     testModifyWindowLocation: {
         test: function(cmp) {
+            cmp.set("v.expectedPath", window.location.pathname);
             cmp.testModifyWindowLocation();
         }
     },
@@ -87,33 +93,45 @@
         }
     },
 
+    testArbitrarySchemes: {
+        // "window.open" will not open a new window for mobile autobuild runs.
+        test: function(cmp) {
+            cmp.testArbitrarySchemes();
+        }
+    },
+
     testOpen_HttpsUrl: {
-        // window.open will not open a new window for mobile autobuild runs
-        browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-IPHONE", "-IPAD"],
+        // "window.open" will not open a new window for mobile autobuild runs.
         test: function(cmp) {
             cmp.testOpen_HttpsUrl();
         }
     },
 
     testOpen_HttpUrl: {
-        // window.open will not open a new window for mobile autobuild runs
-        browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-IPHONE", "-IPAD"],
+        // "window.open" will not open a new window for mobile autobuild runs.
         test: function(cmp) {
             cmp.testOpen_HttpUrl();
         }
     },
 
     testOpen_RelativeUrl:{
-        // window.open will not open a new window for mobile autobuild runs
-        browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-IPHONE", "-IPAD"],
+        // "window.open" will not open a new window for mobile autobuild runs.
         test: function(cmp) {
             cmp.testOpen_RelativeUrl();
         }
     },
 
     testOpen_JavascriptIsBlocked: {
+        // "window.open" will not open a new window for mobile autobuild runs.
         test: function(cmp) {
             cmp.testOpen_JavascriptIsBlocked();
+        }
+    },
+
+    testOpen_UrlRestrictionByPass: {
+        // "window.open" will not open a new window for mobile autobuild runs.
+        test: function(cmp) {
+            cmp.testOpen_UrlRestrictionByPass();
         }
     },
 
@@ -129,16 +147,8 @@
         }
     },
 
-    testBlob_WithScriptTagsBlocked: {
-        test: function (cmp) {
-            cmp.testBlob_WithScriptTagsBlocked();
-        }
-    },
-
     testFile: {
         // window.File is not implemented correctly in iOS 9.2
-        // TODO(W-3674741): FF browser versions in autobuilds are too far behind
-        browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-IPHONE", "-IPAD", "-FIREFOX"],
         test: function(cmp) {
             cmp.testFile();
         }
@@ -146,10 +156,26 @@
 
     testFile_WithScriptTagsBlocked: {
         // window.File is not implemented correctly in iOS 9.2
-        // TODO(W-3674741): FF browser versions in autobuilds are too far behind
-        browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-IPHONE", "-IPAD", "-FIREFOX"],
         test: function (cmp) {
             cmp.testFile_WithScriptTagsBlocked();
+        }
+    },
+
+    testMediaStreamBlocked: {
+        test: function (cmp) {
+            cmp.testMediaStreamBlocked();
+        }
+    },
+
+    testJavascriptPseudoScheme: {
+        test: function(component) {
+            component.testJavascriptPseudoScheme();
+        }
+    },
+
+    testLocationAssign: {
+        test: function(component) {
+            component.testLocationAssign();
         }
     }
 })

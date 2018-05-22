@@ -72,6 +72,7 @@
 
         for (var i = 0; i < columnsDefs.length; i++) {
             columnsDefs[i]["attributes"]["valueProvider"] = ptv;
+            columnsDefs[i]["skipCreationPath"] = true;
             templates.push($A.createComponentFromConfig(columnsDefs[i]));
 
             if (templates[i].isInstanceOf("ui:hasGridEvents")) {
@@ -321,7 +322,9 @@
             clonedRow;
 
         // Change the PTV -> dirty whatever is needed
-        ptv.set(itemVar, item);
+        if ($A.util.isString(itemVar)) {
+            ptv.set(itemVar, item);
+        }
 
         cmp.markClean('v.items'); // Mark ourselves clean before rerender (avoid calling rerender on ourselves)
         $A.renderingService.rerenderDirty('virtualRendering');
@@ -612,7 +615,7 @@
      * rerender the resizer handles natively. 
      */
     hasResizerHandles : function(cmp) {
-    	var handles = cmp.getElement().querySelectorAll(".handle").length;
+    	var handles = cmp.getElement().querySelectorAll("thead .handle").length;
     	var headers = cmp.get("v.headerColumns").length;
     	return handles === headers;
     },

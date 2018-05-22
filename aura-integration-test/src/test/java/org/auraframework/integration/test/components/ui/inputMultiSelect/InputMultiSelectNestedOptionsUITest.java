@@ -15,6 +15,10 @@
  */
 package org.auraframework.integration.test.components.ui.inputMultiSelect;
 
+import org.auraframework.integration.test.util.WebDriverTestCase.ExcludeBrowsers;
+import org.auraframework.test.util.WebDriverUtil.BrowserType;
+
+@ExcludeBrowsers({ BrowserType.IPAD, BrowserType.IPHONE, BrowserType.FIREFOX } )
 public class InputMultiSelectNestedOptionsUITest extends BaseInputMultiSelect {
 
     /**

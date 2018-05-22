@@ -18,10 +18,11 @@ package org.auraframework.http;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringReader;
+import java.io.StringWriter;
+import java.io.Writer;
 import java.net.URI;
 import java.util.Enumeration;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
@@ -36,18 +37,22 @@ import org.apache.http.HttpHeaders;
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.ExceptionAdapter;
 import org.auraframework.adapter.ServletUtilAdapter;
+import org.auraframework.def.ActionDef;
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
+import org.auraframework.http.RequestParam.BooleanParam;
 import org.auraframework.http.RequestParam.EnumParam;
 import org.auraframework.http.RequestParam.InvalidParamException;
 import org.auraframework.http.RequestParam.MissingParamException;
 import org.auraframework.http.RequestParam.StringParam;
 import org.auraframework.instance.Action;
+import org.auraframework.instance.AuraValueProviderType;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
+import org.auraframework.service.InstanceService;
 import org.auraframework.service.LoggingService;
 import org.auraframework.service.SerializationService;
 import org.auraframework.service.ServerService;
@@ -55,12 +60,15 @@ import org.auraframework.system.AuraContext;
 import org.auraframework.system.AuraContext.Format;
 import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.system.Message;
+import org.auraframework.throwable.AuraHandledException;
 import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.ClientOutOfSyncException;
 import org.auraframework.throwable.SystemErrorException;
 import org.auraframework.throwable.quickfix.QuickFixException;
+import org.auraframework.util.json.JsonReader;
 import org.auraframework.util.json.JsonStreamReader.JsonParseException;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
 /**
@@ -118,7 +126,8 @@ public class AuraServlet extends AuraBaseServlet {
     public final static StringParam tag = new StringParam(AURA_PREFIX + "tag", 128, true);
     public final static EnumParam<DefType> defTypeParam = new EnumParam<>(AURA_PREFIX + "deftype", false,
             DefType.class);
-    
+
+    private final static BooleanParam isActionParam = new BooleanParam(AURA_PREFIX + "isAction", false);
     private final static StringParam csrfToken = new StringParam(AURA_PREFIX + "token", 0, true);
     private final static StringParam formatAdapterParam = new StringParam(AURA_PREFIX + "formatAdapter", 0, false);
     private final static StringParam messageParam = new StringParam("message", 0, false);
@@ -131,12 +140,11 @@ public class AuraServlet extends AuraBaseServlet {
     private SerializationService serializationService;
     private LoggingService loggingService;
     private ServerService serverService;
-    private ManifestUtil manifestUtil;
+    private InstanceService instanceService;
 
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        manifestUtil = new ManifestUtil(definitionService, contextService, configAdapter);
     }
 
     /**
@@ -185,7 +193,7 @@ public class AuraServlet extends AuraBaseServlet {
                 int index = sb.indexOf("//");
                 index = sb.indexOf("/", index + 2); // find the 3rd slash, start of path
                 sb.setLength(index);
-                sb.append(uri.getPath());
+                sb.append(path);
                 if (query != null && !query.isEmpty()) {
                     sb.append("?").append(query);
                 }
@@ -195,21 +203,92 @@ public class AuraServlet extends AuraBaseServlet {
                 newLocation = sb.toString();
             }
         } catch (Exception e) {
-            // This exception should never happen.
-            // If happened: log a gack and redirect
-            exceptionAdapter.handleException(e);
+            exceptionAdapter.handleException(
+                    new AuraHandledException("Invalid redirect URL in nocache parameter: " + nocache, e));
         }
 
         servletUtilAdapter.setNoCache(response);
         response.setHeader(HttpHeaders.LOCATION, newLocation);
     }
 
+    /**
+     * Translate a string into a message.
+     *
+     * @param input the input from the customer (unsanitized) to read into a message.
+     * @return a message, or null.
+     * @throws QuickFixException if there is an error instantiating the action (not action not found).
+     */
+    public Message readMessage(String input) throws QuickFixException {
+        if (input == null) {
+            return null;
+        }
+        // this throws a json parse exception if it can't read.
+        Map<?, ?> message = (Map<?, ?>) new JsonReader().read(new StringReader(input));
+        if (message == null) {
+            return null;
+        }
+        List<?> actions = (List<?>) message.get("actions");
+        List<Action> actionList = Lists.newArrayList();
+        if (actions != null) {
+            for (Object action : actions) {
+                Map<?, ?> map = (Map<?, ?>) action;
+
+                // FIXME: ints are getting translated into BigDecimals here.
+                @SuppressWarnings("unchecked")
+                Map<String, Object> params = (Map<String, Object>) map.get("params");
+                String qualifiedName = (String)map.get("descriptor");
+                if (qualifiedName == null) {
+                    // this should never happen, we should not get an empty descriptor.
+                    // If we do, just ignore it, and continue;
+                    continue;
+                }
+                ActionDef def;
+                try {
+                    def = definitionService.getDefinition(qualifiedName, ActionDef.class);
+                } catch (QuickFixException qfe) {
+                    // If this fails, it means either we have incompatible versions, or the client
+                    // has been compromised, or the data is just messed up. In that case just drop
+                    // it on the floor and continue.
+                    continue;
+                }
+                Action instance;
+                try {
+                    instance = (Action) instanceService.getInstance(def, params);
+                } catch (QuickFixException qfe) {
+                    // Don't ignore this. In this case, we have a broken server. It should never really
+                    // happen in production, but it will likely occur during development. In that case
+                    // we'd rather break and let someone figure the breakage out. Note that this is the
+                    // _only_ place we can throw a QFE.
+                    throw qfe;
+                }
+                instance.setId((String) map.get("id"));
+                String cd = (String) map.get("callingDescriptor");
+                if (cd != null && !cd.equals("UNKNOWN")) {
+                    DefDescriptor<ComponentDef> callingDescriptor = definitionService.getDefDescriptor(cd, ComponentDef.class);
+                    instance.setCallingDescriptor(callingDescriptor);
+                }
+                String v = (String) map.get("version");
+                if (v != null) {
+                    instance.setCallerVersion(v);
+                }
+
+                if (map.get("storable") != null) {
+                    instance.setStorable();
+                }
+
+                actionList.add(instance);
+            }
+        }
+
+        return new Message(actionList);
+    }
 
     /**
      * Handle an HTTP GET operation.
      *
-     * The HTTP GET operation is used to retrieve resources from the Aura servlet. It is only used for this purpose,
-     * where POST is used for actions.
+     * The HTTP GET operation is used to retrieve resources from the Aura servlet AND for publicly cacheable actions.
+     *
+     * All other action requests use POST.
      *
      * @see javax.servlet.http.HttpServlet#doGet(javax.servlet.http.HttpServletRequest,
      *      javax.servlet.http.HttpServletResponse)
@@ -227,6 +306,13 @@ public class AuraServlet extends AuraBaseServlet {
         if (servletUtilAdapter.actionServletGetPre(request, response)) {
             return;
         }
+
+        // check if the GET request is for a publicly cacheable action, and if so, handle it
+        if (isActionGetRequest(request)) {
+            handleActionRequest(request, response, true);
+            return;
+        }
+
         //
         // Initial setup. This should never fail.
         //
@@ -282,23 +368,6 @@ public class AuraServlet extends AuraBaseServlet {
         internalGet(request, response, defDescriptor, context);
     }
 
-    private boolean shouldCacheHTMLTemplate(HttpServletRequest request) {
-        AuraContext context = contextService.getCurrentContext();
-        try {
-            DefDescriptor<? extends BaseComponentDef> appDefDesc = context.getLoadingApplicationDescriptor();
-            if (appDefDesc != null && appDefDesc.getDefType().equals(DefType.APPLICATION)) {
-                Boolean isOnePageApp = ((ApplicationDef) definitionService.getDefinition(appDefDesc)).isOnePageApp();
-                if (isOnePageApp != null) {
-                    return isOnePageApp;
-                }
-            }
-        } catch (QuickFixException e) {
-            throw new AuraRuntimeException(e);
-        }
-
-        return !manifestUtil.isManifestEnabled(request);
-    }
-
     private <T extends BaseComponentDef> void internalGet(HttpServletRequest request,
                                                           HttpServletResponse response, DefDescriptor<T> defDescriptor, AuraContext context)
             throws ServletException, IOException {
@@ -310,40 +379,46 @@ public class AuraServlet extends AuraBaseServlet {
             definitionService.updateLoaded(defDescriptor);
             def = definitionService.getDefinition(defDescriptor);
 
-            // Knowing the app, we can do the HTTP headers, some of which depend on
-            // the app in play, so we couldn't do this earlier.
-            servletUtilAdapter.setCSPHeaders(defDescriptor, request, response);
-
             if (!context.isTestMode() && !context.isDevMode()) {
                 assertAccess(def);
             }
         } catch (Throwable t) {
+            try {
+                servletUtilAdapter.setCSPHeaders(defDescriptor, request, response);
+            } catch (Throwable t2){
+                //if csp headers fail on this exception path ignore the error as it will mask the handled exception
+            }
             servletUtilAdapter.handleServletException(t, false, context, request, response, false);
             return;
         }
 
         try {
-            if (shouldCacheHTMLTemplate(request)) {
-                /*
-                 * Set a long cache timeout.
-                 *
-                 * This sets several headers to try to ensure that the page will be cached for a reasonable length of time. Of note
-                 * is the last-modified header, which is set to a day ago so that browsers consider it to be safe.
-                 */
-                servletUtilAdapter.setLongCache(response);
-            } else {
-                servletUtilAdapter.setNoCache(response);
-            }
+            /**
+             * We set html to no-cache here always.
+             */
+            servletUtilAdapter.setNoCache(response);
             loggingService.startTimer(LoggingService.TIMER_SERIALIZATION);
             loggingService.startTimer(LoggingService.TIMER_SERIALIZATION_AURA);
             // Prevents Mhtml Xss exploit:
-            PrintWriter out = response.getWriter();
-            out.write("\n    ");
+            StringBuilder out = new StringBuilder(); //keep content local so we can safely set headers after render
+            out.append("\n    ");
             @SuppressWarnings("unchecked")
             Class<T> clazz = (Class<T>) def.getDescriptor().getDefType().getPrimaryInterface();
             String formatAdapter = formatAdapterParam.get(request);
             serializationService.write(def, getComponentAttributes(request), clazz, out, formatAdapter);
+
+            // we could not do the csp headers until all inline js hashes had been collected
+            servletUtilAdapter.setCSPHeaders(defDescriptor, request, response);
+
+            PrintWriter writer = response.getWriter();
+            writer.append(out.toString());
+
         } catch (Throwable e) {
+            try {
+                servletUtilAdapter.setCSPHeaders(defDescriptor, request, response);
+            } catch (Throwable t2){
+                //if csp headers fail on this exception path ignore the error as it will mask the handled exception
+            }
             servletUtilAdapter.handleServletException(e, false, context, request, response, true);
         } finally {
             loggingService.stopTimer(LoggingService.TIMER_SERIALIZATION_AURA);
@@ -366,8 +441,8 @@ public class AuraServlet extends AuraBaseServlet {
         Map<String, Object> attributes = new HashMap<>();
 
         while (attributeNames.hasMoreElements()) {
-            String name = attributeNames.nextElement();
-            if (!name.startsWith(AURA_PREFIX)) {
+            String name = attributeNames.nextElement().trim();
+            if (!name.startsWith(AURA_PREFIX) && !name.isEmpty()) {
                 Object value = new StringParam(name, 0, false).get(request);
 
                 attributes.put(name, value);
@@ -375,6 +450,18 @@ public class AuraServlet extends AuraBaseServlet {
         }
 
         return attributes;
+    }
+
+    /**
+     * Determine from the params if a GET request is for an action.
+     *
+     * We're trusting the request with this check, and assuming a more thorough check will be done later (it is)
+     *
+     * @param request the HTTP GET request
+     * @return if the isAction and message params were specified
+     */
+    private boolean isActionGetRequest(HttpServletRequest getRequest) {
+        return isActionParam.get(getRequest, false) && messageParam.get(getRequest) != null;
     }
 
     private boolean isBootstrapAction(Message message, boolean productionMode) {
@@ -408,64 +495,70 @@ public class AuraServlet extends AuraBaseServlet {
         return isBootstrapAction;
     }
 
-
-    /**
-     * @see javax.servlet.http.HttpServlet#doPost(javax.servlet.http.HttpServletRequest,
-     *      javax.servlet.http.HttpServletResponse)
-     */
-    @Override
-    protected void doPost(HttpServletRequest request, HttpServletResponse response)
-            throws ServletException, IOException {
+    private void handleActionRequest(HttpServletRequest request, HttpServletResponse response, boolean isGet) throws ServletException, IOException {
         AuraContext context = contextService.getCurrentContext();
         response.setCharacterEncoding(UTF_ENCODING);
         boolean written = false;
 
         servletUtilAdapter.setNoCache(response);
 
-        //
-        // Pre-hook
-        //
-        if (servletUtilAdapter.actionServletPostPre(request, response)) {
-            return;
-        }
         try {
             if (context.getFormat() != Format.JSON) {
-                throw new AuraRuntimeException("Invalid request, post must use JSON");
-            }
-            response.setContentType(servletUtilAdapter.getContentType(Format.JSON));
-            String msg = messageParam.get(request);
-            if (msg == null) {
-                throw new AuraRuntimeException("Invalid request, no message");
+                throw new AuraHandledException("Invalid request, post must use JSON");
             }
 
+            response.setContentType(servletUtilAdapter.getContentType(Format.JSON));
+
+            //
+            // First, parse the message. But do some fancy footwork around QuickFixExceptions. If we
+            // have trouble instantiating our actions, we want to fail _after_ we check for COOSE.
+            //
+            Message message = null;
+            QuickFixException messageError = null;
+            loggingService.startTimer(LoggingService.TIMER_DESERIALIZATION);
+            try {
+                message = readMessage(messageParam.get(request));
+            } catch (QuickFixException qfe) {
+                messageError = qfe;
+            } finally {
+                loggingService.stopTimer(LoggingService.TIMER_DESERIALIZATION);
+            }
+            if (message == null && messageError == null) {
+                throw new AuraHandledException("Invalid request, no message");
+            }
+
+
             String fwUID = configAdapter.getAuraFrameworkNonce();
+
             if (!fwUID.equals(context.getFrameworkUID())) {
-                if (UNKNOWN_FRAMEWORK_UID.equals(context.getFrameworkUID()) && msg.contains(REPORT_ERROR_ACTION)) {
+                if (UNKNOWN_FRAMEWORK_UID.equals(context.getFrameworkUID()) && message != null) {
                     // we had a serious boostrap issue and want to log the failed action (5x reload)
-                    Message message = serializationService.read(new StringReader(msg), Message.class);
-                    List<Action> actions = message.getActions();
-                    // with an unknown fwuid, only execute failed actions. we don't want anything else potentially creeping in.
-                    // at this point the sid should have already been checked and the user is authenticated, but their browser is in a hosed state
-                    Iterator<Action> actionsIterator = actions.iterator();
-                    while(actionsIterator.hasNext()) {
-                        Action action = actionsIterator.next();
-                        if (action == null || action.getDescriptor() == null || !REPORT_ERROR_ACTION.equals(action.getDescriptor().getDescriptorName())) {
-                            // since actions was a reference from message, we're actually modifying the list of actions in 'message'
-                            actionsIterator.remove();
+                    // an unknown fwuid, only execute failed actions. we don't want anything else
+                    // potentially creeping in.  at this point the sid should have already been checked
+                    // and the user is authenticated, but their browser is in a hosed state
+                    List<Action> actions = Lists.newArrayList();
+                    for (Action action : message.getActions()) {
+                        if (action != null && action.getDescriptor() != null
+                                && !REPORT_ERROR_ACTION.equals(action.getDescriptor().getDescriptorName())) {
+                            actions.add(action);
                         }
                     }
-                    // this will write the response to the output, and then the COOS will be appended, so the resulting json response will be invalid
+                    // this will write the response to the output, and then the COOS will be appended,
+                    // so the resulting json response will be invalid
                     // but this case should only happen when the code isn't even checking for a response.
                     if (actions.size() > 0) {
-                        serverService.run(message, context, response.getWriter(), null);
+                        serverService.run(new Message(actions), context, response.getWriter(), null);
                     }
                 }
-                throw new ClientOutOfSyncException("Framework has been updated. Expected: " + fwUID +
-                        " Actual: " + context.getFrameworkUID());
+
+                throw new ClientOutOfSyncException("Framework has been updated. Expected: " + fwUID
+                        + " Actual: " + context.getFrameworkUID());
             }
+
             context.setFrameworkUID(fwUID);
 
             DefDescriptor<? extends BaseComponentDef> applicationDescriptor = context.getApplicationDescriptor();
+
             if (applicationDescriptor != null) {
                 // Check only if client app out of sync
                 try {
@@ -480,35 +573,67 @@ public class AuraServlet extends AuraBaseServlet {
                 }
             }
 
-            Message message;
-            loggingService.startTimer(LoggingService.TIMER_DESERIALIZATION);
-            try {
-                message = serializationService.read(new StringReader(msg), Message.class);
-            } finally {
-                loggingService.stopTimer(LoggingService.TIMER_DESERIALIZATION);
+            // So now that we have checked that we can get in.... make sure that we don't have an error
+            // from bad actions.
+            if (messageError != null) {
+                throw messageError;
+            }
+
+            // For GET requests, verify action public caching is enabled AND the action is publicly
+            // cacheable based on the ActionDef
+            if (isGet && (!configAdapter.isActionPublicCachingEnabled()
+                          || !servletUtilAdapter.isPubliclyCacheableAction(message))) {
+                throw new AuraHandledException("Invalid request: Public caching disabled or specified action not marked as publicly cacheable");
             }
 
             // The bootstrap action cannot not have a CSRF token so we let it through
             boolean isBootstrapAction = isBootstrapAction(message, servletUtilAdapter.isProductionMode(context.getMode()));
 
-            if (!isBootstrapAction) {
+            Map<String, Object> attributes = null;
+            if (isBootstrapAction) {
+                attributes = Maps.newHashMap();
+                attributes.put("token", configAdapter.getCSRFToken());
+            } else if (!isGet) {
                 configAdapter.validateCSRFToken(csrfToken.get(request));
             }
 
-            // Knowing the app, we can do the HTTP headers, some of which depend on
-            // the app in play, so we couldn't do this
+            // some of the CSP headers depend on the app, so pass in the app descriptor here
             servletUtilAdapter.setCSPHeaders(applicationDescriptor, request, response);
 
-            Map<String, Object> attributes = null;
-            if (isBootstrapAction) {
-            	attributes = Maps.newHashMap();
-            	attributes.put("token", configAdapter.getCSRFToken());
+            PrintWriter servletOut = response.getWriter();
+            Writer out = servletOut;
+            boolean publiclyCacheable = isGet && context.getActionPublicCacheKey() != null
+                    && context.getActionPublicCacheKey().equals(configAdapter.getActionPublicCacheKey());
+            if (publiclyCacheable) {
+                // We will set cache headers to allow caching for publicly cacheable action if
+                // the action public cache key sent in the context is the same as the current value
+                // AND there are no errors. So we need to use a string buffer for the action output first
+                // so that we can then check the action status and set any cache headers before writing
+                // the response body.
+                out = new StringWriter();
+
+                // Remove the Browser GVP as we don't want browser-specific in the cache.
+                context.getGlobalProviders().remove(AuraValueProviderType.BROWSER.getPrefix());
+            } else {
+                written = true;
             }
 
-            PrintWriter out = response.getWriter();
-            written = true;
             out.write(CSRF_PROTECT);
+
             serverService.run(message, context, out, attributes);
+
+            if (publiclyCacheable) {
+                // Set cache headers if no errors
+                if (message.getActions().get(0).getErrors() == null
+                        || message.getActions().get(0).getErrors().size() == 0) {
+                    servletUtilAdapter.setCacheTimeout(response,
+                            servletUtilAdapter.getPubliclyCacheableActionExpiration(message) * 1000, false);
+                }
+
+                // Write the response body after we are done writing cache headers
+                written = true;
+                servletOut.write(out.toString());
+            }
         } catch (InvalidParamException | MissingParamException ipe) {
             servletUtilAdapter.handleServletException(new SystemErrorException(ipe), false, context, request, response, false);
             return;
@@ -517,6 +642,24 @@ public class AuraServlet extends AuraBaseServlet {
         } catch (Exception e) {
             servletUtilAdapter.handleServletException(e, false, context, request, response, written);
         }
+    }
+
+    /**
+     * @see javax.servlet.http.HttpServlet#doPost(javax.servlet.http.HttpServletRequest,
+     *      javax.servlet.http.HttpServletResponse)
+     */
+    @Override
+    protected void doPost(HttpServletRequest request, HttpServletResponse response)
+            throws ServletException, IOException {
+
+        //
+        // Pre-hook
+        //
+        if (servletUtilAdapter.actionServletPostPre(request, response)) {
+            return;
+        }
+
+        handleActionRequest(request, response, false);
     }
 
     /**
@@ -550,9 +693,9 @@ public class AuraServlet extends AuraBaseServlet {
     }
 
     protected ConfigAdapter getConfigAdapter() {
-    	return configAdapter;
+        return configAdapter;
     }
-    
+
     @Inject
     public void setSerializationService(SerializationService serializationService) {
         this.serializationService = serializationService;
@@ -568,10 +711,8 @@ public class AuraServlet extends AuraBaseServlet {
         this.serverService = serverService;
     }
 
-    /**
-     * @param manifestUtil the manifestUtil to set
-     */
-    public void setManifestUtil(ManifestUtil manifestUtil) {
-        this.manifestUtil = manifestUtil;
+    @Inject
+    public void setInstanceService(InstanceService instanceService) {
+        this.instanceService = instanceService;
     }
 }

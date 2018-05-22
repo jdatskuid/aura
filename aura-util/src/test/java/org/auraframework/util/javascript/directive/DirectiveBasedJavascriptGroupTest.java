@@ -21,11 +21,15 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.Writer;
+import java.util.ArrayList;
 import java.util.EnumSet;
+import java.util.List;
 
+import org.auraframework.util.test.annotation.UnAdaptableTest;
 import org.auraframework.util.test.util.UnitTestCase;
 import org.junit.Ignore;
 import org.junit.Test;
+import org.mockito.Mockito;
 
 import com.google.common.collect.ImmutableList;
 
@@ -34,6 +38,7 @@ import com.google.common.collect.ImmutableList;
  * {@link DirectiveBasedJavascriptGroup}. Javascript files can be grouped in modules. This helps in keeping the
  * javascript modularized.
  */
+@UnAdaptableTest("Gold files will yield different results depending on available classpath")
 public class DirectiveBasedJavascriptGroupTest extends UnitTestCase {
     /**
      * Should not be able to specify a Directory as start file for a Javascript group
@@ -96,29 +101,58 @@ public class DirectiveBasedJavascriptGroupTest extends UnitTestCase {
     /**
      * Use the javascript processor to generate javascript files in 5 modes. Gold file the five modes and also verify
      * that the file was not created in the 6th mode.
+     * @throws Exception 
      */
     @Test
-    public void testJavascriptGeneration() throws Exception {
+    public void testJavascriptGenerationProduction() throws Exception {
+        doTestJavascriptGeneration(JavascriptGeneratorMode.PRODUCTION);
+    }
+
+    @Test
+    public void testJavascriptGenerationDevelopment() throws Exception {
+        doTestJavascriptGeneration(JavascriptGeneratorMode.DEVELOPMENT);
+    }
+
+    private void doTestJavascriptGeneration(JavascriptGeneratorMode mode) throws Exception {
         File file = getResourceFile("/testdata/javascript/testAllKindsOfDirectiveGenerate.js");
         DirectiveBasedJavascriptGroup jg = new DirectiveBasedJavascriptGroup("testDummy", file.getParentFile(),
                 file.getName(), ImmutableList.<DirectiveType<?>> of(DirectiveFactory.getMultiLineMockDirectiveType(),
                         DirectiveFactory.getMockDirective(), DirectiveFactory.getDummyDirectiveType()), EnumSet.of(
-                        JavascriptGeneratorMode.DEVELOPMENT, JavascriptGeneratorMode.AUTOTESTING,
-                        JavascriptGeneratorMode.PRODUCTION, JavascriptGeneratorMode.MOCK1,
-                        JavascriptGeneratorMode.MOCK2));
-        String expectedGenFiles[] = { "testDummy_auto", "testDummy_dev", "testDummy_mock1", "testDummy_mock2",
-                "testDummy_prod" };
+                        mode));
+
+        jg = Mockito.spy(jg);
+
+        String mockEngineCompat = "var mock='engine compat';console.log(mock);\n";
+        String mockWireCompat = "var mock='wire compat';console.log(mock);\n";
+
+        // mock out getSource for engine to test compat
+        Mockito.when(jg.getSource("aura/resources/engine/engine_compat.js")).thenReturn(mockEngineCompat);
+        Mockito.when(jg.getSource("aura/resources/engine/engine_compat.min.js")).thenReturn(mockEngineCompat);
+        Mockito.when(jg.getSource("aura/resources/wire/wire_compat.js")).thenReturn(mockWireCompat);
+        Mockito.when(jg.getSource("aura/resources/wire/wire_compat.min.js")).thenReturn(mockWireCompat);
+        Mockito.when(jg.getSource("aura/resources/compat-helpers/compat.js")).thenReturn("");
+        Mockito.when(jg.getSource("aura/resources/compat-helpers/compat.min.js")).thenReturn("");
+
         File dir = getResourceFile("/testdata/javascript/generated/");
-        try {
-            jg.parse();
-            jg.generate(dir, false);
-            for (String genFileName : expectedGenFiles) {
-                File genFile = new File(dir, genFileName + ".js");
-                if (!genFile.exists()) {
-                    fail("Javascript processor failed to create " + genFile.getAbsolutePath());
+
+        String genFileName = "testDummy_" + mode.getSuffix() + ".js";
+        String genCompatFileName = "testDummy_" + mode.getSuffix() + "_compat" + ".js";
+
+        jg.parse();
+        jg.generate(dir, false);
+        File genFile = new File(dir, genFileName);
+        File genCompatFile = new File(dir, genCompatFileName);
+        List<File> filesToCheck = new ArrayList<>();
+        filesToCheck.add(genFile);
+        filesToCheck.add(genCompatFile);
+
+        for (File fileToCheck: filesToCheck) {
+            try {
+                if (!fileToCheck.exists()) {
+                    fail("Javascript processor failed to create " + fileToCheck.getAbsolutePath());
                 } else {
                     StringBuilder fileContents = new StringBuilder();
-                    BufferedReader reader = new BufferedReader(new FileReader(genFile));
+                    BufferedReader reader = new BufferedReader(new FileReader(fileToCheck));
                     try {
                         String line = reader.readLine();
                         while (line != null) {
@@ -129,19 +163,21 @@ public class DirectiveBasedJavascriptGroupTest extends UnitTestCase {
                     } finally {
                         reader.close();
                     }
-                    goldFileText(fileContents.toString(), "/" + genFileName + ".js");
+                    String fileToCheckContents = fileContents.toString();
+                    String fileToCheckFileName = fileToCheck.getName();
+
+                    if (fileToCheckFileName.endsWith("_compat.js")) {
+                        assertTrue("compat file should have contents from engine_compat", fileToCheckContents.contains(mockEngineCompat));
+                    }
+                    goldFileText(fileToCheckContents.toString(), "/" + fileToCheck.getName());
                 }
-            }
-        } finally {
-            // Regardless of the javascript processor generating the files,
-            // clean up the expected files
-            for (String genFileName : expectedGenFiles) {
-                File genFile = new File(dir, genFileName + ".js");
-                if (genFile.exists()) {
-                    genFile.delete();
+            } finally {
+                if (fileToCheck.exists()) {
+                    fileToCheck.delete();
                 }
             }
         }
+
         File unExpectedGenFile = new File(dir, "testDummy_test.js");
         assertFalse(
                 "javascript processor generated a file for test mode even though the group was not specified to do so.",

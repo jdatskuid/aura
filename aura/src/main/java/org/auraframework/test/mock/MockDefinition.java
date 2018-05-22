@@ -30,6 +30,9 @@ import org.auraframework.util.json.Json;
 import org.auraframework.util.json.Serialization;
 import org.auraframework.util.json.Serialization.ReferenceScope;
 import org.auraframework.util.json.Serialization.ReferenceType;
+import org.auraframework.validation.ReferenceValidationContext;
+
+import com.google.common.collect.Sets;
 
 /**
  * A simple Definition.
@@ -87,15 +90,19 @@ public abstract class MockDefinition<D extends Definition> implements Definition
     }
 
     @Override
-    public void retrieveLabels() throws QuickFixException {
+    public Set<DefDescriptor<?>> getDependencySet() {
+        Set<DefDescriptor<?>> dependencies = Sets.newLinkedHashSet();
+        appendDependencies(dependencies);
+        return dependencies;
     }
+
 
     @Override
     public void validateDefinition() throws QuickFixException {
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
     }
 
     @Override
@@ -153,6 +160,11 @@ public abstract class MockDefinition<D extends Definition> implements Definition
 
         @Override
         public void validateReferences() throws InvalidAccessValueException {
+        }
+
+        @Override
+        public String getAccessCode() {
+            return "FAKE";
         }
     }
 

@@ -17,12 +17,15 @@ package org.auraframework.impl;
 
 import org.auraframework.adapter.LoggingAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponent;
+import org.auraframework.instance.Action;
 import org.auraframework.service.LoggingService;
 import org.auraframework.system.LoggingContext;
 import org.auraframework.system.LoggingContext.KeyValueLogger;
 import org.auraframework.util.json.Json;
 
 import javax.inject.Inject;
+
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -30,8 +33,6 @@ import java.util.Map;
 @ServiceComponent
 public class LoggingServiceImpl implements LoggingService {
 
-    /**
-     */
     private static final long serialVersionUID = -6025038810583975257L;
 
     private LoggingAdapter loggingAdapter;
@@ -39,7 +40,7 @@ public class LoggingServiceImpl implements LoggingService {
     @Override
     public LoggingService establish() {
         this.loggingAdapter.establish();
-        
+
         setNum(LoggingService.CMP_COUNT, 0L);
         setNum(LoggingService.DEF_COUNT, 0L);
         setNum(LoggingService.DEF_DESCRIPTOR_COUNT, 0L);
@@ -61,13 +62,13 @@ public class LoggingServiceImpl implements LoggingService {
     }
 
     @Override
-    public void startAction(String actionName) {
+    public void startAction(String actionName, Action action) {
         LoggingContext lc = getLoggingContext();
         if (lc != null) {
-            lc.startAction(actionName);
+            lc.startAction(actionName, action);
         }
     }
-    
+
     @Override
     public void stopAction(String actionName) {
         LoggingContext lc = getLoggingContext();
@@ -75,7 +76,7 @@ public class LoggingServiceImpl implements LoggingService {
             lc.stopAction(actionName);
         }
     }
-    
+
     @Override
     public void stopTimer(String name) {
         LoggingContext lc = getLoggingContext();
@@ -191,7 +192,15 @@ public class LoggingServiceImpl implements LoggingService {
             lc.logCSPReport(report);
         }
     }
-    
+
+    @Override
+    public void logDeprecationUsages(Map<String, List<String>> usages) {
+        LoggingContext loggingContext = getLoggingContext();
+        if (loggingContext != null) {
+            loggingContext.logDeprecationUsages(usages);
+        }
+    }
+
     /**
      * Logs an informational message, independent of context such as action or
      * timers, for which context-sensitive methods can be provided via other
@@ -205,7 +214,7 @@ public class LoggingServiceImpl implements LoggingService {
             lc.info(message);
         }
     }
-    
+
     /**
      * Logs a warning message, independent of context such as action or
      * timers, for which context-sensitive methods can be provided via other
@@ -220,7 +229,15 @@ public class LoggingServiceImpl implements LoggingService {
             lc.warn(message);
         }
     }
-    
+
+    @Override
+    public void warn(String message, Throwable cause) {
+        LoggingContext lc = getLoggingContext();
+        if (lc != null) {
+            lc.warn(message, cause);
+        }
+    }
+
     /**
      * Logs an error message, independent of context such as action or timers,
      * for which context-sensitive methods can be provided via other methods.

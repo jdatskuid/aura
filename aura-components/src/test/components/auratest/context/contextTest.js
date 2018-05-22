@@ -1,5 +1,17 @@
 ({
     labels : [ "auraSanity" ],
+
+    setUp: function(){
+        this.currentURIDefsState = $A.test.setURIDefsState(null);
+    },
+
+    tearDown: function() {
+        if (this.currentURIDefsState !== undefined) {
+            $A.test.setURIDefsState(this.currentURIDefsState);
+            this.currentURIDefsState = undefined;
+        }
+    },
+
     //
     // Get a component, clearing the configs if necessary.
     //
@@ -42,23 +54,6 @@
         $A.test.assertDefined(uid, "missing uid for " + fullDescriptor);
         $A.test.assertTrue(typeof (uid) === "string", "expected uid to be a string for " + fullDescriptor);
         $A.test.assertTrue(uid.length > 0, "expected non-empty string for uid for " + fullDescriptor);
-    },
-
-    /**
-     * Application that is not preloaded will appear in loaded set.
-     */
-    testLoaded_UnloadedApplicationIsLoaded : {
-        test : [ function(c) {
-            this.assertNoUid("APPLICATION@markup://aura:application");
-            //
-            // Note that we should not get a component config here, as there is nothing interesting to send
-            // back from the server. DO NOT CHANGE! The last false is testing the correct behaviour.
-            // If there were server side dependencies (model/renderer/provider) a config would come back.
-            //
-            this.doGet(false, "aura:application", false);
-        }, function(c) {
-            this.assertUid("APPLICATION@markup://aura:application");
-        } ]
     },
 
     /**

@@ -37,10 +37,11 @@ function lib(focusUtil) { //eslint-disable-line no-unused-vars
      * Returns the current activeElement, if document's activeElement can be accessed.
      * @returns {Element | null}
      */
-    function getActiveElement() {
+    function getActiveElement(cmp) {
         // Edge/IE11 throws an Unspecified Error for document.activeElement when accessed from an iframe.
         try {
-            return document.activeElement;
+            // IE11 use lastActive if it's specified.
+            return (cmp && cmp.lastActive) || document.activeElement;
         } catch(e) {
             return null;
         }
@@ -68,7 +69,7 @@ function lib(focusUtil) { //eslint-disable-line no-unused-vars
         if (!component || !component.isValid()) {
             return false;
         }
-        var active = getActiveElement();
+        var active = getActiveElement(component);
         var i, el, els;
         if (active) {
             els = component.getElements();
@@ -82,6 +83,15 @@ function lib(focusUtil) { //eslint-disable-line no-unused-vars
         return false;
     }
 
+    function sanitizeClassName(className) {       
+        if (className) {
+            var path = typeof className.trim === "function" ? className.trim() : $A.util.trim(className);
+            return '.' + path.replace(/\s+/g, ".");
+        } else {
+            return "";
+        }
+    }
+
     /**
      * Generates selector for a given element.
      * @param {Element} element
@@ -92,19 +102,19 @@ function lib(focusUtil) { //eslint-disable-line no-unused-vars
             return undefined;
         }
         var selector = [];
-        while (element.nodeType === Node.ELEMENT_NODE) {
+        while (element && element.nodeType === Node.ELEMENT_NODE) {
             var path = element.nodeName.toLowerCase();
-                var sibling = element, index = 1;
-                while ((sibling = sibling.previousElementSibling)) {
-                    if (sibling.nodeName.toLowerCase() === path) {
-                        index++;
-                    }
+            var sibling = element, index = 1;
+            while ((sibling = sibling.previousElementSibling)) {
+                if (sibling.nodeName.toLowerCase() === path) {
+                    index++;
                 }
-                if (index !== 1) {
-                    path += ":nth-of-type("+index+")";
-                }
-            selector.unshift(path + (element.className ? '.' + element.className.trim().replace(/\s+/g, ".") : ''));
-            element = element.parentNode;
+            }
+            if (index !== 1) {
+                path += ":nth-of-type("+index+")";
+            }
+            selector.unshift(path + sanitizeClassName(element.getAttribute('class')));
+            element = element.parentNode;            
         }
         return selector.join(" > ");
     }
@@ -126,20 +136,21 @@ function lib(focusUtil) { //eslint-disable-line no-unused-vars
     }
 
     /**
-     * For a given component that has focus it pops the element, xPath and
-     * sets focus to it if its visible in the DOM.
+     * For a given component that has focus it pops the element, xPath.
      * @param {Component} component - Component from which this method is called.
      */
-    function unstackFocus(component) {
+    function popFocus(component) {
         if (!hasFocus(component)) {
-            return;
-        }
-
+            return null;
+        } 
+        
         var el = pop();
         while (el && (!document.body.contains(el.domElement) || focusUtil.isElementHidden(el.domElement))) {
             if(el.selector) {
                 var element = getQuerySelector(el.selector);
-                if(element && document.body.contains(element) && !focusUtil.isElementHidden(element)) {
+                if(element && 
+                    document.body.contains(element) && 
+                    !focusUtil.isElementHidden(element)) {
                     el.domElement = element;
                     break;
                 }
@@ -147,16 +158,34 @@ function lib(focusUtil) { //eslint-disable-line no-unused-vars
             el = pop();
         }
 
-        if (!$A.util.isUndefinedOrNull(el) && !getActiveElement()) {
+        if ($A.util.isUndefinedOrNull(el)) {
+            return null;
+        }
+
+        if(!getActiveElement()) {
             // last resort, make sure focus is in the document
             el.domElement = document.body;
         }
-        el && el.domElement.focus();
+        return el.domElement;
+    }    
+
+    /**
+     * For a given component that has focus it pops the element, xPath and
+     * sets focus to it if its visible in the DOM.
+     * @param {Component} component - Component from which this method is called.
+     */
+    function unstackFocus(component) {
+        var domElement = popFocus(component);
+        
+        if (domElement && domElement.focus) {
+            domElement.focus();
+        } 
     }
 
     return {
         stackFocus   : stackFocus,
-        unstackFocus : unstackFocus
+        unstackFocus : unstackFocus,
+        popFocus : popFocus
     };
 
 }

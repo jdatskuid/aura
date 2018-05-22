@@ -34,6 +34,9 @@ import org.auraframework.expression.Expression;
 import org.auraframework.instance.BaseComponent;
 import org.auraframework.instance.Component;
 import org.auraframework.instance.Instance;
+import org.auraframework.service.CSPInliningService.InlineScriptMode;
+import org.auraframework.service.ContextService;
+import org.auraframework.service.CSPInliningService;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.service.RenderingService;
 import org.auraframework.system.RenderContext;
@@ -51,7 +54,13 @@ public class HtmlRenderer implements Renderer {
     ConfigAdapter configAdapter;
 
     @Inject
+    ContextService contextService;
+
+    @Inject
     DefinitionService definitionService;
+
+    @Inject
+    CSPInliningService inliningService;
 
     @SuppressWarnings("unchecked")
     @Override
@@ -60,6 +69,8 @@ public class HtmlRenderer implements Renderer {
         String id = component.getLocalId();
         List<Component> body = (List<Component>) component.getAttributes().getValue("body");
         boolean script = (tag != null && tag.equals("script") && body != null && body.size() > 0);
+        String scriptBody = "";
+        boolean isCspInlineSupported = inliningService.getInlineMode() != InlineScriptMode.UNSUPPORTED;
 
         if (script) {
             int numParens = new Random().nextInt(128) + 1;
@@ -78,6 +89,7 @@ public class HtmlRenderer implements Renderer {
                 // otherwise save the script to be run after necessary bootstrap files are loaded on client
                 rc.getCurrent().append(
                         "(function(customerJs, namespace) {\n" +
+                        "    customerJs = '(' + customerJs + ')()';\n" +
                         "    window.Aura || (window.Aura = {});\n" +
                         "    Aura.inlineJsLocker || (Aura.inlineJsLocker = []);\n" +
                         "    if(Aura.inlineJsReady && Aura.frameworkJsReady) {\n" +
@@ -110,10 +122,19 @@ public class HtmlRenderer implements Renderer {
                         ", '" + namespace + "');\n"
                 );
             }
-            rc.popScript();
-            return;
+
+            if (rc.popScript() || !isCspInlineSupported){
+                //we are still within a script block
+                return;
+            }
+
+            scriptBody = rc.getCurrentScript();
+            inliningService.processScript(scriptBody);
         }
         Appendable out = rc.getCurrent();
+        if (tag.equalsIgnoreCase("script") && isCspInlineSupported){
+            inliningService.preScriptAppend(out);
+        }
         out.append('<');
         out.append(tag);
 
@@ -161,7 +182,7 @@ public class HtmlRenderer implements Renderer {
             out.append('"');
         }
 
-        if (body != null && body.size() > 0) {
+        if (body != null && body.size() > 0 && !tag.equalsIgnoreCase("script")) {
             out.append('>');
             for (Component nested : body) {
                 renderingService.render(nested, rc);
@@ -169,7 +190,10 @@ public class HtmlRenderer implements Renderer {
             out.append("</");
             out.append(tag);
             out.append('>');
-        } else if (tag.equalsIgnoreCase("script") || tag.equalsIgnoreCase("div")) {
+        } else if (tag.equalsIgnoreCase("script")){
+            inliningService.writeInlineScriptAttributes(out);
+            out.append(String.format(">%s</%s>", scriptBody, tag));
+        } else if (tag.equalsIgnoreCase("div")) {
             out.append("></");
             out.append(tag);
             out.append('>');

@@ -15,17 +15,17 @@
  */
 package org.auraframework.impl.source.file;
 
-import org.apache.log4j.Logger;
-import org.auraframework.def.DefDescriptor;
-import org.auraframework.impl.CachingServiceImpl;
+import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.service.CachingService;
+import org.auraframework.service.LoggingService;
 import org.auraframework.system.SourceListener;
 import org.auraframework.util.FileChangeEvent;
 import org.auraframework.util.FileListener;
 import org.auraframework.util.FileMonitor;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
 
 import javax.inject.Inject;
 import java.io.IOException;
@@ -59,32 +59,19 @@ import static java.nio.file.StandardWatchEventKinds.OVERFLOW;
  * File monitor allowing to ability to add watched directory. Used to update files and clear caches on source changes
  * during development
  */
+@Lazy
+@Component
+@Scope(BeanDefinition.SCOPE_SINGLETON)
 public final class FileMonitorImpl implements FileMonitor, Runnable {
-    private final static Logger LOG = Logger.getLogger(FileMonitorImpl.class);
 
-    @Configuration
-    public static class BeanConfiguration {
-        private static final FileMonitorImpl INSTANCE;
-        
-        static {
-            synchronized (BeanConfiguration.class) {
-                INSTANCE = new FileMonitorImpl();
-                INSTANCE.start();
-                
-                //force side effects.
-                new CachingServiceImpl.BeanConfiguration();
-            }
-        }
-        
-        @Lazy
-        @Bean
-        public FileMonitor fileMonitorImpl() {
-            return INSTANCE;
-        }
-    }
-    
     @Inject
     private CachingService cachingService;
+
+    @Inject
+    private ConfigAdapter configAdapter;
+
+    @Inject
+    protected LoggingService loggingService;
 
     private final ConcurrentLinkedQueue<WeakReference<SourceListener>> listeners = new ConcurrentLinkedQueue<>();
 
@@ -98,14 +85,13 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
     private WatchService watchService;
     private Thread watchServiceThread;
     private boolean terminateThread;
-    private final FileListener listener;
+    protected FileListener listener;
 
     public FileMonitorImpl() {
         this(null);
     }
 
-    private FileMonitorImpl(FileListener listener)
-    {
+    protected FileMonitorImpl(FileListener listener) {
         if (listener == null) {
             listener = new FileSourceListener(this);
         }
@@ -113,17 +99,6 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
         this.monitoredDirs = new HashSet<>();
         this.monitoredKeys = new HashMap<>();
         this.setTerminateThread(false);
-        try {
-            watchService = FileSystems.getDefault().newWatchService();
-        } catch (IOException e) {
-            LOG.error("Could not create aura WatchService.  File changes will not be noticed");
-        }
-
-    }
-
-    @SuppressWarnings("unchecked")
-    static <T> WatchEvent<T> cast(WatchEvent<?> event) {
-        return (WatchEvent<T>) event;
     }
 
     /**
@@ -140,16 +115,30 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
     /**
      * Register the given directory, and all its sub-directories, with the WatchService.
      */
-    private void registerAll(final Path start) throws IOException {
+    private void registerAll(final Path start, Long registryCreationTime) throws IOException {
         // register directory and sub-directories
         // follow links: the uitier workspace component folders are symbolic links to the core workspace component folders
         Files.walkFileTree(start, EnumSet.of(FileVisitOption.FOLLOW_LINKS),
                 Integer.MAX_VALUE, new SimpleFileVisitor<Path>() {
                     @Override
                     public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
-                            throws IOException
-                    {
+                            throws IOException {
                         register(dir);
+                        return FileVisitResult.CONTINUE;
+                    }
+                    @Override
+                    public FileVisitResult visitFile(Path file, BasicFileAttributes attrs)
+                            throws IOException {
+                        // if we're walking the file system and we had a registry creation time, we need to check last modified times
+                        // on the file in case something is newer
+                        // this is going to fall flat on it's face if someone deleted something that was in the registry
+                        if (registryCreationTime != null && !Files.isDirectory(file)) {
+                            if (Files.getLastModifiedTime(file).toMillis() > registryCreationTime) {
+                                try {
+                                    listener.fileChanged(new FileChangeEvent(file));
+                                } catch (Exception e) {}
+                            }
+                        }
                         return FileVisitResult.CONTINUE;
                     }
                 });
@@ -173,7 +162,7 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
 
             Path dir = monitoredKeys.get(key);
             if (dir == null) {
-                LOG.info("did not recognize the requested WatchKey!");
+                loggingService.info("[FileMonitorImpl] did not recognize the requested WatchKey!");
                 continue;
             }
 
@@ -185,12 +174,12 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
                 if (kind == OVERFLOW) {
                     // TODO - perhaps notify a special event to clear all caches,
                     // if file changes overflow the monitor
-                    LOG.info("WatchService for aura file changes has overflowed.  Changes may have been missed.");
+                    loggingService.info("[FileMonitorImpl] WatchService for aura file changes has overflowed.  Changes may have been missed.");
                     continue;
                 }
 
                 // once we have a directory event, we know the context is the file name of entry
-                WatchEvent<Path> pathWatchEvent = cast(event);
+                @SuppressWarnings("unchecked") WatchEvent<Path> pathWatchEvent = (WatchEvent<Path>) event;
                 Path name = pathWatchEvent.context();
 
                 // ensure the path resolution (absolute, relative) matches between paths
@@ -212,13 +201,13 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
                             listener.fileDeleted(new FileChangeEvent(child));
                         }
                     } catch (Exception ex) {
-                        LOG.info("Unable to signal source change due to exception: " + ex.getMessage());
+                        loggingService.info("[FileMonitorImpl] Unable to signal source change due to exception: " + ex.getMessage());
                     }
                 }
                 // recursively add any new directories created
                 else if (kind == ENTRY_CREATE) {
                     try {
-                        registerAll(child);
+                        registerAll(child, null);
                     } catch (IOException x) {
                         // if we can't monitor it for some reason, it is not an error
                     }
@@ -240,8 +229,7 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
     }
 
     private boolean isStarted() {
-        return watchService != null && watchServiceThread != null && watchServiceThread.isAlive()
-                && !isTerminateThread();
+        return watchServiceThread != null && watchServiceThread.isAlive() && !isTerminateThread();
     }
 
     /**
@@ -249,19 +237,21 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
      * called rarely (only on encountering a new namespace) and have no performance impact
      * 
      * @param dirPath name of a root directory to monitor
+     * @param registryCreationTime time since epoch that the registry was created, if non-null, will compare file system's last modified time
      */
     @Override
-    public synchronized void addDirectory(String dirPath) {
+    public synchronized void addDirectory(String dirPath, Long registryCreationTime) {
         Path dir = Paths.get(dirPath);
+        start();
         if (watchService == null || monitoredDirs.contains(dir.toString())) {
             return;
         }
 
         try {
-            registerAll(dir);
-            LOG.info("Monitoring directory " + dirPath);
+            registerAll(dir, registryCreationTime);
+            loggingService.info("[FileMonitorImpl] Monitoring directory " + dirPath);
         } catch (Exception ex) {
-            LOG.info("Unable to monitor directory " + dirPath + " due to exception: " + ex.getMessage());
+            loggingService.error("[FileMonitorImpl] Unable to monitor directory " + dirPath + " due to exception: " + ex.getMessage());
         }
     }
 
@@ -270,12 +260,27 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
      */
     @Override
     public synchronized void start() {
-        if (!isStarted()) {
-            setTerminateThread(false);
-            watchServiceThread = new Thread(this);
-            watchServiceThread.setDaemon(true);
-            watchServiceThread.start();
-            LOG.info("Aura file monitor started");
+        if (configAdapter.isFileMonitorEnabled()) {
+            if (!isStarted()) {
+                try {
+                    watchService = FileSystems.getDefault().newWatchService();
+                    setTerminateThread(false);
+                    watchServiceThread = new Thread(this);
+                    watchServiceThread.setDaemon(true);
+                    watchServiceThread.start();
+                    loggingService.info("[FileMonitorImpl] Aura file monitor started");
+                } catch (Exception e) {
+                    loggingService.error("[FileMonitorImpl] Could not create aura WatchService.  File changes will not be noticed.", e);
+                    if (watchService != null) {
+                        try {
+                            watchService.close();
+                        } catch (Exception e2) {}
+                        watchService = null;
+                    }
+                }
+            }
+        } else {
+            loggingService.warn("[FileMonitorImpl] Aura file monitor disabled");
         }
     }
 
@@ -284,12 +289,12 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
      */
     @Override
     public synchronized void stop() {
-        if (isStarted()) {
+        if (isStarted() && watchService != null) {
             // notify thread to exit main loop, ending thread naturally
             setTerminateThread(true);
             watchService.notifyAll();
             watchServiceThread = null;
-            LOG.info("Aura file monitor signaled to stop");
+            loggingService.info("[FileMonitorImpl] Aura file monitor signaled to stop");
         }
     }
 
@@ -302,13 +307,13 @@ public final class FileMonitorImpl implements FileMonitor, Runnable {
     }
 
     @Override
-    public void onSourceChanged(DefDescriptor<?> source, SourceListener.SourceMonitorEvent event, String filePath) {
+    public void onSourceChanged(SourceListener.SourceMonitorEvent event, String filePath) {
         for (WeakReference<SourceListener> i : listeners) {
             if (i.get() == null) {
                 listeners.remove(i);
             }
         }
-        cachingService.notifyDependentSourceChange(listeners, source, event, filePath);
+        cachingService.notifyDependentSourceChange(listeners, event, filePath);
     }
 
     @Override

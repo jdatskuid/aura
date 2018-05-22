@@ -84,6 +84,10 @@ public class ComponentJSUITest extends TestSuite {
         this.namespaces = namespaces == null ? new String[0] : namespaces;
     }
 
+    AuraDeprecated getAuraDeprecated() {
+        return auraDeprecated;
+    }
+    
     @PostConstruct
     private void postConstruct() {
         boolean contextStarted = false;
@@ -132,14 +136,6 @@ public class ComponentJSUITest extends TestSuite {
         }
     }
 
-    public AuraDeprecated getAuraDeprecated() {
-        return auraDeprecated;
-    }
-
-    public void setAuraDeprecated(AuraDeprecated auraDeprecated) {
-        this.auraDeprecated = auraDeprecated;
-    }
-
     private static class ComponentTestSuite extends TestSuite {
 
         private final DefDescriptor<TestSuiteDef> descriptor;
@@ -154,11 +150,11 @@ public class ComponentJSUITest extends TestSuite {
         }
 
         public String getUrl(DefType defType) {
-            String ext = ".cmp";
-            if (defType == DefType.APPLICATION) {
-                ext = ".app";
+            if (DefType.APPLICATION.equals(defType)){
+                return String.format("/%s/%s.app", descriptor.getNamespace(), descriptor.getName());
+            } else {
+                return String.format("/auratest/test.app?descriptor=%s:%s", descriptor.getNamespace(), descriptor.getName());
             }
-            return String.format("/%s/%s%s", descriptor.getNamespace(), descriptor.getName(), ext);
         }
     }
 
@@ -197,16 +193,22 @@ public class ComponentJSUITest extends TestSuite {
 
         public String getUrl() {
             DefType defType = caseDef.getDefType();
-            return String.format("%s?aura.jstestrun=%s&aura.testReset=true&aura.testTimeout=%s",
-                    suite.getUrl(defType), caseDef.getName(), getAuraUITestingUtil().getTimeout());
+            if (DefType.APPLICATION.equals(defType)) {
+                return String.format("%s?aura.jstestrun=%s&aura.testReset=true&aura.testTimeout=%s",
+                        suite.getUrl(defType), caseDef.getName(), getAuraUITestingUtil().getTimeout());
+            } else {
+                return String.format("%s&testName=%s&aura.testReset=true&aura.testTimeout=%s", suite.getUrl(defType),
+                        caseDef.getName(), getAuraUITestingUtil().getTimeout());
+            }
         }
 
         /**
          * The URL for loading the test within the aurajstest:jstest app. Used primarily by test:runner.
          */
         public String getAppUrl() {
-            DefType defType = caseDef.getDefType();
-            return suite.getUrl(defType) + "?aura.jstest=" + caseDef.getName() + "&aura.testReset=true";
+            String defType = DefType.APPLICATION.equals(caseDef.getDefType()) ? "app" : "cmp";
+            return String.format("/%s/%s.%s?aura.jstest=%s&aura.mode=JSTESTDEBUG&aura.testReset=true", suite.descriptor.getNamespace(),
+                    suite.descriptor.getName(), defType, caseDef.getName());
         }
 
         @Override

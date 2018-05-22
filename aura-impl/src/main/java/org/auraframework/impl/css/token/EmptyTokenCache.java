@@ -30,14 +30,13 @@ import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Iterators;
 
 final class EmptyTokenCache implements TokenCache {
     static final EmptyTokenCache INSTANCE = new EmptyTokenCache();
 
     @Override
     public Iterator<DefDescriptor<TokensDef>> iterator() {
-        return Iterators.emptyIterator();
+        return ImmutableSet.<DefDescriptor<TokensDef>>of().iterator();
     }
 
     @Override
@@ -81,12 +80,7 @@ final class EmptyTokenCache implements TokenCache {
     }
 
     @Override
-    public Optional<String> getDescriptorsUid() {
-        return Optional.absent();
-    }
-
-    @Override
-    public Optional<String> getActiveDynamicTokensUid() {
+    public Optional<String> getTokensUid() throws QuickFixException {
         return Optional.absent();
     }
 }

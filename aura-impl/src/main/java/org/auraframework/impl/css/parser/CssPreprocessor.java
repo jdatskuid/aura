@@ -15,15 +15,15 @@
  */
 package org.auraframework.impl.css.parser;
 
-import java.util.LinkedHashSet;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
 import org.auraframework.Aura;
+import org.auraframework.adapter.StyleAdapter;
 import org.auraframework.css.FlavorAnnotation;
-import org.auraframework.css.ResolveStrategy;
 import org.auraframework.css.StyleContext;
 import org.auraframework.css.TokenValueProvider;
 import org.auraframework.def.BaseStyleDef;
@@ -37,7 +37,6 @@ import org.auraframework.impl.css.parser.plugin.TokenPropertyValidationPlugin;
 import org.auraframework.impl.css.parser.plugin.TokenSecurityPlugin;
 import org.auraframework.impl.css.parser.plugin.UrlCacheBustingPlugin;
 import org.auraframework.system.AuraContext.Mode;
-import org.auraframework.system.Client;
 import org.auraframework.throwable.quickfix.StyleParserException;
 
 import com.salesforce.omakase.Omakase;
@@ -56,7 +55,7 @@ import com.salesforce.omakase.writer.StyleWriter;
 /**
  * Parses CSS source code.
  *
- * Use either {@link #initial()} or {@link #runtime(Client.Type)} to get started.
+ * Use either {@link #initial(StyleAdapter)} {@link #runtime(StyleContext,StyleAdapter)} to get started.
  */
 public final class CssPreprocessor {
     /** Use one of the constructor methods */
@@ -64,23 +63,17 @@ public final class CssPreprocessor {
     }
 
     /** For the initial preprocessing of css, this includes all syntax validations and static rework */
-    public static ParserConfiguration initial() {
-        return new ParserConfiguration(false);
+    public static ParserConfiguration initial(StyleAdapter styleAdapter) {
+        return new ParserConfiguration(styleAdapter, false);
     }
 
-    /** For parsing contextual css, skips syntax validations and static rework, uses current {@link StyleContext} */
-    public static ParserConfiguration runtime() {
-        return runtime(Aura.getContextService().getCurrentContext().getStyleContext());
-    }
-
-    /** For parsing contextual css, skips syntax validations and static rework, uses given {@link StyleContext} */
-    public static ParserConfiguration runtime(StyleContext styleContext) {
-        return new ParserConfiguration(true).styleContext(styleContext);
+    public static ParserConfiguration runtime(StyleContext styleContext, StyleAdapter styleAdapter) {
+        return new ParserConfiguration(styleAdapter, true).styleContext(styleContext);
     }
 
     /** For parsing css without any of the default plugins */
     public static ParserConfiguration raw() {
-        return new ParserConfiguration();
+        return new ParserConfiguration(Aura.getStyleAdapter());
     }
 
     /** Configuration for the css parser */
@@ -88,26 +81,55 @@ public final class CssPreprocessor {
         private String content;
         private String resourceName;
         private final boolean runtime;
-        private final Set<Plugin> plugins = new LinkedHashSet<>();
-
-        public ParserConfiguration() {
+        private final List<Plugin> plugins = new ArrayList<>();
+        private StyleAdapter styleAdapter;
+        
+        private static Plugin prefixerPlugin;
+        private static Plugin autoRefinePlugin;
+        
+        /* double-check lock the prefixer plugin */ 
+        private Plugin getPrefixerPlugin() {
+            if (prefixerPlugin == null) {
+                synchronized (ParserConfiguration.class) {
+                    if (prefixerPlugin == null) {
+                        prefixerPlugin = Prefixer.defaultBrowserSupport().prune(true).rearrange(true);
+                    }
+                }
+            }
+            return prefixerPlugin;
+        }
+        
+        /* double-check lock the autoRefine plugin */
+        private Plugin getAutoRefinePlugin() {
+            if (autoRefinePlugin == null) {
+                synchronized (ParserConfiguration.class) {
+                    if (autoRefinePlugin == null) {
+                        autoRefinePlugin = AutoRefine.only(Match.AT_RULES);
+                    }
+                }
+            }
+            return autoRefinePlugin;
+        }
+        
+        public ParserConfiguration(StyleAdapter styleAdapter) {
             this.runtime = false;
+            this.styleAdapter = styleAdapter;
         }
 
-        public ParserConfiguration(boolean runtime) {
+        public ParserConfiguration(StyleAdapter styleAdapter, boolean runtime) {
             this.runtime = runtime;
+            this.styleAdapter = styleAdapter;
 
-            if (!runtime) {                
-                plugins.addAll(Aura.getStyleAdapter().getCompilationPlugins());
+            if (!runtime) {
+                plugins.addAll(styleAdapter.getCompilationPlugins());
                 plugins.add(new UrlContextPathPlugin());
             }
 
-            
             plugins.add(new UrlCacheBustingPlugin());
             plugins.add(new UnquotedIEFilterPlugin());
-            plugins.add(Prefixer.defaultBrowserSupport().prune(true).rearrange(true));
+            plugins.add(getPrefixerPlugin());
             plugins.add(PrefixCleaner.mismatchedPrefixedUnits());
-            plugins.addAll(Aura.getStyleAdapter().getRuntimePlugins());
+            plugins.addAll(styleAdapter.getRuntimePlugins());
         }
 
         /** specify css source code */
@@ -131,25 +153,15 @@ public final class CssPreprocessor {
         }
 
         /** enables aura tokens */
-        public ParserConfiguration tokens(DefDescriptor<? extends BaseStyleDef> style) {
+        public ParserConfiguration tokens(DefDescriptor<? extends BaseStyleDef> style, TokenValueProvider tvp) {
             if (runtime) {
-                // this will resolve all token function references
-                TokenValueProvider tvp = Aura.getStyleAdapter().getTokenValueProvider(style, ResolveStrategy.RESOLVE_NORMAL);
                 plugins.add(new TokenFunctionPlugin(tvp));
-                
-                // in runtime mode refine all at-rules, so that tokens inside of them are not missed
-                // todo: this can be optimized further
-                plugins.add(AutoRefine.only(Match.AT_RULES));
+                plugins.add(getAutoRefinePlugin());
             } else {
-                // this will collect all token function references but will leave them unevaluated in the CSS
-                TokenValueProvider tvp = Aura.getStyleAdapter().getTokenValueProvider(style, ResolveStrategy.PASSTHROUGH);
                 plugins.add(new TokenFunctionPlugin(tvp));
-
-                // validate tokens are used with allowed properties
-                if (Aura.getStyleAdapter().tokenPropertyValidation(style)) {
-                    plugins.add(new TokenPropertyValidationPlugin(tvp));
+                if (styleAdapter.tokenPropertyValidation(style)) {
+                    plugins.add(new TokenPropertyValidationPlugin());
                 }
-
                 plugins.add(new TokenSecurityPlugin());
             }
             return this;
@@ -232,6 +244,11 @@ public final class CssPreprocessor {
                 result.flavorAnnotations = flavorCollector.get().getFlavorAnnotations();
             }
 
+            Optional<TokenPropertyValidationPlugin> tokenPropertyValidationPlugin = registry.retrieve(TokenPropertyValidationPlugin.class);
+            if (tokenPropertyValidationPlugin.isPresent()) {
+                result.tokensInCssProperties = tokenPropertyValidationPlugin.get().tokensInCssProperties;
+            }
+
             return result;
         }
     }
@@ -241,6 +258,7 @@ public final class CssPreprocessor {
         private String content;
         private Set<String> expressions;
         private Map<String, FlavorAnnotation> flavorAnnotations;
+        private Map<String, Set<String>> tokensInCssProperties;
 
         /** parsed content */
         public String content() {
@@ -255,6 +273,10 @@ public final class CssPreprocessor {
         /** all flavors metadata found in the source */
         public Map<String, FlavorAnnotation> flavorAnnotations() {
             return flavorAnnotations;
+        }
+
+        public Map<String, Set<String>> tokensInCssProperties() {
+            return tokensInCssProperties;
         }
     }
 }

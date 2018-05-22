@@ -23,15 +23,14 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import org.auraframework.service.LoggingService;
-import org.auraframework.util.test.util.UnitTestCase;
+import org.junit.Before;
 import org.junit.Test;
-import org.mockito.Mock;
-import org.mockito.Mockito;
+import org.mockito.*;
 
 /**
  * Simple (non-integration) test case for {@link CSPReporterServlet}.
  */
-public class CSPReporterServletUnitTest extends UnitTestCase {
+public class CSPReporterServletUnitTest {
 
     @Mock
     HttpServletRequest request;
@@ -41,6 +40,11 @@ public class CSPReporterServletUnitTest extends UnitTestCase {
 
     @Mock
     LoggingService loggingService;
+
+    @Before
+    public void initMocks() {
+        MockitoAnnotations.initMocks(this);
+    }
 
     @SuppressWarnings("serial")
     private static class CSPReporterServletExtender extends CSPReporterServlet {
@@ -59,7 +63,7 @@ public class CSPReporterServletUnitTest extends UnitTestCase {
         servlet.testDoPost(request, response);
 
         Mockito.verify(loggingService, Mockito.times(1)).establish();
-        Mockito.verify(loggingService, Mockito.times(1)).logCSPReport(Mockito.any());
+        Mockito.verify(loggingService, Mockito.times(1)).logCSPReport(Matchers.any());
         Mockito.verify(loggingService, Mockito.times(1)).release();
     }
 
@@ -72,7 +76,7 @@ public class CSPReporterServletUnitTest extends UnitTestCase {
 
         servlet.testDoPost(request, response);
 
-        Mockito.verify(loggingService, Mockito.times(0)).logCSPReport(Mockito.any());
+        Mockito.verify(loggingService, Mockito.times(0)).logCSPReport(Matchers.any());
     }
 
     @Test
@@ -84,7 +88,7 @@ public class CSPReporterServletUnitTest extends UnitTestCase {
 
         servlet.testDoPost(request, response);
 
-        Mockito.verify(loggingService, Mockito.times(0)).logCSPReport(Mockito.any());
+        Mockito.verify(loggingService, Mockito.times(0)).logCSPReport(Matchers.any());
     }
 
     @Test
@@ -96,6 +100,6 @@ public class CSPReporterServletUnitTest extends UnitTestCase {
 
         servlet.testDoPost(request, response);
 
-        Mockito.verify(loggingService, Mockito.times(0)).logCSPReport(Mockito.any());
+        Mockito.verify(loggingService, Mockito.times(0)).logCSPReport(Matchers.any());
     }
 }

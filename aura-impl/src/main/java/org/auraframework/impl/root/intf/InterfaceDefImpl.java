@@ -36,6 +36,7 @@ import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import com.google.common.collect.Lists;
 
@@ -46,7 +47,8 @@ import com.google.common.collect.Lists;
  */
 public class InterfaceDefImpl extends RootDefinitionImpl<InterfaceDef> implements InterfaceDef {
 
-    private static final long serialVersionUID = 2253697052585693264L;
+    private static final long serialVersionUID = -4629444607020775922L;
+
     private final Set<DefDescriptor<InterfaceDef>> extendsDescriptors;
     private final Map<String, RegisterEventDef> events;
     private final Map<DefDescriptor<MethodDef>, MethodDef> methodDefs;
@@ -91,8 +93,8 @@ public class InterfaceDefImpl extends RootDefinitionImpl<InterfaceDef> implement
      * @throws QuickFixException
      */
     @Override
-    public void validateReferences() throws QuickFixException {
-        super.validateReferences();
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        super.validateReferences(validationContext);
 
         for (DefDescriptor<InterfaceDef> extended : extendsDescriptors) {
             InterfaceDef def = Aura.getDefinitionService().getDefinition(extended);
@@ -108,11 +110,11 @@ public class InterfaceDefImpl extends RootDefinitionImpl<InterfaceDef> implement
 
         // make sure the registered events actually exist
         for (RegisterEventDef reg : this.events.values()) {
-            reg.validateReferences();
+            reg.validateReferences(validationContext);
         }
 
         for (AttributeDef att : this.attributeDefs.values()) {
-            att.validateReferences();
+            att.validateReferences(validationContext);
         }
     }
 

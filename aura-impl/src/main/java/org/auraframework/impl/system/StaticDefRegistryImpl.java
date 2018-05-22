@@ -15,18 +15,24 @@
  */
 package org.auraframework.impl.system;
 
-import com.google.common.collect.Maps;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import javax.annotation.Nonnull;
+
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.Definition;
 import org.auraframework.def.DescriptorFilter;
-import org.auraframework.impl.source.SourceFactory;
+import org.auraframework.def.PlatformDef;
 import org.auraframework.system.Source;
+import org.auraframework.system.SourceLoader;
 
-import java.util.Collection;
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
+import com.google.common.collect.Maps;
 
 /**
  * Immutable DefRegistry implementation, backed by a prepopulated map.
@@ -35,7 +41,7 @@ public class StaticDefRegistryImpl extends DefRegistryImpl {
 
     private static final long serialVersionUID = 1L;
     protected final Map<DefDescriptor<?>, Definition> defs;
-    private transient SourceFactory sourceFactory = null;
+    private transient SourceLoader sourceLoader = null;
     private String name;
 
     public StaticDefRegistryImpl(Set<DefType> defTypes, Set<String> prefixes, Set<String> namespaces,
@@ -60,8 +66,8 @@ public class StaticDefRegistryImpl extends DefRegistryImpl {
         return (D)defs.get(descriptor);
     }
 
-    public void setSourceFactory(SourceFactory sourceFactory) {
-        this.sourceFactory = sourceFactory;
+    public void setSourceLoader(SourceLoader sourceLoader) {
+        this.sourceLoader = sourceLoader;
     }
 
     @Override
@@ -82,14 +88,22 @@ public class StaticDefRegistryImpl extends DefRegistryImpl {
     }
 
     @Override
+    public Set<DefDescriptor<?>> findByTags(@Nonnull Set<String> tags) {
+        return defs.entrySet().stream().filter(m ->
+                m.getValue() instanceof PlatformDef
+                && !Collections.disjoint(((PlatformDef)m.getValue()).getTags(), tags))
+            .map(m -> m.getKey()).collect(Collectors.toSet());
+    }
+
+    @Override
     public <D extends Definition> boolean exists(DefDescriptor<D> descriptor) {
         return defs.containsKey(descriptor);
     }
 
     @Override
     public <D extends Definition> Source<D> getSource(DefDescriptor<D> descriptor) {
-        if (sourceFactory != null) {
-            return sourceFactory.getSource(descriptor);
+        if (sourceLoader != null) {
+            return sourceLoader.getSource(descriptor);
         }
         return null;
     }

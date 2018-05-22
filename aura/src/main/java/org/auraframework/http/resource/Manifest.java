@@ -85,7 +85,7 @@ public class Manifest extends AuraResourceImpl {
             //
             // First, we make sure that the manifest is enabled.
             //
-            if (!manifestUtil.isManifestEnabled(request)) {
+            if (!manifestUtil.isManifestEnabled()) {
                 response.setStatus(HttpServletResponse.SC_NOT_FOUND);
                 return;
             }
@@ -169,13 +169,6 @@ public class Manifest extends AuraResourceImpl {
             // inline.js is included in appcache so the app may boot while offline
             sw.write(servletUtilAdapter.getInlineJsUrl(context, attributes));
             sw.write('\n');
-
-            // Add locker service safe eval worker url if strict CSP is to be enforced
-            String lockerWorkerURL = configAdapter.getLockerWorkerURL();
-            if (configAdapter.isStrictCSPEnforced() && lockerWorkerURL != null) {
-                sw.write(lockerWorkerURL);
-                sw.write('\n');
-            }
 
             // Add in any application specific resources
             if (descr != null && descr.getDefType().equals(DefType.APPLICATION)) {

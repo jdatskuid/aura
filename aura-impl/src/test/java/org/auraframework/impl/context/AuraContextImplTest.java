@@ -33,6 +33,7 @@ import org.auraframework.system.Location;
 import org.auraframework.system.SubDefDescriptor;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -216,7 +217,7 @@ public class AuraContextImplTest extends AuraImplTestCase {
         }
 
         @Override
-        public void validateReferences() throws QuickFixException {
+        public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
         }
 
         @Override
@@ -241,10 +242,6 @@ public class AuraContextImplTest extends AuraImplTestCase {
         @Override
         public DefinitionAccess getAccess() {
             return null;
-        }
-
-        @Override
-        public void retrieveLabels() throws QuickFixException {
         }
 
         @Override
@@ -274,6 +271,11 @@ public class AuraContextImplTest extends AuraImplTestCase {
         @Override
         public <D extends Definition> D getSubDefinition(SubDefDescriptor<D, ?> descriptor) {
             return null;
+        }
+
+        @Override
+        public Set<DefDescriptor<?>> getDependencySet() {
+            return Sets.newHashSet();
         }
     }
 
@@ -370,19 +372,6 @@ public class AuraContextImplTest extends AuraImplTestCase {
         AuraContextImpl impl = new AuraContextImpl(null, null, null, null, null, null, null, null, null, null);
         impl.addLocalDef(desc, definition);
         impl.setSystemMode(true);
-        assertNotNull(impl.getLocalDef(desc));
-        assertEquals(impl.getLocalDef(desc).orNull(), definition);
-    }
-
-    @Test
-    public void testGetLocalDefFromNonSystemEvenIfSetInSystem() {
-        FakeDescriptor desc = new FakeDescriptor("a", "b", "c", DefType.APPLICATION);
-        Definition definition = Mockito.mock(Definition.class);
-        Definition definition2 = Mockito.mock(Definition.class);
-        AuraContextImpl impl = new AuraContextImpl(null, null, null, null, null, null, null, null, null, null);
-        impl.addLocalDef(desc, definition);
-        impl.setSystemMode(true);
-        impl.addLocalDef(desc, definition2);
         assertNotNull(impl.getLocalDef(desc));
         assertEquals(impl.getLocalDef(desc).orNull(), definition);
     }

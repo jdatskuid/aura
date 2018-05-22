@@ -21,9 +21,9 @@ Test.Aura.Controller.ActionTest = function() {
         "Controller": {},
         "Errors":{},
         "lockerService": {
-        	wrapComponent: function(component) {
-        		return component;
-        	}
+            wrapComponent: function(component) {
+                return component;
+            }
         }
     };
 
@@ -48,6 +48,10 @@ Test.Aura.Controller.ActionTest = function() {
         Mocks.GetMocks(Object.Global(), {
             "$A": {
                 getContext: function() {},
+                clientService:{
+                    setCurrentAccess:function(){},
+                    releaseCurrentAccess:function(){}
+                },
                 lockerService: {
                     trust: function() {}
                 }
@@ -62,6 +66,7 @@ Test.Aura.Controller.ActionTest = function() {
     var mockActionDependencies = Mocks.GetMocks(Object.Global(), {
             "$A": {
                 getContext: function() { return null; },
+                clientService:{},
                 lockerService: {
                     trust: function() {}
                 },
@@ -71,7 +76,8 @@ Test.Aura.Controller.ActionTest = function() {
                     },
                     isObject: function(obj) {}
                 },
-                assert: function() {}
+                assert: function() {},
+                deprecated: function(){}
             },
             "Action": Aura.Controller.Action
     });
@@ -632,6 +638,10 @@ Test.Aura.Controller.ActionTest = function() {
                     actual = param;
                 },
                 auraError:Aura.Errors.AuraError,
+                clientService:{
+                    setCurrentAccess:function(){},
+                    releaseCurrentAccess:function(){}
+                },
                 lockerService : {
                     wrapComponent: function(component) {
                         return component;
@@ -667,7 +677,7 @@ Test.Aura.Controller.ActionTest = function() {
 
             // Act
             mockAura(function() {
-		        target.runDeprecated();
+                target.runDeprecated();
             })
 
             // Assert
@@ -683,6 +693,10 @@ Test.Aura.Controller.ActionTest = function() {
                     return Stubs.Aura.GetContext();
                 },
                 assert : function(param) {
+                },
+                clientService:{
+                    setCurrentAccess:function(){},
+                    releaseCurrentAccess:function(){}
                 },
                 lockerService : {
                     wrapComponent: function(component) {
@@ -716,7 +730,7 @@ Test.Aura.Controller.ActionTest = function() {
 
             // Act
             mockAssert(function() {
-            	target.runDeprecated();
+                target.runDeprecated();
             })
 
             // Assert
@@ -733,7 +747,8 @@ Test.Aura.Controller.ActionTest = function() {
                         return Stubs.Aura.GetContext();
                     },
                     assert: function (param) {},
-                    auraError:function() {},
+                    auraError:function() {return { setComponent: function(){} }},
+                    auraFriendlyError: function() {},
                     warning: function () {},
                     get: function (actDesc) {
                         return {
@@ -748,6 +763,8 @@ Test.Aura.Controller.ActionTest = function() {
                         };
                     },
                     clientService: {
+                        setCurrentAccess:function(){},
+                        releaseCurrentAccess:function(){},
                         inAuraLoop: function () {
                             return false;
                         }
@@ -964,43 +981,6 @@ Test.Aura.Controller.ActionTest = function() {
         }
     }
 
-    [Fixture]
-    function RunAfter() {
-        [Fact]
-        function AddsActionParamToQueue() {
-            // Arrange
-            var expectedReturn = "expectedReturn";
-            var mockAssert = Mocks.GetMock(Object.Global(), "$A", {
-                getContext: function() {
-                    return Stubs.Aura.GetContext();
-                },
-                assert : function(param) {
-                },
-                clientService : {
-                    enqueueAction : function(param) {
-                        actual = param;
-                    }
-                }
-            });
-            var target = newAction();
-            var action = {
-                def : {
-                    isServerAction : function() {
-                    }
-                }
-            };
-            var actual = null;
-
-            // Act
-            mockAssert(function() {
-                target.runAfter(action);
-            })
-
-            // Assert
-            Assert.Equal(action, actual);
-        }
-    }
-
     [ Fixture ]
     function GetStored() {
         [Fact]
@@ -1113,6 +1093,15 @@ Test.Aura.Controller.ActionTest = function() {
                 clientService : {
                     inAuraLoop : function() {
                         return inloop;
+                    },
+                    setCurrentAccess:function(){},
+                    releaseCurrentAccess:function(){},
+                    getActionStorage : function() {
+                        return {
+                            isStorageEnabled: function() {
+                                return true;
+                            }
+                        }
                     }
                 },
                 warning : function() {
@@ -1160,8 +1149,6 @@ Test.Aura.Controller.ActionTest = function() {
             // Act
             mockContext(false)(function() {
                 target.finishAction({
-                    setCurrentAccess: function(){},
-                    releaseCurrentAccess: function(){},
                     setCurrentAction: function () {},
                     joinComponentConfigs: function () {},
                     finishComponentConfigs: function () {}
@@ -1177,8 +1164,6 @@ Test.Aura.Controller.ActionTest = function() {
             var target = newAction();
             var expectedId = "9955";
             var context = {
-                setCurrentAccess: function(){},
-                releaseCurrentAccess: function(){},
                 joinComponentConfigs : function() {},
                 setCurrentAction : function() {}
             };
@@ -1211,8 +1196,6 @@ Test.Aura.Controller.ActionTest = function() {
             var target = newAction();
             var expectedId = "9955";
             var context = {
-                setCurrentAccess: function(){},
-                releaseCurrentAccess: function(){},
                 joinComponentConfigs : function() {},
                 setCurrentAction : function() {}
             };
@@ -1221,9 +1204,7 @@ Test.Aura.Controller.ActionTest = function() {
             target.components = [ {
                 "creationPath" : "hi"
             } ];
-            target.getStorage = function() {
-                return true;
-            };
+
             target.storable = true;
             target.getId = function() {
                 return expectedId;
@@ -1246,8 +1227,6 @@ Test.Aura.Controller.ActionTest = function() {
             var target = newAction();
             var expectedId = "9955";
             var context = {
-                setCurrentAccess: function(){},
-                releaseCurrentAccess: function(){},
                 joinComponentConfigs : function() {},
                 setCurrentAction : function() {}
             };
@@ -1793,7 +1772,7 @@ Test.Aura.Controller.ActionTest = function() {
                 "descriptor" : expectedDescriptor,
                 "params" : expectedParams,
                 "callingDescriptor": "UNKNOWN",
-                "version": null
+                "version": undefined
             };
             var target = newAction();
             target.getId = function() {
@@ -1817,14 +1796,17 @@ Test.Aura.Controller.ActionTest = function() {
     [ Fixture ]
     function GetStorage() {
         [Fact]
-        function ReturnsStorageServiceGetStorage() {
+        function ReturnsStorage() {
             // Arrange
             var target = newAction();
+            var mockGetStorage = Stubs.GetMethod();
             var mockStorageService = Mocks.GetMocks(Object.Global(), {
                 "$A": {
-                    storageService : {
-                        getStorage : function(param) {
-                            return param === "actions";
+                    clientService : {
+                        getActionStorage: function() {
+                            return {
+                                getStorage: mockGetStorage
+                            }
                         }
                     }
                 },
@@ -1838,7 +1820,7 @@ Test.Aura.Controller.ActionTest = function() {
             })
 
             // Assert
-            Assert.True(actual);
+            Assert.Equal(1, mockGetStorage.Calls.length);
         }
     }
 
@@ -2177,58 +2159,6 @@ Test.Aura.Controller.ActionTest = function() {
     }
 
     [Fixture]
-    function getAbortableId() {
-        [Fact]
-        function ReturnsUndefined() {
-            var target;
-            var expected = undefined;
-            var actual;
-
-            mockActionDependencies(function(){
-                target = new Action();
-                actual = target.getAbortableId();
-            });
-
-            Assert.Equal(expected, actual);
-        }
-    }
-
-    [Fixture]
-    function setExclusive() {
-        [Fact]
-        function ReturnsFalse() {
-            var target;
-            var expected = false;
-            var actual;
-
-            mockActionDependencies(function(){
-                target = new Action();
-                actual = target.setExclusive();
-            });
-
-            Assert.Equal(expected, actual);
-        }
-    }
-
-    [Fixture]
-    function isExclusive() {
-        [Fact]
-        function ReturnsFalse() {
-            var target;
-            var expected = false;
-            var actual;
-
-            mockActionDependencies(function(){
-                target = new Action();
-                target.setExclusive();
-                actual = target.isExclusive();
-            });
-
-            Assert.Equal(expected, actual);
-        }
-    }
-
-    [Fixture]
     function run() {
         [Fact]
         function CallsRunDeprecated() {
@@ -2244,6 +2174,167 @@ Test.Aura.Controller.ActionTest = function() {
                 target.run(expected);
             });
 
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    [Fixture]
+    function PrepareToSend() {
+        var def = {
+            isPublicCachingEnabled: function() {
+                return true;
+            },
+            getPublicCachingExpiration: function() {
+                return 100;
+            },
+            getDescriptor: function() {
+                return "publiclyCacheableAction";
+            }
+        };
+
+        var mockAura = Mocks.GetMock(Object.Global(), "$A", {
+            getContext: function() {
+                return {
+                    isActionPublicCachingEnabled : function() {
+                        return true;
+                    }
+                }
+            }
+        });
+
+        [Fact]
+        function RemoveIdForPubliclyCacheableActions() {
+            // Arrange
+            var target = newAction(def);
+            var expected = undefined;
+
+            // Act
+            var actual;
+
+            mockAura(function() {
+                actual = target.prepareToSend();
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.id);
+        }
+
+        [Fact]
+        function IdSentForRegularActions() {
+            // Arrange
+            def.isPublicCachingEnabled = function() {
+                return false;
+            };
+            def.getPublicCachingExpiration = function() {
+                return 0;
+            };
+
+            var target = newAction(def);
+            var expected = undefined;
+
+            // Act
+            var actual;
+
+            mockAura(function() {
+                actual = target.prepareToSend();
+            });
+
+            // Assert
+            Assert.NotEqual(expected, actual.id);
+        }
+    }
+
+    [Fixture]
+    function IsPubliclyCacheable() {
+
+        var getDef = function(isPublicCachingEnabled, publicCachingExpiration) {
+            return {
+                isPublicCachingEnabled: function() {
+                    return isPublicCachingEnabled;
+                },
+                getPublicCachingExpiration: function() {
+                    return publicCachingExpiration;
+                }
+            };
+        };
+
+        var getAuraMock = function(isActionPublicCachingEnabled) {
+            return Mocks.GetMock(Object.Global(), "$A", {
+                getContext: function() {
+                    return {
+                        isActionPublicCachingEnabled : function() {
+                            return isActionPublicCachingEnabled;
+                        }
+                    }
+                }
+            });
+        };
+
+        [Fact]
+        function ReturnsTrue() {
+            // Arrange
+            var target = newAction(getDef(true, 1));
+            var expected = true;
+
+            // Act
+            var actual;
+
+            getAuraMock(true)(function() {
+                actual = target.isPubliclyCacheable();
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        function ReturnsFalseWhenActionPublicCachingDisabled() {
+            // Arrange
+            var target = newAction(getDef(true, 1));
+            var expected = false;
+
+            // Act
+            var actual;
+
+            getAuraMock(false)(function() {
+                actual = target.isPubliclyCacheable();
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        function ReturnsFalseWhenActionPublicCachingNotAllowed() {
+            // Arrange
+            var target = newAction(getDef(false, 1));
+            var expected = false;
+
+            // Act
+            var actual;
+
+            getAuraMock(true)(function() {
+                actual = target.isPubliclyCacheable();
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        function ReturnsFalseWhenActionPublicCachingExpirationIsZero() {
+            // Arrange
+            var target = newAction(getDef(true, 0));
+            var expected = false;
+
+            // Act
+            var actual;
+
+            getAuraMock(true)(function() {
+                actual = target.isPubliclyCacheable();
+            });
+
+            // Assert
             Assert.Equal(expected, actual);
         }
     }

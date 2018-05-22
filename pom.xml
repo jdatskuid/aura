@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>org.auraframework</groupId>
     <artifactId>aura-framework</artifactId>
-    <version>0.5636-SNAPSHOT</version>
+    <version>0.6000-SNAPSHOT</version>
     <packaging>pom</packaging>
     <organization>
         <url>http://www.auraframework.org</url>
@@ -35,11 +35,10 @@
     <properties>
         <maven.build.timestamp.format>yyyyMMdd-HHmm</maven.build.timestamp.format>
         <aura.home>${basedir}</aura.home>
-        <java.io.tmpdir>${project.build.directory}${file.separator}tmp</java.io.tmpdir>
         <debug>true</debug>
         <skipUnitTests>false</skipUnitTests>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <selenium.version>2.45.0</selenium.version>
+        <selenium.version>3.6.0</selenium.version>
         <!-- xUnit properties:
           xunit.js.testPath the path to an individual test to run
           xunit.js.engine the engine to use.
@@ -52,21 +51,15 @@
         <xunit.js.coverage>false</xunit.js.coverage>
         <xunit.js.isStrict>true</xunit.js.isStrict>
         <xunit.js.currentModule>${project.basedir}</xunit.js.currentModule>
-        <spring.version>4.1.7.RELEASE</spring.version>
-        <jetty.version>8.1.15.v20140411</jetty.version>
+        <spring.version>4.3.6.RELEASE</spring.version>
+        <jetty.version>9.4.5.v20170502</jetty.version>
         <node.download.root.url>http://repo.auraframework.org/simple/plugins-release-local/node/</node.download.root.url>
         <npm.download.root.url>http://repo.auraframework.org/simple/plugins-release-local/npm/</npm.download.root.url>
         <node.version>v4.2.1</node.version>
         <npm.version>2.14.7</npm.version>
+        <eslint.extra.arg>--no-color</eslint.extra.arg>
     </properties>
     <repositories>
-        <repository>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
-            <id>maven.auraframework.org</id>
-            <url>http://maven.auraframework.org/libs-release</url>
-        </repository>
         <repository>
             <snapshots>
                 <enabled>false</enabled>
@@ -80,29 +73,10 @@
             <snapshots>
                 <enabled>false</enabled>
             </snapshots>
-            <id>maven.auraframework.org</id>
-            <url>http://maven.auraframework.org/libs-release</url>
-        </pluginRepository>
-        <pluginRepository>
-            <snapshots>
-                <enabled>false</enabled>
-            </snapshots>
             <id>repo.auraframework.org</id>
             <url>http://repo.auraframework.org/libs-release</url>
         </pluginRepository>
     </pluginRepositories>
-    <distributionManagement>
-        <repository>
-            <id>maven.auraframework.org</id>
-            <name>maven.auraframework.org-releases</name>
-            <url>http://maven.auraframework.org/libs-release-local</url>
-        </repository>
-        <snapshotRepository>
-            <id>maven.auraframework.org</id>
-            <name>maven.auraframework.org-snapshots</name>
-            <url>http://maven.auraframework.org/libs-snapshot-local</url>
-        </snapshotRepository>
-    </distributionManagement>
     <modules>
         <module>aura-interfaces</module>
         <module>aura-spring</module>
@@ -125,6 +99,10 @@
         <tag>HEAD</tag>
     </scm>
     <dependencies>
+        <dependency>
+            <groupId>org.json</groupId>
+            <artifactId>json</artifactId>
+        </dependency>
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
@@ -185,100 +163,100 @@
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
                 <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-interfaces</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-spring</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-util</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-util</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
                 <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-modules</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-modules</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
                 <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-impl</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-impl</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
                 <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-impl-expression</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-impl</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
                 <type>sources</type>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-impl-expression</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
                 <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-components</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-components</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
                 <type>test-jar</type>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-tools</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-resources</artifactId>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>org.auraframework</groupId>
                 <artifactId>aura-integration-test</artifactId>
                 <type>test-jar</type>
-                <version>0.5636-SNAPSHOT</version>
+                <version>0.6000-SNAPSHOT</version>
             </dependency>
             <dependency>
                 <groupId>junit</groupId>
@@ -293,7 +271,7 @@
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
-                <version>18.0</version>
+                <version>22.0</version>
             </dependency>
             <dependency>
                 <groupId>javax.servlet</groupId>
@@ -421,7 +399,7 @@
             <dependency>
                 <groupId>com.google.code.gson</groupId>
                 <artifactId>gson</artifactId>
-                <version>2.3.1</version>
+                <version>2.8.0</version>
             </dependency>
             <dependency>
                 <groupId>org.slf4j</groupId>
@@ -462,17 +440,12 @@
             <dependency>
                 <groupId>com.ibm.icu</groupId>
                 <artifactId>icu4j</artifactId>
-                <version>55.1</version>
+                <version>59.1</version>
             </dependency>
             <dependency>
                 <groupId>com.salesforce</groupId>
                 <artifactId>omakase</artifactId>
-                <version>1.0.0</version>
-            </dependency>
-            <dependency>
-                <groupId>biz.aQute</groupId>
-                <artifactId>bnd</artifactId>
-                <version>1.50.0</version>
+                <version>1.2.0</version>
             </dependency>
             <dependency>
                 <groupId>org.mongodb</groupId>
@@ -490,14 +463,19 @@
                 <version>1.0.16</version>
             </dependency>
             <dependency>
-                <groupId>com.eclipsesource.j2v8</groupId>
-                <artifactId>j2v8_macosx_x86_64</artifactId>
-                <version>4.6.0</version>
+                <groupId>org.auraframework</groupId>
+                <artifactId>node-tool</artifactId>
+                <version>0.2.2</version>
             </dependency>
             <dependency>
-                <groupId>com.salesforce.uitier.j2v8</groupId>
-                <artifactId>j2v8_linux_x86_64</artifactId>
-                <version>4.6.0-c68</version>
+                <groupId>org.polyfillservice</groupId>
+                <artifactId>polyfill-service-api</artifactId>
+                <version>2.0.0</version>
+            </dependency>
+            <dependency>
+                <groupId>org.json</groupId>
+                <artifactId>json</artifactId>
+                <version>20160810</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -596,6 +574,7 @@
                         <exclude>**/.gitignore</exclude>
                         <exclude>**/.index</exclude>
                         <exclude>**/version.prop</exclude>
+                        <exclude>aura/src/main/resources/**</exclude>
                         <exclude>aura-resources/src/main/resources/**</exclude>
                         <exclude>aura-modules/src/main/resources/**</exclude>
                         <exclude>aura-archetype/src/main/resources/archetype-resources/**</exclude>
@@ -643,7 +622,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-clean-plugin</artifactId>
-                    <version>2.4.1</version>
+                    <version>3.0.0</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
@@ -658,7 +637,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-scm-plugin</artifactId>
-                    <version>1.5</version>
+                    <version>1.9.5</version>
                     <configuration>
                         <goals>install</goals>
                     </configuration>
@@ -666,12 +645,12 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-release-plugin</artifactId>
-                    <version>2.4.1</version>
+                    <version>2.5.3</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-deploy-plugin</artifactId>
-                    <version>2.7</version>
+                    <version>2.8.2</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -684,7 +663,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>2.3.2</version>
+                    <version>3.6.1</version>
                     <configuration>
                         <source>1.8</source>
                         <target>1.8</target>
@@ -712,12 +691,12 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-source-plugin</artifactId>
-                    <version>2.1.2</version>
+                    <version>3.0.1</version>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-resources-plugin</artifactId>
-                    <version>2.7</version>
+                    <version>3.0.2</version>
                     <executions>
                         <execution>
                             <id>copy-jstest</id>
@@ -750,16 +729,9 @@
                     <version>1.8</version>
                 </plugin>
                 <plugin>
-                    <groupId>org.mortbay.jetty</groupId>
+                    <groupId>org.eclipse.jetty</groupId>
                     <artifactId>jetty-maven-plugin</artifactId>
                     <version>${jetty.version}</version>
-                    <dependencies>
-                        <dependency>
-                            <groupId>org.slf4j</groupId>
-                            <artifactId>slf4j-nop</artifactId>
-                            <version>1.6.4</version>
-                        </dependency>
-                    </dependencies>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
@@ -778,12 +750,11 @@
                             <exclude>**/*IntegrationTest.java</exclude>
                         </excludes>
                         <runOrder>random</runOrder>
-                        <argLine>-Xmx512m -Djava.io.tmpdir=${java.io.tmpdir}</argLine>
+                        <argLine>-Xmx512m</argLine>
                         <systemPropertyVariables>
                             <config>${config}</config>
                             <aura.home>${aura.home}</aura.home>
                             <user.timezone>GMT</user.timezone>
-                            <java.io.tmpdir>${java.io.tmpdir}</java.io.tmpdir>
                         </systemPropertyVariables>
                     </configuration>
                     <dependencies>
@@ -924,7 +895,7 @@
                                             <goal>npm</goal>
                                             <goal>grunt</goal>
                                         </goals>
-                
+
                                         <versionRange>[0.0,)</versionRange>
                                     </pluginExecutionFilter>
                                     <action>
@@ -1055,9 +1026,12 @@
                 <plugin>
                     <groupId>org.auraframework</groupId>
                     <artifactId>tools-maven-plugin</artifactId>
-                    <version>0.0.8</version>
+                    <version>0.7.2</version>
                     <configuration>
                         <arguments>
+                            <argument>${eslint.extra.arg}</argument>
+                            <argument>--max-warnings</argument>
+                            <argument>0</argument>
                             <argument>${project.basedir}/src/main/modules</argument>
                             <argument>${project.basedir}/src/test/modules</argument>
                         </arguments>
@@ -1132,6 +1106,35 @@
                                 <phase>package</phase>
                                 <goals>
                                     <goal>report</goal>
+                                </goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        <profile>
+            <id>eslint-modules</id>
+            <activation>
+                <property>
+                    <name>eslint.enabled</name>
+                </property>
+                <file>
+                    <exists>${basedir}/modules.eslintrc.js</exists>
+                </file>
+            </activation>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.auraframework</groupId>
+                        <artifactId>tools-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <!-- run eslint on LWC modules -->
+                                <id>eslint-lwc</id>
+                                <phase>process-classes</phase>
+                                <goals>
+                                    <goal>eslint-lwc</goal>
                                 </goals>
                             </execution>
                         </executions>

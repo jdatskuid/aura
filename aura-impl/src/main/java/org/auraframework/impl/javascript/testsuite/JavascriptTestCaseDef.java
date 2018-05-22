@@ -34,9 +34,9 @@ import org.auraframework.impl.util.AuraUtil;
 import org.auraframework.system.Location;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import java.io.IOException;
-import java.io.ObjectInputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,25 +47,15 @@ public class JavascriptTestCaseDef extends DefinitionImpl<TestCaseDef> implement
                                  List<Object> mocks, Set<String> auraErrorsExpectedDuringInit, String scrumTeam, String owner,
                                  DefinitionAccess access) {
         // FIXME: 3Tier 
-        super(new DefDescriptorImpl<>(suiteDescriptor.getQualifiedName() + "/" + DefType.TESTCASE + "$" + name,
-                TestCaseDef.class, null), location, access);
+        super(new DefDescriptorImpl<>(DefDescriptor.JAVASCRIPT_PREFIX, suiteDescriptor.getNamespace(),
+                suiteDescriptor.getName() + "/" + DefType.TESTCASE + "$" + name, TestCaseDef.class, null), location,
+                access);
         this.suiteDescriptor = suiteDescriptor;
         this.attributes = attributes == null ? null : AuraUtil.immutableMap(attributes);
         this.defType = defType;
         this.testLabels = AuraUtil.immutableSet(testLabels);
         this.browsers = AuraUtil.immutableSet(browsers);
         this.mocks = AuraUtil.immutableList(mocks);
-
-        List<Definition> tMockDefs = null;
-        QuickFixException qfe = null;
-        try {
-            tMockDefs = parseMocks();
-        } catch (QuickFixException t) {
-            tMockDefs = Lists.newArrayList();
-            qfe = t;
-        }
-        this.mockDefs = tMockDefs;
-        this.mockException = qfe;
         this.name = name;
         this.auraErrorsExpectedDuringInit = auraErrorsExpectedDuringInit;
         this.scrumTeam = scrumTeam;
@@ -75,9 +65,11 @@ public class JavascriptTestCaseDef extends DefinitionImpl<TestCaseDef> implement
     @Override
     public void validateDefinition() throws QuickFixException {
         super.validateDefinition();
-        if (this.mockException != null) {
-            throw this.mockException;
-        }
+    }
+
+    @Override
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        this.mockDefs = parseMocks();
     }
 
     @Override
@@ -92,9 +84,6 @@ public class JavascriptTestCaseDef extends DefinitionImpl<TestCaseDef> implement
         json.writeMapEntry("auraErrorsExpectedDuringInit", auraErrorsExpectedDuringInit);
         json.writeMapEntry("scrumTeam", scrumTeam);
         json.writeMapEntry("owner", owner);
-        if (this.mockException != null) {
-            json.writeMapEntry("quickFixException", this.mockException.getMessage());
-        }
         json.writeMapEnd();
     }
     
@@ -199,20 +188,6 @@ public class JavascriptTestCaseDef extends DefinitionImpl<TestCaseDef> implement
         return building;
     }
 
-    private void readObject(ObjectInputStream in) throws IOException, ClassNotFoundException {
-        in.defaultReadObject();
-
-        List<Definition> tMockDefs = null;
-        QuickFixException qfe = null;
-        try {
-            tMockDefs = parseMocks();
-        } catch (QuickFixException t) {
-            qfe = t;
-        }
-        this.mockDefs = tMockDefs;
-        this.mockException = qfe;
-    }
-
     private String currentBrowser = "";
     private static final long serialVersionUID = -5460410624026635318L;
     private final Map<String, Object> attributes;
@@ -227,5 +202,4 @@ public class JavascriptTestCaseDef extends DefinitionImpl<TestCaseDef> implement
     private final DefDescriptor<TestSuiteDef> suiteDescriptor;
     
     transient private List<Definition> mockDefs;
-    transient private QuickFixException mockException;
 }

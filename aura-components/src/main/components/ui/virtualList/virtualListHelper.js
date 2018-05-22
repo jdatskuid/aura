@@ -173,13 +173,20 @@
                 ptv     = templateData.ptv,
                 itemVar = cmp.get('v.itemVar'),
                 clonedItem;
-            
-            ptv.set(itemVar, item);
-            
+
+            if ($A.util.isString(itemVar)) {
+                ptv.set(itemVar, item);
+            }
+
             cmp.markClean('v.items');
             $A.renderingService.rerenderDirty('virtualRendering');
-            
-            clonedItem = rowTmpl.firstChild.cloneNode(true);
+
+            if (rowTmpl && rowTmpl.firstChild) {
+                clonedItem = rowTmpl.firstChild.cloneNode(true);
+            } else {
+                $A.warning("Template data its invalid. Defaulting to " + this.DEFAULT_ITEM_ELEMENT);
+                return document.createElement(this.DEFAULT_ITEM_ELEMENT);
+            }
             
             // SVG IE11 workaround
             if ($A.get("$Browser.isIE11")) {
@@ -219,7 +226,9 @@
             cmp._virtualItems.push(virtualItem);
             fragment.appendChild(virtualItem);
         }
-        container.appendChild(fragment);
+        if (container) {
+            container.appendChild(fragment);
+        }
         cmp.set('v.items', (cmp.get('v.items') || []).concat(items), true);
         this.ignorePTVChanges(cmp, false);
         $A.metricsService.markEnd(this.NS, this.NAME + ".appendVirtualRows");
@@ -349,7 +358,7 @@
             if ((item = this._getItemAttached(target))) {
                 break;
             }
-            target = target.parentElement;
+            target = target.parentNode;
         }
 
         if (!handlers.length > 0) {

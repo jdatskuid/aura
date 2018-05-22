@@ -1,3 +1,4 @@
 import { Element } from 'engine';
-export default class Marker extends Element {
-}
+import url from "@test/testImage"; // eslint-disable-line no-unused-vars
+
+export default class Marker extends Element {}

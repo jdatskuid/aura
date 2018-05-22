@@ -28,12 +28,13 @@ ActionValueProvider.prototype.get = function(key) {
     if (!actionDef) {
         actionDef = this.component['controller'] && this.component['controller'][key];
         if (actionDef) {
-            actionDef = new ActionDef({
-                "descriptor": this.component.getType() + "$controller$" + key,
-                "name": key,
-                "actionType": "CLIENT",
-                "code": actionDef
-            });
+            var clientDef = {};
+            clientDef[Json.ApplicationKey.DESCRIPTOR] = this.component.getType() + "$controller$" + key;
+            clientDef[Json.ApplicationKey.NAME] = key;
+            clientDef[Json.ApplicationKey.ACTIONTYPE] = "CLIENT";
+            clientDef[Json.ApplicationKey.CODE] = actionDef;
+
+            actionDef = new ActionDef(clientDef);
 
             //#if {"excludeModes" : ["PRODUCTION"]}
             if (this.controllerDef && this.controllerDef.hasActionDef(key)) {
@@ -46,8 +47,9 @@ ActionValueProvider.prototype.get = function(key) {
         }
 
         if (!actionDef) {
-            var auraError = new $A.auraError("Unknown controller action '"+key+"'");
-            auraError["component"] = this.component.getDef().getDescriptor().toString();
+            var cmpType = this.component.getType();
+            var auraError = new $A.auraError("Unable to find action '" + key + "' on the controller of " + cmpType);
+            auraError.setComponent(cmpType);
             auraError["componentStack"] = $A.util.getComponentHierarchy(this.component);
             throw auraError;
         }

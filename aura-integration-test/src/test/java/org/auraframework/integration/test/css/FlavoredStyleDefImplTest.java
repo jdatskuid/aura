@@ -15,20 +15,25 @@
  */
 package org.auraframework.integration.test.css;
 
-import com.google.common.collect.Sets;
+import java.util.Set;
+
+import javax.inject.Inject;
+
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.FlavoredStyleDef;
 import org.auraframework.def.TokensDef;
 import org.auraframework.impl.css.StyleTestCase;
 import org.auraframework.impl.css.util.Flavors;
+import org.auraframework.impl.validation.ReferenceValidationContextImpl;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
+import org.auraframework.validation.ReferenceValidationContext;
 import org.junit.Test;
 
-import javax.inject.Inject;
-import java.util.Set;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 /**
  * Unit tests for {@link FlavoredStyleDef}.
@@ -108,8 +113,7 @@ public class FlavoredStyleDefImplTest extends StyleTestCase {
         DefDescriptor<ComponentDef> cmp = addComponentDef("<aura:component><div aura:flavorable='true'></div></aura:component>");
         DefDescriptor<FlavoredStyleDef> flavor = addStandardFlavor(cmp, ".THIS--test {color:t(color);}");
 
-        Set<DefDescriptor<?>> dependencies = Sets.newHashSet();
-        definitionService.getDefinition(flavor).appendDependencies(dependencies);
+        Set<DefDescriptor<?>> dependencies = definitionService.getDefinition(flavor).getDependencySet();
         assertTrue(dependencies.contains(nsTokens));
     }
 
@@ -118,8 +122,7 @@ public class FlavoredStyleDefImplTest extends StyleTestCase {
         DefDescriptor<ComponentDef> cmp = addComponentDef("<aura:component><div aura:flavorable='true'></div></aura:component>");
         DefDescriptor<FlavoredStyleDef> standard = addStandardFlavor(cmp, ".THIS--test {color:red}");
 
-        Set<DefDescriptor<?>> dependencies = Sets.newHashSet();
-        definitionService.getDefinition(standard).appendDependencies(dependencies);
+        Set<DefDescriptor<?>> dependencies = definitionService.getDefinition(standard).getDependencySet();
         assertEquals("didn't get expected dependencies for standard flavor", 1, dependencies.size());
     }
 
@@ -127,8 +130,7 @@ public class FlavoredStyleDefImplTest extends StyleTestCase {
     public void testCustomFlavorDependencies() throws QuickFixException {
         DefDescriptor<ComponentDef> cmp = addComponentDef("<aura:component><div aura:flavorable='true'></div></aura:component>");
         DefDescriptor<FlavoredStyleDef> custom = addCustomFlavor(cmp, ".THIS--test{}");
-        Set<DefDescriptor<?>> dependencies = Sets.newHashSet();
-        definitionService.getDefinition(custom).appendDependencies(dependencies);
+        Set<DefDescriptor<?>> dependencies = definitionService.getDefinition(custom).getDependencySet();
         assertEquals("didn't get expected dependencies for custom flavor", 1, dependencies.size());
         assertTrue(dependencies.contains(cmp));
     }
@@ -153,8 +155,9 @@ public class FlavoredStyleDefImplTest extends StyleTestCase {
         DefDescriptor<ComponentDef> cmp = addComponentDef("<aura:component/>");
         DefDescriptor<FlavoredStyleDef> custom = addStandardFlavor(cmp, ".THIS--test {color:red}");
 
+        ReferenceValidationContext validationContext = new ReferenceValidationContextImpl(Maps.newHashMap());
         try {
-        	definitionService.getDefinition(custom).validateReferences();
+            definitionService.getDefinition(custom).validateReferences(validationContext);
             fail("expected to get an exception");
         } catch (Exception e) {
             checkExceptionContains(e, InvalidDefinitionException.class, "must contain at least one");
@@ -166,9 +169,10 @@ public class FlavoredStyleDefImplTest extends StyleTestCase {
     public void testNotFlavorableWithCustomFlavor() throws Exception {
         DefDescriptor<ComponentDef> cmp = addComponentDef("<aura:component/>");
         DefDescriptor<FlavoredStyleDef> custom = addCustomFlavor(cmp, ".THIS--test {color:red}");
+        ReferenceValidationContext validationContext = new ReferenceValidationContextImpl(Maps.newHashMap());
 
         try {
-        	definitionService.getDefinition(custom).validateReferences();
+            definitionService.getDefinition(custom).validateReferences(validationContext);
             fail("expected to get an exception");
         } catch (Exception e) {
             checkExceptionContains(e, InvalidDefinitionException.class, "must contain at least one");

@@ -122,11 +122,17 @@ public class TabsetUITest extends WebDriverTestCase {
      */
     private void closeTabAndVerify(String loc) {
         findDomElement(By.xpath(loc)).click();
-        int numberOfElement = findDomElements(By.xpath("//ul/li")).size();
-
         // Subtracting total number of tabs that we expect by 1
-        --NUMBER_OF_TABS;
-        assertEquals("The number of tabs, after deleting a tab, do not match", numberOfElement, NUMBER_OF_TABS);
+        NUMBER_OF_TABS--;
+        
+        WebDriverWait wait = new WebDriverWait(getDriver(), getAuraUITestingUtil().getTimeout());
+        wait.withMessage("Waiting for the tab to close");
+        wait.until(new ExpectedCondition<Boolean>() {
+            @Override
+            public Boolean apply(WebDriver d) {
+                return findDomElements(By.xpath("//ul/li")).size() == NUMBER_OF_TABS;
+            }
+        });
     }
 
     /**
@@ -248,7 +254,7 @@ public class TabsetUITest extends WebDriverTestCase {
         waitForTabSelected("Did not switch over to " + OVERFLOW_TITLE_ARRAY[startIndex] + " tab", tab);
     	
         if(useTabKey) {
-        	getAuraUITestingUtil().pressTab(tab);
+        	tab.sendKeys(Keys.TAB);
         }
         else {
         	// Navigate only up to the overflow menu
@@ -279,7 +285,7 @@ public class TabsetUITest extends WebDriverTestCase {
      * IE7/8 don't handle arrows well.
      */
     @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPHONE, BrowserType.IPAD,
-            BrowserType.IE8, BrowserType.IE7 })
+            BrowserType.IE8 })
     @Test
     public void testLeftRightUpDownArrows() throws Exception {
         open(createURL("basic", "false"));
@@ -292,6 +298,7 @@ public class TabsetUITest extends WebDriverTestCase {
     /**
      * Test that will verify that when a tab closes, the active element is moved to either the correct element.
      */
+    @ExcludeBrowsers({ BrowserType.IPHONE, BrowserType.IPAD })
     @Test
     public void testFocusOnClose_MovesToAnotherElement() throws Exception {
         open(createURL("basic", "true"));
@@ -309,6 +316,7 @@ public class TabsetUITest extends WebDriverTestCase {
     /**
      * Test verifying that if an element that is not active is closed, then focus is not lost
      */
+    @ExcludeBrowsers({ BrowserType.IPHONE, BrowserType.IPAD })
     @Test
     public void testFocusOnClose_NonCurrentElementDoesntLoseFocus() throws Exception {
         open(createURL("basic", "true"));
@@ -322,6 +330,7 @@ public class TabsetUITest extends WebDriverTestCase {
     /**
      * Dynamically create a component, verify it and make sure that it still acts as a normal component
      */
+    @ExcludeBrowsers({ BrowserType.IPHONE, BrowserType.IPAD })
     @Test
     public void testFocusOnClose_DynamicTabGeneration() throws Exception {
         String tabName = "Dynamic";
@@ -337,6 +346,7 @@ public class TabsetUITest extends WebDriverTestCase {
     /**
      * Verifying that nestedTabs work the same as normal tabs
      */
+    @ExcludeBrowsers({ BrowserType.IPHONE, BrowserType.IPAD })
     @Test
     public void testNestedTabsDelete() throws Exception {
         open(createURL("nestedTabs", "false"));
@@ -373,7 +383,7 @@ public class TabsetUITest extends WebDriverTestCase {
         // Focus on tab and move to next focusable element
         WebElement element = findDomElement(By.partialLinkText("Accounts"));
         element.click();
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         // Verify anchor is focused on
         String activeElementText = getAuraUITestingUtil().getActiveElementText();
@@ -381,14 +391,14 @@ public class TabsetUITest extends WebDriverTestCase {
 
         // Move from anchor to next item (inputTextBox)
         element = findDomElement(By.xpath(createXPath(1) + "/a"));
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         // Verify inputTextBox (in tab section) is focused
         verifyElementFocus("inputTabTitle");
 
         // Tab to the next focusable area
         element = findDomElement(By.cssSelector("input[class*='inputTabTitle']"));
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         // Verify inputTextArea (outside of the tab) is focused
         verifyElementFocus("inputTabContent");

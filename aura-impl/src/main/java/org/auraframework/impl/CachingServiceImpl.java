@@ -15,6 +15,27 @@
  */
 package org.auraframework.impl;
 
+import com.google.common.base.Optional;
+import org.apache.log4j.Logger;
+import org.auraframework.adapter.LoggingAdapter;
+import org.auraframework.builder.CacheBuilder;
+import org.auraframework.cache.Cache;
+import org.auraframework.def.DefDescriptor;
+import org.auraframework.def.Definition;
+import org.auraframework.impl.cache.CacheImpl;
+import org.auraframework.impl.cache.HardCacheImpl;
+import org.auraframework.service.CachingService;
+import org.auraframework.system.DependencyEntry;
+import org.auraframework.system.RegistrySet;
+import org.auraframework.system.RegistrySet.RegistrySetKey;
+import org.auraframework.system.SourceListener;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.context.annotation.Lazy;
+import org.springframework.context.annotation.Scope;
+import org.springframework.stereotype.Component;
+
+import javax.annotation.PostConstruct;
+import javax.inject.Inject;
 import java.lang.ref.WeakReference;
 import java.util.Collection;
 import java.util.Set;
@@ -23,32 +44,9 @@ import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
 
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
-
-import org.apache.log4j.Logger;
-import org.auraframework.adapter.ConfigAdapter;
-import org.auraframework.adapter.LoggingAdapter;
-import org.auraframework.builder.CacheBuilder;
-import org.auraframework.cache.Cache;
-import org.auraframework.def.ApplicationDef;
-import org.auraframework.def.ComponentDef;
-import org.auraframework.def.DefDescriptor;
-import org.auraframework.def.Definition;
-import org.auraframework.impl.cache.CacheImpl;
-import org.auraframework.impl.system.DefDescriptorImpl;
-import org.auraframework.impl.util.ModuleDefinitionUtil;
-import org.auraframework.service.CachingService;
-import org.auraframework.system.DependencyEntry;
-import org.auraframework.system.RegistrySet;
-import org.auraframework.system.RegistrySet.RegistrySetKey;
-import org.auraframework.system.SourceListener;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Lazy;
-
-import com.google.common.base.Optional;
-
+@Lazy
+@Component
+@Scope(BeanDefinition.SCOPE_SINGLETON)
 public class CachingServiceImpl implements CachingService {
     private static final long serialVersionUID = -3311707270226573084L;
 
@@ -64,28 +62,16 @@ public class CachingServiceImpl implements CachingService {
     /** Default size of string caches, in number of entries */
     private final static int STRING_CACHE_SIZE = 100;
     private final static int ALT_STRINGS_CACHE_SIZE = 100;
+    private final static int CSS_STRINGS_CACHE_SIZE = 50;
 
     /** Default size of client lib caches, in number of entries */
     private final static int CLIENT_LIB_CACHE_SIZE = 30;
     
     /** Default size of registry sets, in number of entries */
     private final static int REGISTRY_SET_CACHE_SIZE = 100;
-
-    @Configuration
-    public static class BeanConfiguration {
-        private static final CachingServiceImpl INSTANCE  = new CachingServiceImpl();
-            
-        @Lazy
-        @Bean
-        public CachingService cachingServiceImpl() {
-            return INSTANCE;
-        }
-    }
     
     private LoggingAdapter loggingAdapter;
 
-    private ConfigAdapter configAdapter;
-    
     private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
     private final WriteLock wLock = rwLock.writeLock();
 
@@ -98,6 +84,7 @@ public class CachingServiceImpl implements CachingService {
     private Cache<DefDescriptor<?>, Optional<? extends Definition>> defsCache;
     private Cache<String, String> stringsCache;
     private Cache<String, String> altStringsCache;
+    private Cache<String, String> cssStringsCache;
     private Cache<String, Set<DefDescriptor<?>>> descriptorFilterCache;
     /**
      * depsCache contains multiple entries for dependencies.
@@ -143,13 +130,22 @@ public class CachingServiceImpl implements CachingService {
                 .setSoftValues(true).build();
 
         size = getCacheSize("aura.cache.altStringsCacheSize", ALT_STRINGS_CACHE_SIZE);
-        altStringsCache = this.<String, String> getCacheBuilder()
+        altStringsCache = new HardCacheImpl.Builder<String,String>()
                 .setInitialSize(size)
                 .setLoggingAdapter(loggingAdapter)
                 .setMaximumSize(size)
                 .setRecordStats(true)
                 .setName("altStringsCache")
                 .setSoftValues(true).build();
+        
+        size = getCacheSize("aura.cache.cssStringsCacheSize", CSS_STRINGS_CACHE_SIZE);
+        cssStringsCache = this.<String, String>getCacheBuilder()
+                .setInitialSize(size)
+                .setLoggingAdapter(loggingAdapter)
+                .setMaximumSize(size)
+                .setRecordStats(true)
+                .setName("cssStringsCache")
+                .setSoftValues(true).build();      
 
         size = getCacheSize("aura.cache.filterCacheSize", FILTER_CACHE_SIZE);
         descriptorFilterCache = this
@@ -223,6 +219,11 @@ public class CachingServiceImpl implements CachingService {
     }
 
     @Override
+    public Cache<String, String> getCssStringsCache() {
+        return cssStringsCache;
+    }
+
+    @Override
     public final Cache<String, Set<DefDescriptor<?>>> getDescriptorFilterCache() {
         return descriptorFilterCache;
     }
@@ -270,7 +271,7 @@ public class CachingServiceImpl implements CachingService {
     @Override
     public void notifyDependentSourceChange(
             Collection<WeakReference<SourceListener>> listeners,
-            DefDescriptor<?> source, SourceListener.SourceMonitorEvent event,
+            SourceListener.SourceMonitorEvent event,
             String filePath) {
         boolean haveLock = false;
 
@@ -286,17 +287,8 @@ public class CachingServiceImpl implements CachingService {
                 return;
             }
 
-            if (filePath != null) {
-                // check whether changed file is a module file.
-                // current descriptor look up from DescriptorFileMapper does not handle modules
-                DefDescriptor<?> moduleDescriptor = ModuleDefinitionUtil.getModuleDescriptorFromFilePath(filePath, configAdapter);
-                if (moduleDescriptor != null) {
-                    source = moduleDescriptor;
-                }
-            }
-
             // successfully acquired the lock, start clearing caches
-            invalidateSourceRelatedCaches(source);
+            invalidateSourceRelatedCaches();
 
             // notify provided listeners, presumably to clear caches
             if (listeners != null) {
@@ -304,7 +296,11 @@ public class CachingServiceImpl implements CachingService {
                     SourceListener sl = i.get();
     
                     if (sl != null) {
-                        sl.onSourceChanged(source, event, filePath);
+                        try {
+                            sl.onSourceChanged(event, filePath);
+                        } catch (Exception e) {
+                            logger.error(e.getMessage(), e);
+                        }
                     }
                 }
             }
@@ -316,44 +312,20 @@ public class CachingServiceImpl implements CachingService {
         }
     }
 
-    private void invalidateSourceRelatedCaches(DefDescriptor<?> descriptor) {
-        
+    private void invalidateSourceRelatedCaches() {
         depsCache.invalidateAll();
         descriptorFilterCache.invalidateAll();
         stringsCache.invalidateAll();
         altStringsCache.invalidateAll();
         clientLibraryOutputCache.invalidateAll();
         registrySetCache.invalidateAll();
-
-        if (descriptor == null) {
-            defsCache.invalidateAll();
-            existsCache.invalidateAll();
-        } else {
-            DefDescriptor<ComponentDef> cdesc = new DefDescriptorImpl<>(descriptor, ComponentDef.class, "markup");
-            DefDescriptor<ApplicationDef> adesc = new DefDescriptorImpl<>(descriptor, ApplicationDef.class, "markup");
-
-            defsCache.invalidate(descriptor);
-            existsCache.invalidate(descriptor);
-            defsCache.invalidate(cdesc);
-            existsCache.invalidate(cdesc);
-            defsCache.invalidate(adesc);
-            existsCache.invalidate(adesc);
-
-            DefDescriptor<?> bundleParent = descriptor.getBundle();
-            if (bundleParent != null) {
-                invalidateSourceRelatedCaches(bundleParent);
-            }
-        }
+        defsCache.invalidateAll();
+        existsCache.invalidateAll();
     }
 
     @Inject
     void setLoggingAdapter(LoggingAdapter loggingAdapter) {
         this.loggingAdapter = loggingAdapter;
-    }
-
-    @Inject
-    public void setConfigAdapter(ConfigAdapter configAdapter) {
-        this.configAdapter = configAdapter;
     }
 
     /**

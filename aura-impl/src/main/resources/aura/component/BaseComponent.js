@@ -45,7 +45,7 @@ function BaseComponent(config, localCreation) {
     this.localIndex = {};
     this.destroyed=0;
     this.version = config["version"];
-    this.owner = context.getCurrentAccess();
+    this.owner = $A.clientService.getCurrentAccessGlobalId();
     this.name='';
     this.isRootComponent = true;
 
@@ -102,7 +102,7 @@ function BaseComponent(config, localCreation) {
     }
 
     // add this component to the global index
-    $A.componentService.index(this);
+    $A.componentService.indexComponent(this);
 
     // sets this components definition, preferring partialconfig if it exists
     this.setupComponentDef(this.partialConfig || config);

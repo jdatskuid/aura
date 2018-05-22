@@ -106,20 +106,27 @@ TransportMetricsPlugin.prototype.receiveOverride = function(/* config, auraXHR *
         
         if (r) {
             $A.util.apply(endMark["context"], {
-                "xhrDuration"  : parseInt(r.responseEnd - r.startTime, 10),
-                "xhrStall"     : parseInt(r.requestStart - r.startTime, 10),
-                "startTime"    : parseInt(r.startTime, 10),
-                "fetchStart"   : parseInt(r.fetchStart, 10),
-                "requestStart" : parseInt(r.requestStart, 10),
-                "dns"          : parseInt(r.domainLookupEnd - r.domainLookupStart, 10),
-                "tcp"          : parseInt(r.connectEnd - r.connectStart, 10),
-                "ttfb"         : parseInt(r.responseStart - r.startTime, 10),
-                "transfer"     : parseInt(r.responseEnd - r.responseStart, 10)
+                "xhrDuration"     : parseInt(r.responseEnd - r.startTime, 10),
+                "xhrStall"        : parseInt(r.requestStart - r.startTime, 10),
+                "startTime"       : parseInt(r.startTime, 10),
+                "fetchStart"      : parseInt(r.fetchStart, 10),
+                "requestStart"    : parseInt(r.requestStart, 10),
+                "dns"             : parseInt(r.domainLookupEnd - r.domainLookupStart, 10),
+                "tcp"             : parseInt(r.connectEnd - r.connectStart, 10),
+                "ttfb"            : parseInt(r.responseStart - r.startTime, 10),
+                "transfer"        : parseInt(r.responseEnd - r.responseStart, 10),
+                "transferSize"    : r["transferSize"] || 0
             });
         }
     }
 
-    return config["fn"].apply(config["scope"], arguments);
+    var ret = config["fn"].apply(config["scope"], arguments);
+    // the decoded and json parsed message is only available in the response to this method
+    var perfSummary = ret && ret["message"] && ret["message"]["perfSummary"];
+    if (perfSummary && perfSummary["version"] === "core") {
+        endMark["context"]["serverTime"] = perfSummary["request"];
+    }
+    return ret;
 };
 
 TransportMetricsPlugin.prototype.bind = function () {

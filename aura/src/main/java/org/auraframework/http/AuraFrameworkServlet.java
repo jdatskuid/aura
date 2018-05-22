@@ -20,8 +20,10 @@ import java.io.InputStream;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import javax.activation.MimetypesFileTypeMap;
 import javax.inject.Inject;
 import javax.servlet.ServletException;
+import javax.servlet.http.Cookie;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
@@ -40,9 +42,13 @@ public class AuraFrameworkServlet extends AuraBaseServlet {
     // /required_root/optional_nonce/required_rest_of_path
     private static final Pattern RESOURCES_PATTERN = Pattern.compile("^/([^/]+)(/[-_0-9a-zA-Z]+)?(/.*)$");
 
+    public static final String JAVASCRIPT_CONTENT_TYPE = "text/javascript";
+
     public static final String RESOURCES_FORMAT = "%s/auraFW/resources/%s/%s";
 
     private ConfigAdapter configAdapter;
+
+    private MimetypesFileTypeMap mimeTypesMap = new MimetypesFileTypeMap();
     
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
@@ -59,8 +65,10 @@ public class AuraFrameworkServlet extends AuraBaseServlet {
             return;
         }
         long ifModifiedSince = request.getDateHeader(HttpHeaders.IF_MODIFIED_SINCE);
-
-        servletUtilAdapter.setCSPHeaders(null, request, response);
+        
+        if (isAuthenticatedAppRequest(request)) {
+            servletUtilAdapter.setCSPHeaders(null, request, response);
+        }
 
         InputStream in = null;
         try {
@@ -212,5 +220,19 @@ public class AuraFrameworkServlet extends AuraBaseServlet {
     @Inject
     public void setConfigAdapter(ConfigAdapter configAdapter) {
         this.configAdapter = configAdapter;
+    }
+    
+    public boolean isAuthenticatedAppRequest(HttpServletRequest request) {
+        Cookie[] requestCookies = request.getCookies();
+        String requestPathInfo = request.getPathInfo();
+        if (requestCookies != null) {
+            for (Cookie cookie: requestCookies) {
+                String cookieName = cookie.getName();
+                if (cookieName.equals("sid") && !(request.getPathInfo() != null && (requestPathInfo.endsWith(".js") || requestPathInfo.endsWith(".css")))) {
+                    return true;
+                } 
+            }
+        }
+        return false;
     }
 }

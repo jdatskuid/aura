@@ -58,7 +58,7 @@
             component.get("v.month") + monthChange,
             date);
 
-        var daysInMonth = moment(targetDate).daysInMonth();
+        var daysInMonth =  this.daysInMonth(targetDate.getFullYear(), targetDate.getMonth());
         if (daysInMonth < date) { // The target month doesn't have the current date. Just set it to the last date.
             targetDate.setDate(daysInMonth);
         }
@@ -131,12 +131,6 @@
     },
 
     addRowComponents: function (component, rowComponents, calendarBody) {
-        //need to explicitly index components due to W-2529066
-        for (var i = 0; i < rowComponents.length; i++) {
-            var rowComponent = rowComponents[i];
-            component.index(rowComponent.getLocalId(), rowComponent.getGlobalId());
-        }
-
         var trNode = rowComponents[0];
         trNode.set("v.body", rowComponents.splice(1));
         calendarBody.push(trNode);
@@ -541,5 +535,16 @@
 
     dateInRange: function (date, rangeStart, rangeEnd) {
         return $A.localizationService.isBetween(date, rangeStart, rangeEnd, "day");
+    },
+
+    isLeapYear: function(year) {
+        return (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0;
+    },
+
+    /**
+     * month is between 0 and 11
+     */
+    daysInMonth: function(year, month) {
+        return month === 1 ? (this.isLeapYear(year) ? 29 : 28) : (31 - month % 7 % 2);
     }
 });

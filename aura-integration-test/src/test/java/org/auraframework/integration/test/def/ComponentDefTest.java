@@ -20,6 +20,7 @@ import java.util.Set;
 
 import javax.inject.Inject;
 
+import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.ControllerDef;
 import org.auraframework.def.DefDescriptor;
@@ -28,6 +29,7 @@ import org.auraframework.impl.css.util.Flavors;
 import org.auraframework.impl.root.component.BaseComponentDefTest;
 import org.auraframework.service.CompilerService;
 import org.auraframework.system.Source;
+import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.quickfix.FlavorNameNotFoundException;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.junit.Test;
@@ -61,8 +63,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
         DefDescriptor<FlavoredStyleDef> flavor = addSourceAutoCleanup(Flavors.standardFlavorDescriptor(desc),
                 ".THIS--test{}");
 
-        Set<DefDescriptor<?>> dependencies = new HashSet<>();
-        definitionService.getDefinition(desc).appendDependencies(dependencies);
+        Set<DefDescriptor<?>> dependencies = definitionService.getDefinition(desc).getDependencySet();
         assertTrue(dependencies.contains(flavor));
     }
 
@@ -77,7 +78,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
         addSourceAutoCleanup(Flavors.standardFlavorDescriptor(desc), ".THIS--test{}");
 
         try {
-            definitionService.getDefinition(desc).validateReferences();
+            definitionService.getDefinition(desc);
             fail("expected to get an exception");
         } catch (Exception e) {
             checkExceptionContains(e, FlavorNameNotFoundException.class, "was not found");
@@ -94,7 +95,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
                 String.format("<aura:component extends='%s' defaultFlavor='fromParent'></aura:component>",
                         parent.getDescriptorName()));
 
-        definitionService.getDefinition(desc).validateReferences(); // no exception
+        definitionService.getDefinition(desc);
     }
 
     @Test
@@ -112,7 +113,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
                 String.format("<aura:component extends='%s' defaultFlavor='fromParent'></aura:component>",
                         parent.getDescriptorName()));
 
-        definitionService.getDefinition(desc).validateReferences(); // no exception
+        definitionService.getDefinition(desc);
     }
 
     @Test
@@ -120,7 +121,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
         DefDescriptor<ComponentDef> desc = addSourceAutoCleanup(getDefClass(),
                 "<aura:component defaultFlavor='test, test2'><div aura:flavorable='true'></div></aura:component>");
         addSourceAutoCleanup(Flavors.standardFlavorDescriptor(desc), ".THIS--test{} .THIS--test2{}");
-        definitionService.getDefinition(desc).validateReferences(); // no exception
+        definitionService.getDefinition(desc);
     }
 
     @Test
@@ -133,7 +134,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
                 getDefClass(),
                 String.format("<aura:component extends='%s' defaultFlavor='test, test2'></aura:component>",
                         parent.getDescriptorName()));
-        definitionService.getDefinition(desc).validateReferences(); // no exception
+        definitionService.getDefinition(desc);
     }
 
     @Test
@@ -143,7 +144,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
         addSourceAutoCleanup(Flavors.standardFlavorDescriptor(desc), ".THIS--test{} .THIS--test2{}");
 
         try {
-            definitionService.getDefinition(desc).validateReferences(); // no exception
+            definitionService.getDefinition(desc); // no exception
             fail("expected to get an exception");
         } catch (Exception e) {
             checkExceptionContains(e, FlavorNameNotFoundException.class, "was not found");
@@ -190,7 +191,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
                 String.format("<aura:component extends='%s' defaultFlavor='fromParent'></aura:component>",
                         parent.getDescriptorName()));
 
-        definitionService.getDefinition(desc).validateReferences(); // no exception
+        definitionService.getDefinition(desc);
     }
 
     @Test
@@ -209,7 +210,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
                 String.format("<aura:component extends='%s' defaultFlavor='fromParent'></aura:component>",
                         parent.getDescriptorName()));
 
-        definitionService.getDefinition(desc).validateReferences(); // no exception
+        definitionService.getDefinition(desc);
     }
 
     @Test
@@ -228,7 +229,7 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
         Exception expected = null;
 
         try {
-            definitionService.getDefinition(desc).validateReferences();
+            definitionService.getDefinition(desc);
         } catch (Exception e) {
             expected = e;
         }
@@ -338,5 +339,81 @@ public class ComponentDefTest extends BaseComponentDefTest<ComponentDef> {
                 .get(0).getQualifiedName());
         assertEquals("java://org.auraframework.components.test.java.model.TestModel", def.getModelDef().getDescriptor()
                 .getQualifiedName());
+    }
+
+    /**
+     * hasLocalDependencies is true if component only has serverside provider. Test method for
+     * {@link BaseComponentDef#hasLocalDependencies()}.
+     */
+    @Test
+    public void testHasLocalDependenciesWithServersideProviderNested() throws Exception {
+        ComponentDef baseComponentDef = define(baseTag,
+                "abstract='true' provider='java://org.auraframework.impl.java.provider.TestProviderAbstractBasic'", "");
+        ComponentDef nextLevelDef = define(baseTag,
+                "", String.format("<div><%s:%s /></div>",
+                    baseComponentDef.getDescriptor().getNamespace(),
+                    baseComponentDef.getDescriptor().getName()));
+        assertTrue("Component containing abstract components with serverside providers have server dependecies.",
+                nextLevelDef.hasLocalDependencies());
+    }
+
+    /**
+     * hasLocalDependencies is true if component only has serverside provider. Test method for
+     * {@link BaseComponentDef#hasLocalDependencies()}.
+     */
+    @Test
+    public void testHasLocalDependenciesWithServersideProviderNestedDeeply() throws Exception {
+        ComponentDef baseComponentDef = define(baseTag,
+                "abstract='true' provider='java://org.auraframework.impl.java.provider.TestProviderAbstractBasic'", "");
+        ComponentDef nextLevelDef = define(baseTag,
+                "", String.format("<div><div /><div><%s:%s /></div></div>",
+                    baseComponentDef.getDescriptor().getNamespace(),
+                    baseComponentDef.getDescriptor().getName()));
+        ComponentDef topLevelDef = define(baseTag,
+                "", String.format("<div><%s:%s /></div>",
+                    nextLevelDef.getDescriptor().getNamespace(),
+                    nextLevelDef.getDescriptor().getName()));
+        assertTrue("Component containing abstract components with serverside providers have server dependecies.",
+                topLevelDef.hasLocalDependencies());
+    }
+
+    @Test
+    public void testLinkTagsCannotHaveImportAttribute() throws Exception {
+        // Arrange
+        String cmpWithImport =
+                "<aura:component><link rel='import' href='ohnoes'/></aura:component>";
+        DefDescriptor<ComponentDef> descriptor = addSourceAutoCleanup(ComponentDef.class, cmpWithImport);
+        Throwable exception = null;
+
+        // Act
+        try {
+            definitionService.getDefinition(descriptor);
+        } catch (Throwable t) {
+            exception = t;
+        }
+
+        //assert
+        assertNotNull("An exception was not raised when an import was added to a link", exception);
+        assertExceptionMessageContains(exception, InvalidDefinitionException.class, "import attribute is not allowed in link tags");
+    }
+
+    @Test
+    public void testAuraHtmlTagsOfLinkCannotHaveImportAttribute() throws Exception {
+        // Arrange
+        String cmpWithImport =
+                "<aura:component><aura:html tag='link' rel='import' href='ohnoes'/></aura:component>";
+        DefDescriptor<ComponentDef> descriptor = addSourceAutoCleanup(ComponentDef.class, cmpWithImport);
+        Throwable exception = null;
+
+        // Act
+        try {
+            definitionService.getDefinition(descriptor);
+        } catch (Throwable t) {
+            exception = t;
+        }
+
+        //assert
+        assertNotNull("An exception was not raised when an import was added to a link", exception);
+        assertExceptionMessageContains(exception, InvalidDefinitionException.class, "import attribute is not allowed in link tags");
     }
 }

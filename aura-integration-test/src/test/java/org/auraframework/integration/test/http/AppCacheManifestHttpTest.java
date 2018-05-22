@@ -15,15 +15,9 @@
  */
 package org.auraframework.integration.test.http;
 
-import java.io.StringReader;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
-import javax.inject.Inject;
-
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.io.LineReader;
 import org.apache.http.Header;
 import org.apache.http.HttpHeaders;
 import org.apache.http.HttpResponse;
@@ -35,21 +29,20 @@ import org.auraframework.def.DefDescriptor;
 import org.auraframework.http.AuraBaseServlet;
 import org.auraframework.integration.test.util.AuraHttpTestCase;
 import org.auraframework.system.AuraContext.Mode;
-import org.auraframework.test.adapter.MockConfigAdapter;
 import org.auraframework.test.client.UserAgent;
 import org.auraframework.util.test.annotation.ThreadHostileTest;
 import org.auraframework.util.test.annotation.UnAdaptableTest;
 import org.junit.Ignore;
 import org.junit.Test;
 
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
-import com.google.common.io.LineReader;
+import java.io.StringReader;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class AppCacheManifestHttpTest extends AuraHttpTestCase {
-
-    @Inject
-    MockConfigAdapter mockConfigAdapter;
 
     private static final String APPCACHE_SUPPORTED_USERAGENT = UserAgent.GOOGLE_CHROME.getUserAgentString();
     private static final Pattern HTML_MANIFEST_PATTERN = Pattern.compile("<html[^>]* manifest=\"(.*?)\"[^>]*>");
@@ -89,7 +82,7 @@ public class AppCacheManifestHttpTest extends AuraHttpTestCase {
 
     private List<String> getRequiredLinks() throws Exception {
         List<String> required = Lists.newArrayList();
-        required.add(".*/aura_prod\\.js");
+        required.add(".*/aura_.*\\.js");
         return required;
     }
 
@@ -166,13 +159,13 @@ public class AppCacheManifestHttpTest extends AuraHttpTestCase {
             fail("Missing cache control header values in: " + cacheControlHeader);
         }
 
-        String expectedContentType = String.format("%s;charset=%s", AuraBaseServlet.MANIFEST_CONTENT_TYPE,
+        String expectedContentType = String.format("%s;charset=%s", "text/cache-manifest",
                 AuraBaseServlet.UTF_ENCODING);
         Header[] contentTypeHeaders = response.getHeaders(HttpHeaders.CONTENT_TYPE);
         System.out.println("expectedContentType:"+expectedContentType+", contentTypeHeaders:");
         for (Header header : contentTypeHeaders) {
         	System.out.println("header:"+header.getValue());
-            if (expectedContentType.equals(header.getValue().replaceAll("\\s", ""))) {
+            if (expectedContentType.equalsIgnoreCase(header.getValue().replaceAll("\\s", ""))) {
                 return;
             }
         }
@@ -186,7 +179,7 @@ public class AppCacheManifestHttpTest extends AuraHttpTestCase {
     @Test
     public void testGetManifestWithAppCacheDisabled() throws Exception {
         setHttpUserAgent(APPCACHE_SUPPORTED_USERAGENT);
-        mockConfigAdapter.setIsClientAppcacheEnabled(false);
+        getMockConfigAdapter().setIsClientAppcacheEnabled(false);
         String manifest = getManifestURL("/appCache/withpreload.app", true);
         if (manifest != null) {
             fail("no manifest url should be present, but got: " + manifest);
@@ -220,7 +213,7 @@ public class AppCacheManifestHttpTest extends AuraHttpTestCase {
         String response = getResponseBody(httpResponse);
         get.releaseConnection();
 
-        assertManifest(response, Lists.newArrayList(".*/app\\.css", ".*/app\\.js"));
+        assertManifest(response, Lists.newArrayList(".*/app.*\\.css", ".*/app.*\\.js"));
     }
 
     /**

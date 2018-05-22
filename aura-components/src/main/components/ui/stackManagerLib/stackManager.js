@@ -45,8 +45,8 @@ function lib() { //eslint-disable-line no-unused-vars
         if (stackingCtxEl === parentNode || parentNode.tagName === 'BODY') {
             return el;
         }
-
-        while (parentNode.parentNode.tagName !== 'BODY') {
+        
+        while (parentNode.parentNode && parentNode.parentNode.tagName !== 'BODY') {
             parentNode = parentNode.parentNode;
         }
 
@@ -56,7 +56,7 @@ function lib() { //eslint-disable-line no-unused-vars
     // -- Private internal methods
     function getStackingCtx(el) {
         var parentNode = el.parentNode;
-        while (!isStackingCtx(parentNode)) {
+        while (parentNode && !isStackingCtx(parentNode)) {
             parentNode = parentNode.parentNode;
         }
         return parentNode;
@@ -64,6 +64,9 @@ function lib() { //eslint-disable-line no-unused-vars
 
     function modifyZindex(el, increment) {
         var stackingCtxEl = getStackingCtx(el);
+        if (!stackingCtxEl) {
+            return;
+        }
         var siblings;
         var siblingsMaxMinZindex = increment ? 0 : -1;
         var elAncestor = el;

@@ -21,6 +21,7 @@ import java.util.Set;
 
 import org.auraframework.Aura;
 import org.auraframework.cache.Cache;
+import org.auraframework.def.ActionDef;
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.ComponentDef;
@@ -30,12 +31,15 @@ import org.auraframework.def.Definition;
 import org.auraframework.def.DescriptorFilter;
 import org.auraframework.def.EventDef;
 import org.auraframework.def.HelperDef;
+import org.auraframework.def.InterfaceDef;
 import org.auraframework.def.StyleDef;
+import org.auraframework.def.TestSuiteDef;
 import org.auraframework.def.TypeDef;
 import org.auraframework.impl.AuraImplTestCase;
 import org.auraframework.impl.DefinitionAccessImpl;
 import org.auraframework.impl.DefinitionServiceImpl;
 import org.auraframework.impl.context.AbstractRegistryAdapterImpl;
+import org.auraframework.impl.system.DefDescriptorImpl;
 import org.auraframework.impl.system.DefFactoryImpl;
 import org.auraframework.impl.system.DefinitionImpl;
 import org.auraframework.instance.BaseComponent;
@@ -49,6 +53,7 @@ import org.auraframework.system.DependencyEntry;
 import org.auraframework.system.SourceLoader;
 import org.auraframework.test.source.StringSourceLoader;
 import org.auraframework.test.source.StringSourceLoader.NamespaceAccess;
+import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.ClientOutOfSyncException;
 import org.auraframework.throwable.NoAccessException;
 import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
@@ -76,6 +81,77 @@ public class DefinitionServiceImplTest extends AuraImplTestCase {
     @Override
     public void tearDown() throws Exception {
         super.tearDown();
+    }
+
+    @Test
+    public void testDefDescriptorForActionWithNoName() throws Exception {
+        AuraRuntimeException expected = null;
+        try {
+            definitionService.getDefDescriptor(null, ActionDef.class);
+        } catch (AuraRuntimeException are) {
+            expected = are;
+        }
+        assertNotNull("Should get an exception", expected);
+    }
+
+    @Test
+    public void testDefDescriptorForTestSuiteOnApplicationWithNoBundle() throws Exception {
+        String appSource = "<aura:application />";
+        String appTestSource = "({ testNothing: { test: function() {} }})";
+
+        DefDescriptor<ApplicationDef> appDesc = getAuraTestingUtil().addSourceAutoCleanup(
+                ApplicationDef.class, appSource, StringSourceLoader.DEFAULT_NAMESPACE+":testSuiteApp",
+                NamespaceAccess.INTERNAL);
+        DefDescriptor<TestSuiteDef> realTestDesc = definitionService.getDefDescriptor(appDesc,
+                DefDescriptor.JAVASCRIPT_PREFIX, TestSuiteDef.class);
+        DefDescriptor<TestSuiteDef> fakeTestDesc = definitionService.getDefDescriptor(
+                "js://"+appDesc.getNamespace()+"."+appDesc.getName(), TestSuiteDef.class);
+        getAuraTestingUtil().addSourceAutoCleanup(realTestDesc, appTestSource);
+
+        startDefaultContext();
+        try {
+            assertNull(fakeTestDesc.getBundle());
+            assertTrue(definitionService.exists(fakeTestDesc));
+            assertNotNull(definitionService.getDefinition(fakeTestDesc));
+            DescriptorFilter filter = new DescriptorFilter("js://"+appDesc.getDescriptorName(), DefType.TESTSUITE);
+            Set<DefDescriptor<?>> found = definitionService.find(filter);
+            assertEquals(1, found.size());
+            filter = new DescriptorFilter(appDesc.getDescriptorName(), DefType.TESTSUITE);
+            found = definitionService.find(filter);
+            assertEquals(1, found.size());
+        } finally {
+            endContextIfEstablished();
+        }
+    }
+
+    @Test
+    public void testDefDescriptorForTestSuiteOnComponentWithNoBundle() throws Exception {
+        String cmpSource = "<aura:component />";
+        String cmpTestSource = "({ testNothing: { test: function() {} }})";
+
+        DefDescriptor<ComponentDef> cmpDesc = getAuraTestingUtil().addSourceAutoCleanup(
+                ComponentDef.class, cmpSource, StringSourceLoader.DEFAULT_NAMESPACE+":testSuiteApp",
+                NamespaceAccess.INTERNAL);
+        DefDescriptor<TestSuiteDef> realTestDesc = definitionService.getDefDescriptor(cmpDesc,
+                DefDescriptor.JAVASCRIPT_PREFIX, TestSuiteDef.class);
+        DefDescriptor<TestSuiteDef> fakeTestDesc = definitionService.getDefDescriptor(
+                "js://"+cmpDesc.getNamespace()+"."+cmpDesc.getName(), TestSuiteDef.class);
+        getAuraTestingUtil().addSourceAutoCleanup(realTestDesc, cmpTestSource);
+
+        startDefaultContext();
+        try {
+            assertNull(fakeTestDesc.getBundle());
+            assertTrue(definitionService.exists(fakeTestDesc));
+            assertNotNull(definitionService.getDefinition(fakeTestDesc));
+            DescriptorFilter filter = new DescriptorFilter("js://"+cmpDesc.getDescriptorName(), DefType.TESTSUITE);
+            Set<DefDescriptor<?>> found = definitionService.find(filter);
+            assertEquals(1, found.size());
+            filter = new DescriptorFilter(cmpDesc.getDescriptorName(), DefType.TESTSUITE);
+            found = definitionService.find(filter);
+            assertEquals(1, found.size());
+        } finally {
+            endContextIfEstablished();
+        }
     }
     
     @Test
@@ -926,6 +1002,88 @@ public class DefinitionServiceImplTest extends AuraImplTestCase {
         assertTrue("markup://ui:button should have been added to depsCache again", foundit);
     }
 
+    @Test
+    public void testFindByTagsIntegrationTestStringSource() throws Exception {
+        DefDescriptor<?> ifc = addSourceAutoCleanup(InterfaceDef.class, "<aura:interface />");
+        DefDescriptor<?> cmp = addSourceAutoCleanup(ComponentDef.class,
+                String.format("<aura:component implements=\"%s\" />", ifc.getDescriptorName()));
+        contextService.startContext(Mode.PROD, Format.JSON, Authentication.AUTHENTICATED, laxSecurityApp);
+        Set<DefDescriptor<?>> values = definitionService.findByTags(null, Sets.newHashSet(ifc.getDescriptorName()));
+        assertEquals("Should get one component back", 1, values.size());
+        assertTrue("Should find by tag", values.contains(cmp));
+    }
+
+    @Test
+    public void testFindByTagsIntegrationTestStringSourceLimitedNamespaceNotFound() throws Exception {
+        DefDescriptor<?> ifc = addSourceAutoCleanup(InterfaceDef.class, "<aura:interface />");
+        addSourceAutoCleanup(ComponentDef.class,
+                String.format("<aura:component implements=\"%s\" />", ifc.getDescriptorName()));
+        contextService.startContext(Mode.PROD, Format.JSON, Authentication.AUTHENTICATED, laxSecurityApp);
+        Set<DefDescriptor<?>> values = definitionService.findByTags(Sets.newHashSet("aura"),
+                Sets.newHashSet(ifc.getDescriptorName()));
+        assertEquals("Should get no components back", 0, values.size());
+    }
+
+    @Test
+    public void testFindByTagsIntegrationTestStringSourceLimitedNamespaceFound() throws Exception {
+        DefDescriptor<?> ifc = addSourceAutoCleanup(InterfaceDef.class, "<aura:interface />");
+        DefDescriptor<?> cmp = addSourceAutoCleanup(ComponentDef.class,
+                String.format("<aura:component implements=\"%s\" />", ifc.getDescriptorName()));
+        contextService.startContext(Mode.PROD, Format.JSON, Authentication.AUTHENTICATED, laxSecurityApp);
+        Set<DefDescriptor<?>> values = definitionService.findByTags(Sets.newHashSet(cmp.getNamespace()),
+                Sets.newHashSet(ifc.getDescriptorName()));
+        assertEquals("Should get one component back", 1, values.size());
+        assertTrue("Should find by tag", values.contains(cmp));
+    }
+
+    /**
+     * Find things that implement aura:rootComponent, and ensure that there are several.
+     *
+     * The set when this test was written is:
+            aura-components/src/main/components/aura/expression/expression.cmp
+            aura-components/src/main/components/aura/text/text.cmp
+            aura-components/src/main/components/aura/application/application.app
+            aura-components/src/main/components/aura/iteration/iteration.cmp
+            aura-components/src/main/components/aura/unescapedHtml/unescapedHtml.cmp
+            aura-components/src/main/components/aura/component/component.cmp
+            aura-components/src/main/components/aura/if/if.cmp
+            aura-components/src/main/components/aura/html/html.cmp
+    */
+    @Test
+    public void testFindByTagsIntegrationTestFileBased() throws Exception {
+        contextService.startContext(Mode.PROD, Format.JSON, Authentication.AUTHENTICATED, laxSecurityApp);
+        Set<DefDescriptor<?>> values = definitionService.findByTags(null, Sets.newHashSet("aura:rootComponent"));
+        assertTrue("Should several components back", values.size() >= 2);
+        assertTrue("Should find component by tag", values.contains(new DefDescriptorImpl<>("markup", "aura", "component", ComponentDef.class)));
+        assertTrue("Should find application by tag", values.contains(new DefDescriptorImpl<>("markup", "aura", "application", ApplicationDef.class)));
+    }
+
+    @Test
+    public void testUpdatingDependencyInAppUpdatesUid() throws Exception {
+
+        contextService.startContext(Mode.PROD, Format.JSON, Authentication.AUTHENTICATED, laxSecurityApp);
+
+        DefDescriptor<?> changingCmp = addSourceAutoCleanup(ComponentDef.class,
+                String.format(baseComponentTag, "", "<ui:button/>"));
+
+        DefDescriptor<?> app = addSourceAutoCleanup(ApplicationDef.class,
+                String.format(baseApplicationTag, "", String.format("<%s:%s/>", changingCmp.getNamespace(), changingCmp.getName())));
+
+        String appUid = definitionService.getUid(null, app);
+
+        getAuraTestingUtil().addSourceAutoCleanup(changingCmp, String.format(baseComponentTag, "","<ui:inputText label='l'/>"), NamespaceAccess.INTERNAL, true);
+
+        contextService.endContext();
+
+        contextService.startContext(Mode.PROD, Format.JSON, Authentication.AUTHENTICATED, laxSecurityApp);
+
+        String newAppUid = definitionService.getUid(null, app);
+
+        assertNotSame(String.format("App uid should be updated when dependent component is changed. Previous '%s' Current '%s'", appUid, newAppUid),
+                appUid, newAppUid);
+
+    }
+
     public static class AuraTestRegistryProviderWithNulls extends AbstractRegistryAdapterImpl {
 
         @Override
@@ -973,14 +1131,16 @@ public class DefinitionServiceImplTest extends AuraImplTestCase {
             }
 
             @Override
-            public void appendDependencies(Object instance, Set<DefDescriptor<?>> deps) {
+            public void appendDependencies(Set<DefDescriptor<?>> dependencies) {
             }
 
             @Override
-            public void appendDependencies(Set<DefDescriptor<?>> dependencies) {
+            public Set<DefDescriptor<?>> getDependencySet() {
+                Set<DefDescriptor<?>> dependencies = Sets.newLinkedHashSet();
                 dependencies.add(Aura.getDefinitionService().getDefDescriptor("test://foo.barA", TypeDef.class));
                 dependencies.add(Aura.getDefinitionService().getDefDescriptor("test://foo.barB", TypeDef.class));
                 dependencies.add(Aura.getDefinitionService().getDefDescriptor("test://foo.barC", TypeDef.class));
+                return dependencies;
             }
         }
 

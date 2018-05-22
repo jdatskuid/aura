@@ -30,6 +30,7 @@ import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.test.util.UnitTestCase;
 import org.junit.Test;
+import org.mockito.Matchers;
 import org.mockito.Mockito;
 
 public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
@@ -37,14 +38,14 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
     @Test
     public void testParseCauseDescriptorWithQualifiedNameSetsNamespaceAndName() {
         AuraClientException target = Mockito.mock(AuraClientException.class);
-        String qualifiedName = "markup://namespace:name";
-        Mockito.when(target.getCauseDescriptor()).thenReturn(qualifiedName);
+        String typeName = "namespace:name";
+        Mockito.when(target.getCauseDescriptor()).thenReturn(typeName);
 
         AuraClientExceptionUtil.parseCauseDescriptor(target);
 
         Mockito.verify(target).setFailedComponentNamespace("namespace");
         Mockito.verify(target).setFailedComponent("name");
-        Mockito.verify(target, Mockito.never()).setFailedComponentMethod(Mockito.anyString());
+        Mockito.verify(target, Mockito.never()).setFailedComponentMethod(Matchers.anyString());
     }
 
     @Test
@@ -72,7 +73,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
 
         AuraClientExceptionUtil.parseStacktrace(auraClientException, jsStack, definitionService, configAdapter, contextService);
 
-        String expected = "markup://auratest:errorHandlingApp";
+        String expected = "auratest:errorHandlingApp";
         Mockito.verify(auraClientException).setFailedComponentMethod("throwErrorFromClientController");
         Mockito.verify(auraClientException).setCauseDescriptor(expected);
         Mockito.verify(auraClientException).setFailedComponentNamespace("auratest");
@@ -89,7 +90,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
 
         AuraClientExceptionUtil.parseStacktrace(auraClientException, jsStack, definitionService, configAdapter, contextService);
 
-        String expected = "markup://auratest:errorHandling";
+        String expected = "auratest:errorHandling";
         Mockito.verify(auraClientException).setFailedComponentMethod("rerender");
         Mockito.verify(auraClientException).setCauseDescriptor(expected);
         Mockito.verify(auraClientException).setFailedComponentNamespace("auratest");
@@ -105,7 +106,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
         ContextService contextService = Mockito.mock(ContextService.class);
 
         AuraClientExceptionUtil.parseStacktrace(auraClientException, jsStack, definitionService, configAdapter, contextService);
-        String expected = "markup://one:appNavBarItem";
+        String expected = "one:appNavBarItem";
         Mockito.verify(auraClientException).setFailedComponentMethod("eval");
         Mockito.verify(auraClientException).setCauseDescriptor(expected);
         Mockito.verify(auraClientException).setFailedComponentNamespace("one");
@@ -123,7 +124,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
         ContextService contextService = Mockito.mock(ContextService.class);
 
         AuraClientExceptionUtil.parseStacktrace(auraClientException, jsStack, definitionService, configAdapter, contextService);
-        String expected = "markup://auratest:errorHandlingLib";
+        String expected = "auratest:errorHandlingLib";
         Mockito.verify(auraClientException).setFailedComponentMethod("Object.throwAnError");
         Mockito.verify(auraClientException).setCauseDescriptor(expected);
         Mockito.verify(auraClientException).setFailedComponentNamespace("auratest");
@@ -136,7 +137,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
         String qualifiedName = "markup://test:moduleCmp";
         String expected = "expected";
         ModuleDef md = Mockito.mock(ModuleDef.class);
-        Mockito.when(md.getCode(Mockito.any())).thenReturn(expected);
+        Mockito.when(md.getCode(Matchers.any())).thenReturn(expected);
         Mockito.when(definitionService.getDefinition(qualifiedName, ModuleDef.class)).thenReturn(md);
 
         String actual = AuraClientExceptionUtil.getComponentSourceCode(qualifiedName, definitionService, false, true);
@@ -152,7 +153,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
         String qualifiedName = "markup://test:aura";
         String expected = "expected";
         ComponentDef cd = Mockito.mock(ComponentDef.class);
-        Mockito.when(cd.getCode(Mockito.anyBoolean())).thenReturn(expected);
+        Mockito.when(cd.getCode(Matchers.anyBoolean())).thenReturn(expected);
         Mockito.when(definitionService.getDefinition(qualifiedName, ComponentDef.class)).thenReturn(cd);
 
         String actual = AuraClientExceptionUtil.getComponentSourceCode(qualifiedName, definitionService, false, false);
@@ -168,7 +169,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
         String qualifiedName = "markup://test:auraApp";
         String expected = "expected";
         ApplicationDef appDef = Mockito.mock(ApplicationDef.class);
-        Mockito.when(appDef.getCode(Mockito.anyBoolean())).thenReturn(expected);
+        Mockito.when(appDef.getCode(Matchers.anyBoolean())).thenReturn(expected);
         Mockito.when(definitionService.getDefinition(qualifiedName, ApplicationDef.class)).thenReturn(appDef);
 
         String actual = AuraClientExceptionUtil.getComponentSourceCode(qualifiedName, definitionService, false, false);
@@ -184,7 +185,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
         String qualifiedName = "markup://test:moduleLib";
         String expected = "expected";
         ModuleDef md = Mockito.mock(ModuleDef.class);
-        Mockito.when(md.getCode(Mockito.any())).thenReturn(expected);
+        Mockito.when(md.getCode(Matchers.any())).thenReturn(expected);
         Mockito.when(definitionService.getDefinition(qualifiedName, ModuleDef.class)).thenReturn(md);
 
         String actual = AuraClientExceptionUtil.getLibrarySourceCode(qualifiedName, null, definitionService, false, true);
@@ -203,7 +204,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
         List<IncludeDefRef> includes = new ArrayList<>();
         IncludeDefRef include = Mockito.mock(IncludeDefRef.class);
         Mockito.when(include.getName()).thenReturn(part);
-        Mockito.when(include.getCode(Mockito.anyBoolean())).thenReturn(expected);
+        Mockito.when(include.getCode(Matchers.anyBoolean())).thenReturn(expected);
         includes.add(include);
         Mockito.when(ld.getIncludes()).thenReturn(includes);
         Mockito.when(definitionService.getDefinition(qualifiedName, LibraryDef.class)).thenReturn(ld);
@@ -224,7 +225,7 @@ public class AuraClientExceptionUtilUnitTest extends UnitTestCase {
         List<IncludeDefRef> includes = new ArrayList<>();
         IncludeDefRef include = Mockito.mock(IncludeDefRef.class);
         Mockito.when(include.getName()).thenReturn(part);
-        Mockito.when(include.getCode(Mockito.anyBoolean())).thenReturn(expected);
+        Mockito.when(include.getCode(Matchers.anyBoolean())).thenReturn(expected);
         includes.add(include);
         Mockito.when(ld.getIncludes()).thenReturn(includes);
         Mockito.when(definitionService.getDefinition(qualifiedName, LibraryDef.class)).thenReturn(ld);

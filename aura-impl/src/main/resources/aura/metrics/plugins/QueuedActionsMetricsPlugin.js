@@ -119,6 +119,26 @@ QueuedActionsMetricsPlugin.prototype.actionFinishOverride = function() {
     return ret;
 };
 
+QueuedActionsMetricsPlugin.prototype.actionsProcessResponses = function() {
+    var config = Array.prototype.shift.apply(arguments);
+    var message = arguments[1];
+    // the decoded and json parsed message is only available in the response to this method
+    var perfSummary = message && message["perfSummary"];
+    if (perfSummary && perfSummary["version"] === "core") {
+        var actions = perfSummary["actions"] || {};
+        var keys = Object.keys(actions);
+        for (var i = 0; i < keys.length; i++) {
+            var id = keys[i];
+            var serverTime = actions[id];
+            this.metricsService["mark"](QueuedActionsMetricsPlugin.NAME, 'receive', {
+                "id"         : id,
+                "serverTime" : serverTime
+            });
+        }
+    }
+    return config["fn"].apply(config["scope"], arguments);
+};
+
 QueuedActionsMetricsPlugin.prototype.bind = function () {
     // Time of $A.enqueue
     $A.installOverride("enqueueAction", this.enqueueActionOverride, this);
@@ -128,9 +148,13 @@ QueuedActionsMetricsPlugin.prototype.bind = function () {
 
     // Time when the action is sent
     $A.installOverride("ClientService.send", this.actionSendOverride, this);
+    
+    // Time when response for all actions is received by client
+    $A.installOverride("ClientService.processResponses", this.actionsProcessResponses, this);
 
     // Time when the action is done
     $A.installOverride("Action.finishAction", this.actionFinishOverride, this);
+    
 };
 
 /** @export */
@@ -166,6 +190,9 @@ QueuedActionsMetricsPlugin.prototype.postProcess = function (actionMarks /*, trx
                     mark["enqueueWait"] = Math.floor(actionMark["ts"] - mark["ts"]);
                 }
                 break;
+            case "receive":
+                mark["serverTime"] = actionMark["context"]["serverTime"];
+                break;
             case "finishStart":
                 $A.util.apply(mark["context"], actionMark["context"]);
                 mark["callbackTime"] = actionMark["ts"];
@@ -193,6 +220,7 @@ QueuedActionsMetricsPlugin.prototype.unbind = function () {
     $A.uninstallOverride("enqueueAction", this.enqueueActionOverride);
     $A.uninstallOverride("ClientService.collectServerAction", this.collectServerActionOverride);
     $A.uninstallOverride("ClientService.send", this.actionSendOverride, this);
+    $A.uninstallOverride("ClientService.processResponses", this.actionsProcessResponses);
     $A.uninstallOverride("Action.finishAction", this.actionFinishOverride);
 };
 

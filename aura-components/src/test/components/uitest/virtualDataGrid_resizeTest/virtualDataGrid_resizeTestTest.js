@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 ({
-	browsers: ["-IE7","-IE8"],
+	browsers: ["-IE8"],
 	
 	WIDTHS : {
 		initialWidths  : [200, 400, 100, 50],
@@ -51,6 +51,14 @@
 	
 	testProgrammaticResizing : {
 		test : [function(cmp) {
+			var initialSize = this.WIDTHS.initialWidths[0];
+
+			// Let's wait for the grid does the initial resize
+			$A.test.addWaitForWithFailureMessage(true, function(){
+				var columns = cmp.find('grid').getElement().querySelectorAll('th');
+				return columns[0].clientWidth === initialSize;
+			}, 'Columns width did not change for the initialResize (initialWidths)');
+		}, function(cmp) {
 			cmp.find("grid").resizeColumns(this.WIDTHS.smallerWidths);
 		}, function(cmp) {
 			var grid = cmp.find("grid");

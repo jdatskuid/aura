@@ -22,12 +22,15 @@
 function FunctionCallValue(config, valueProvider){
     this.valueProvider = valueProvider;
     this.byValue = config["byValue"];
-    this.code = $A.util.json.decodeString(config["code"]);
-    this.context = $A.getContext().getCurrentAccess();
+    if (!(config["code"] instanceof Function)) {
+        config["code"] = (0,eval)("(" + config["code"] + ")");
+    }
+    this.code = config["code"];
+    this.context = $A.clientService.currentAccess;
 
     this.args = [];
     for (var i = 0; i < config["args"].length; i++) {
-        this.args.push(valueFactory.create(config["args"][i], this.valueProvider));
+        this.args.push(valueFactory.create(config["args"][i], valueProvider));
     }
 
 //#if {"modes" : ["STATS"]}
@@ -60,15 +63,15 @@ FunctionCallValue.prototype.isDirty = function(){
  * @param {Object} valueProvider The value provider to resolve.
  */
 FunctionCallValue.prototype.evaluate = function(valueProvider){
-    $A.getContext().setCurrentAccess(this.context);
+    $A.clientService.setCurrentAccess(this.context);
     try {
-        var result = this.code.call(null, valueProvider || this.valueProvider, this.expressionFunctions);
+        var result = this.code(valueProvider || this.valueProvider, this.expressionFunctions);
         if(!this.hasOwnProperty("result")){
             this["result"]=result;
-        }    
+        }
         return result;
     } finally {
-        $A.getContext().releaseCurrentAccess();
+        $A.clientService.releaseCurrentAccess();
     }
 };
 

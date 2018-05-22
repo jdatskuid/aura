@@ -56,6 +56,6 @@
     </aura:set>
 
     <ul aura:id="list" class="{!'lookup__list ' + (v.visible ? ' visible' : '')}" role="presentation" onclick="{!c.handleClick}" onmousedown="{!c.handleMouseDown}">
-        <aura:iteration aura:id="iter" items="{!v.privateItems}" var="{!v.itemVar}" body="{!v.itemTemplate}"/>
+        <aura:iteration aura:id="iter" items="{!v.items}" var="{!v.itemVar}" body="{!v.itemTemplate}"/>
     </ul>
 </aura:component>

@@ -16,24 +16,22 @@
 
 package org.auraframework.impl.system;
 
-import org.auraframework.Aura;
+import java.util.Collections;
+import java.util.Set;
+
 import org.auraframework.builder.ElementBuilder;
 import org.auraframework.def.BaseXmlElement;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.Definition;
 import org.auraframework.def.DefinitionAccess;
-import org.auraframework.expression.PropertyReference;
-import org.auraframework.instance.GlobalValueProvider;
 import org.auraframework.system.Location;
 import org.auraframework.throwable.AuraExceptionInfo;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.text.Hash;
+import org.auraframework.validation.ReferenceValidationContext;
 
-import java.util.Collection;
-import java.util.Set;
-
-import static org.auraframework.instance.AuraValueProviderType.LABEL;
+import com.google.common.collect.Sets;
 
 /**
  * Base implementation for an element.
@@ -47,6 +45,7 @@ public abstract class BaseXmlElementImpl implements BaseXmlElement {
     protected final String fullyQualifiedName;
 
     protected transient final QuickFixException parseError;
+    private transient Set<DefDescriptor<?>> dependencySet;
     protected final String ownHash;
     protected final DefinitionAccess access;
     private boolean valid;
@@ -67,6 +66,9 @@ public abstract class BaseXmlElementImpl implements BaseXmlElement {
         this.location = location;
         this.apiVersion = apiVersion;
         this.description = description;
+        if (ownHash == null) {
+            ownHash = "";
+        }
         this.ownHash = ownHash;
         this.parseError = parseError;
         this.access = access;
@@ -106,6 +108,16 @@ public abstract class BaseXmlElementImpl implements BaseXmlElement {
     public void appendDependencies(Set<DefDescriptor<?>> dependencies) {
     }
 
+    @Override
+    public Set<DefDescriptor<?>> getDependencySet() {
+        if (this.dependencySet == null) {
+            Set<DefDescriptor<?>> newDeps = Sets.newLinkedHashSet();
+            this.appendDependencies(newDeps);
+            this.dependencySet = Collections.unmodifiableSet(newDeps);
+        }
+        return this.dependencySet;
+    }
+
     /**
      * @throws QuickFixException
      * @see Definition#appendSupers(java.util.Set)
@@ -137,10 +149,10 @@ public abstract class BaseXmlElementImpl implements BaseXmlElement {
 
     /**
      * @throws QuickFixException
-     * @see Definition#validateReferences()
+     * @see Definition#validateReferences(ReferenceValidationContext)
      */
     @Override
-    public void validateReferences() throws QuickFixException {
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
     }
 
     @Override
@@ -164,31 +176,6 @@ public abstract class BaseXmlElementImpl implements BaseXmlElement {
     @Override
     public String getDescription() {
         return description;
-    }
-
-    @Override
-    public void retrieveLabels() throws QuickFixException {
-
-    }
-
-    /**
-     * A utility routine to get the full set of labels out of a set of property references.
-     * <p>
-     * This is used everywhere that we parse javascript to get property references and want to
-     * process them. But can be applied to literally anything.
-     *
-     * @param props the collection of properties to scan.
-     */
-    protected void retrieveLabels(Collection<PropertyReference> props) throws QuickFixException {
-        if (props != null && !props.isEmpty()) {
-            GlobalValueProvider labelProvider = Aura.getContextService().getCurrentContext().getGlobalProviders().get(LABEL.getPrefix());
-            for (PropertyReference e : props) {
-                if (e.getRoot().equals(LABEL.getPrefix())) {
-                    labelProvider.validate(e.getStem());
-                    labelProvider.getValue(e.getStem());
-                }
-            }
-        }
     }
 
     public abstract static class BaseBuilderImpl implements ElementBuilder {

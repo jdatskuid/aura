@@ -15,6 +15,11 @@
  */
 package org.auraframework.integration.test.components.ui.inputDate;
 
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.util.Calendar;
+import java.util.GregorianCalendar;
+
 import org.auraframework.integration.test.util.WebDriverTestCase;
 import org.auraframework.test.util.WebDriverUtil.BrowserType;
 import org.auraframework.util.test.annotation.UnAdaptableTest;
@@ -23,11 +28,6 @@ import org.openqa.selenium.By;
 import org.openqa.selenium.Keys;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
-
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
-import java.util.Calendar;
-import java.util.GregorianCalendar;
 
 public class InputDateWithLabelUITest extends WebDriverTestCase {
 
@@ -151,7 +151,7 @@ public class InputDateWithLabelUITest extends WebDriverTestCase {
      *********************************** Date Picker Tests*******************************************
      ***********************************************************************************************/
     // Home and End Button Test using January (31 days) , February (28 or 29 days), September (30 days)
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
+    @ExcludeBrowsers({ BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
             BrowserType.IPAD, BrowserType.IPHONE })
     @Test
     public void testHomeEnd() throws Exception {
@@ -187,7 +187,7 @@ public class InputDateWithLabelUITest extends WebDriverTestCase {
     }
 
     // Testing the functionality of page_down, page_up, shift+page_down, shift+page_up
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE9, BrowserType.IE10, BrowserType.IE11, BrowserType.ANDROID_PHONE,
+    @ExcludeBrowsers({ BrowserType.IE9, BrowserType.IE10, BrowserType.IE11, BrowserType.ANDROID_PHONE,
             BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
     public void testPageUpDownYear() throws Exception {
@@ -269,7 +269,7 @@ public class InputDateWithLabelUITest extends WebDriverTestCase {
         WebElement element = findDomElement(By.cssSelector(DATE_INPUT_BOX_SEL));
 
         // Tabbing to the next item and getting what is in focus
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         String classOfActiveElem = "" + getAuraUITestingUtil().getEval(CLASSNAME);
         element = findDomElement(By.cssSelector("td[class*='" + classOfActiveElem + "']"));
@@ -299,7 +299,7 @@ public class InputDateWithLabelUITest extends WebDriverTestCase {
         WebElement element = findDomElement(By.cssSelector(DATE_INPUT_BOX_SEL));
 
         // Tabbing to the next item and getting what is in focus
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         element = findDomElement(By.cssSelector(OUTPUT_ST));
         // tab out does not fire value change event
@@ -337,7 +337,7 @@ public class InputDateWithLabelUITest extends WebDriverTestCase {
         WebElement element = findDomElement(By.cssSelector(DATE_INPUT_BOX_SEL));
         element.click();
         element.sendKeys("20151111");
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         String classOfActiveElem = "a[class*='" + getAuraUITestingUtil().getEval(CLASSNAME) + "']";
         element = findDomElement(By.cssSelector(classOfActiveElem));
@@ -352,7 +352,7 @@ public class InputDateWithLabelUITest extends WebDriverTestCase {
         elementClass = element.getAttribute("class");
         assertTrue("Tabbing did not take us to the selected date",
                 elementClass.indexOf("selectedDate") >= 0);
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         String shftTab = Keys.SHIFT + "" + Keys.TAB;
 
@@ -386,8 +386,6 @@ public class InputDateWithLabelUITest extends WebDriverTestCase {
     @Test
     public void testEscape() throws Exception {
         open(URL);
-
-        boolean escButtonClosedCal;
 
         openDatePicker();
 

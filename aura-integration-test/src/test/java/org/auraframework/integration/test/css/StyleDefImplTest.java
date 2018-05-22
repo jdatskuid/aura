@@ -15,23 +15,29 @@
  */
 package org.auraframework.integration.test.css;
 
-import com.google.common.collect.Sets;
+import java.util.Map;
+import java.util.Set;
+
+import javax.inject.Inject;
+
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.StyleDef;
 import org.auraframework.def.TokensDef;
 import org.auraframework.impl.css.StyleTestCase;
+import org.auraframework.impl.validation.ReferenceValidationContextImpl;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.throwable.quickfix.TokenValueNotFoundException;
 import org.auraframework.util.AuraTextUtil;
+import org.auraframework.util.json.Json;
 import org.auraframework.util.json.JsonEncoder;
 import org.auraframework.util.json.JsonReader;
+import org.auraframework.validation.ReferenceValidationContext;
 import org.junit.Test;
 
-import javax.inject.Inject;
-import java.util.Map;
-import java.util.Set;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 
 /**
  * Tests for StyleDefImpl.
@@ -51,8 +57,7 @@ public class StyleDefImplTest extends StyleTestCase {
         DefDescriptor<TokensDef> nsDefault = addNsTokens(tokens().token("color", "red"));
         DefDescriptor<StyleDef> style = addStyleDef(".THIS {color: token(color) }");
 
-        Set<DefDescriptor<?>> dependencies = Sets.newHashSet();
-        definitionService.getDefinition(style).appendDependencies(dependencies);
+        Set<DefDescriptor<?>> dependencies = definitionService.getDefinition(style).getDependencySet();
         assertTrue(dependencies.contains(nsDefault));
     }
 
@@ -60,9 +65,10 @@ public class StyleDefImplTest extends StyleTestCase {
     public void testInvalidRef() throws QuickFixException {
         addNsTokens("<aura:tokens><aura:token name='color' value='red'/></aura:tokens>");
         DefDescriptor<StyleDef> style = addStyleDef(".THIS {color: token(bam) }");
+        ReferenceValidationContext validationContext = new ReferenceValidationContextImpl(Maps.newHashMap());
 
         try {
-            definitionService.getDefinition(style).validateReferences();
+            definitionService.getDefinition(style).validateReferences(validationContext);
             fail("expected an exception");
         } catch (Exception e) {
             checkExceptionContains(e, TokenValueNotFoundException.class, "was not found");
@@ -129,11 +135,11 @@ public class StyleDefImplTest extends StyleTestCase {
         assertTrue(o instanceof Map);
         Map<String, Object> outerMap = (Map<String, Object>) o;
         assertEquals(styleDesc.toString(), outerMap.get("descriptor"));
-        assertEquals(styleDesc.getNamespace() + AuraTextUtil.initCap(styleDesc.getName()), outerMap.get("className"));
+        assertEquals(styleDesc.getNamespace() + AuraTextUtil.initCap(styleDesc.getName()), outerMap.get(Json.ApplicationKey.CLASSNAME.toString()));
         if (expectCode) {
-            assertEquals("StyleDef content not included.", definitionService.getDefinition(styleDesc).getCode(), outerMap.get("code"));
+            assertEquals("StyleDef content not included.", definitionService.getDefinition(styleDesc).getCode(), outerMap.get(Json.ApplicationKey.CODE.toString()));
         } else {
-            assertNull("StyleDef content should not be included.", outerMap.get("code"));
+            assertNull("StyleDef content should not be included.", outerMap.get(Json.ApplicationKey.CODE.toString()));
         }
     }
 }

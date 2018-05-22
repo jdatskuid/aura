@@ -25,12 +25,14 @@ import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.AuraContext.Format;
 import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.system.AuraResource;
+import org.auraframework.system.Message;
 import org.auraframework.throwable.ClientOutOfSyncException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 
@@ -111,7 +113,18 @@ public interface ServletUtilAdapter extends AuraAdapter {
      * @param componentAttributes Component attributes.
      * @param sb the string builder to use.
      */
+    @Deprecated
     void writeScriptUrls(AuraContext context, Map<String, Object> componentAttributes, StringBuilder sb) throws QuickFixException, IOException;
+
+    /**
+     * Write all urls on the string builder
+     * @param context the aura context to use.
+     * @param def
+     * @param componentAttributes Component attributes.
+     * @param sb the string builder to use.
+     * @param beforeBootstrap string to put into sb before writing bootstrap.js
+     */
+    void writeScriptUrls(AuraContext context, BaseComponentDef def, Map<String, Object> componentAttributes, StringBuilder sb) throws QuickFixException, IOException;
 
     /**
      * Get bootstrap url.
@@ -124,6 +137,19 @@ public interface ServletUtilAdapter extends AuraAdapter {
      */
 
     String getInlineJsUrl(AuraContext context, Map<String,Object> attributes);
+
+    /**
+     * get the inline js content
+     * @param context
+     * @param def
+     * @return the script content
+     */
+    String getInlineJs(AuraContext context, BaseComponentDef def) throws IOException;
+
+    /**
+     * Get appcore.js url.
+     */
+    String getAppCoreJsUrl(AuraContext context, Map<String, Object> attributes);
 
     /**
      * Get app.js url.
@@ -193,19 +219,43 @@ public interface ServletUtilAdapter extends AuraAdapter {
     void setShortCache(HttpServletResponse response);
 
     /**
+     * Set a page to be cached for a 'short' period and define if request will be cached on the proxy.
+     */
+    void setShortCachePrivate(HttpServletResponse response);
+
+    /**
      * Set a page to cache for a 'long' time.
      */
     void setLongCache(HttpServletResponse response);
 
     /**
-     * Set cache timeout for a resource in seconds.
+     * Set a page to cache for a 'long' time and define if request will be cached on the proxy.
      */
-    void setCacheTimeout(HttpServletResponse response, long expiration);
+    void setLongCachePrivate(HttpServletResponse response);
 
+    /**
+     * Set cache timeout for a resource in milliseconds.
+     */
+    void setCacheTimeout(HttpServletResponse response, long expiration, boolean immutable);
+    
     /**
      * are we in production mode?
      */
     boolean isProductionMode(Mode mode);
+
+    /**
+     * Return true if the the request is for a publicly cacheable action
+     *
+     * @param message the deserialized request action content
+     */
+    boolean isPubliclyCacheableAction(Message message) throws QuickFixException;
+
+    /**
+     * Return the cacheable action expiration time (in seconds) OR -1 if the action is not publicly cacheable
+     *
+     * @param message the deserialized request action content
+     */
+    long getPubliclyCacheableActionExpiration(Message message) throws QuickFixException;
 
     /**
      * Setup basic security headers.
@@ -226,4 +276,32 @@ public interface ServletUtilAdapter extends AuraAdapter {
             AuraContext context) throws IOException;
 
     void checkFrameworkUID(AuraContext context) throws ClientOutOfSyncException;
+
+    /**
+     * Get all the urls to include in the Prefetch block of the page.
+     * You would want to prefetch something that you expect COULD be used on this page or another page the user could visit.
+     * 
+     * @param context
+     * @return
+     */
+    List<String> getJsPrefetchUrls(AuraContext context) throws QuickFixException;
+    
+    /**
+     * Get all the urls to include in the Prefetch block of the page.
+     * You would want to prefetch something that you expect COULD be used on this page or another page the user could visit.
+     * 
+     * @param context
+     * @return
+     */
+    List<String> getCssPreloadUrls(AuraContext context) throws QuickFixException;
+    
+    /**
+     * Get all the urls to include as Preloads. 
+     * These are scripts we know with 99% certainty the user will be using in the loading of the page. 
+     * We just want to start them downloading as soon as possible. 
+     * 
+     * @param context
+     * @return
+     */
+    List<String> getJsPreloadUrls(AuraContext context) throws QuickFixException;
 }

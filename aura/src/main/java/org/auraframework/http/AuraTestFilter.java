@@ -39,8 +39,6 @@ import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.http.HttpStatus;
 import org.apache.http.NameValuePair;
 import org.apache.http.client.utils.URLEncodedUtils;
@@ -62,6 +60,7 @@ import org.auraframework.http.RequestParam.IntegerParam;
 import org.auraframework.http.RequestParam.StringParam;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
+import org.auraframework.service.LoggingService;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.AuraContext.Authentication;
 import org.auraframework.system.AuraContext.Format;
@@ -84,6 +83,7 @@ import com.google.common.collect.Lists;
  */
 @ServiceComponent
 public class AuraTestFilter {
+
     private static final int DEFAULT_JSTEST_TIMEOUT = 30;
     private static final String BASE_URI = "/aura";
     private static final String GET_URI = BASE_URI
@@ -115,7 +115,6 @@ public class AuraTestFilter {
     // private static final Pattern headTagPattern = Pattern.compile("(?is).*(<\\s*head[^>]*>).*");
     // private static final Pattern bodyTagPattern = Pattern.compile("(?is).*(<\\s*body[^>]*>).*");
 
-    private final Log LOG = LogFactory.getLog(AuraTestFilter.class);;
     private final List<HttpFilter> testCaseFilters = Collections.synchronizedList(Lists.newArrayList());
 
     // TODO: DELETE this once all existing tests have been updated to have attributes.
@@ -127,7 +126,11 @@ public class AuraTestFilter {
     private ConfigAdapter configAdapter;
     private ExceptionAdapter exceptionAdapter;
     private ServletUtilAdapter servletUtilAdapter;
-    
+    private LoggingService loggingService;
+
+    private String testRunnerAppNamespace =  "aurajstest";
+    private String testRunnerAppName = "jstest";
+
     @Inject
     public void setTestContextAdapter(TestContextAdapter testContextAdapter) {
         this.testContextAdapter = testContextAdapter;
@@ -158,6 +161,11 @@ public class AuraTestFilter {
         this.servletUtilAdapter = servletUtilAdapter;
     }
 
+    @Inject
+    public void setLoggingService(LoggingService loggingService) {
+        this.loggingService = loggingService;
+    }
+
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws ServletException,
             IOException {
         if (testContextAdapter == null || configAdapter == null || configAdapter.isProduction()) {
@@ -167,7 +175,7 @@ public class AuraTestFilter {
 
         if (testCaseFilters != null && testCaseFilters.size() > 0) {
             final AtomicBoolean handled = new AtomicBoolean(false);
-            
+
             for (HttpFilter filter : testCaseFilters) {
                 if (filter == null) {
                     continue;
@@ -184,7 +192,7 @@ public class AuraTestFilter {
 
         innerFilter(request, response, chain);
     }
-    
+
     private void innerFilter(ServletRequest req, ServletResponse res, FilterChain chain)
             throws IOException, ServletException {
         HttpServletRequest request = (HttpServletRequest)req;
@@ -199,7 +207,14 @@ public class AuraTestFilter {
             DefDescriptor<?> targetDescriptor = getTargetDescriptor(request);
             if (targetDescriptor != null) {
                 // Check if a single jstest is being requested.
-                String testToRun = jstestToRun.get(request);
+                String testToRun;
+                if ("auratest:test".equals(targetDescriptor.getDescriptorName())) {
+                    String descriptor = request.getParameter("descriptor");
+                    targetDescriptor = definitionService.getDefDescriptor(descriptor, ComponentDef.class);
+                    testToRun = request.getParameter("testName");
+                } else {
+                    testToRun = jstestToRun.get(request);
+                }
                 if (testToRun != null && !testToRun.isEmpty() && !NO_RUN.equals(testToRun)) {
                     AuraContext context = contextService.getCurrentContext();
                     Format format = context.getFormat();
@@ -210,7 +225,6 @@ public class AuraTestFilter {
                         try {
                             TestSuiteDef suiteDef = getTestSuite(targetDescriptor);
                             testDef = getTestCase(suiteDef, testToRun);
-                            testDef.validateDefinition();
                             if (testContext == null) {
                                 testContext = testContextAdapter.getTestContext(testDef.getQualifiedName());
                             }
@@ -258,8 +272,9 @@ public class AuraTestFilter {
                     }
                 } else if (testToRun != null && testToRun.isEmpty()) {
                     Object origRequest = request.getAttribute(AuraResourceServlet.ORIG_REQUEST_URI);
-                    LOG.error("empty jstestrun: " + request.getRequestURL() + "?" + request.getQueryString()
-                            + " original request: " + origRequest, new Error());
+                    String message = String.format("AuraTestFilter.innerFilter(): Empty jstestrun: %s?%s original request: %s",
+                            request.getRequestURL(), request.getQueryString(), origRequest);
+                    loggingService.error(message);
                 }
 
                 // aurajstest:jstest app is invokable in the following ways:
@@ -286,9 +301,9 @@ public class AuraTestFilter {
                         qs = qs + "&test=" + testName;
                     }
 
-                    String newUri = createURI("aurajstest", "jstest", DefType.APPLICATION, mode,
+                    String newUri = createURI(testRunnerAppNamespace, testRunnerAppName, DefType.APPLICATION, mode,
                             Format.HTML, Authentication.AUTHENTICATED.name(), NO_RUN, qs);
-                    RequestDispatcher dispatcher = request.getServletContext().getContext(newUri).getRequestDispatcher(newUri);
+                    RequestDispatcher dispatcher = request.getRequestDispatcher(newUri);
                     if (dispatcher != null) {
                         testContextAdapter.release();
                         dispatcher.forward(request, response);
@@ -299,9 +314,13 @@ public class AuraTestFilter {
         }
 
         // Handle mock definitions specified in the tests.
-        if (testContext != null) {
+        if (testContext == null) {
+            // The test context adapter may not always get cleared,
+            // so release all test contexts for the request without explicit test context
+            testContextAdapter.clear();
+        } else {
             if (!contextService.isEstablished()) {
-                LOG.error("Aura context is not established! New context will NOT be created.");
+                loggingService.error("AuraTestFilter.innerFilter(): Aura context is not established! New context will NOT be created.");
                 chain.doFilter(request, response);
                 return;
             }
@@ -315,8 +334,16 @@ public class AuraTestFilter {
 
     public void init(FilterConfig filterConfig) throws ServletException {
         processInjection(filterConfig);
+
+        String testRunnerAppNamespace = filterConfig.getInitParameter("testRunnerAppNamespace");
+        String testRunnerAppName = filterConfig.getInitParameter("testRunnerAppName");
+
+        if (testRunnerAppNamespace != null && testRunnerAppName != null) {
+            this.testRunnerAppNamespace = testRunnerAppNamespace;
+            this.testRunnerAppName = testRunnerAppName;
+        }
     }
-    
+
     public void processInjection(FilterConfig filterConfig) {
         if (testContextAdapter == null) {
             SpringBeanAutowiringSupport.processInjectionBasedOnServletContext(this, filterConfig.getServletContext());
@@ -356,15 +383,16 @@ public class AuraTestFilter {
     }
 
     private TestSuiteDef getTestSuite(DefDescriptor<?> targetDescriptor) throws QuickFixException {
-        DefDescriptor<TestSuiteDef> suiteDesc = definitionService.getDefDescriptor(targetDescriptor,
-                DefDescriptor.JAVASCRIPT_PREFIX, TestSuiteDef.class);
+        DefDescriptor<TestSuiteDef> suiteDesc = definitionService.getDefDescriptor(
+                DefDescriptor.JAVASCRIPT_PREFIX+"://"+targetDescriptor.getNamespace()+"."+targetDescriptor.getName(),
+                TestSuiteDef.class, targetDescriptor);
+        definitionService.getDefinition(targetDescriptor); // prime target def first
         return definitionService.getDefinition(suiteDesc);
     }
 
     private TestCaseDef getTestCase(TestSuiteDef suiteDef, String testCaseName) throws QuickFixException {
         for (TestCaseDef currentTestDef : suiteDef.getTestCaseDefs()) {
             if (testCaseName.equals(currentTestDef.getName())) {
-                currentTestDef.validateDefinition();
                 return currentTestDef;
             }
         }
@@ -403,7 +431,7 @@ public class AuraTestFilter {
                 }
                 context.addDynamicDef(def);
             } catch (Throwable t) {
-                LOG.error("Failed to add mock " + def, t);
+                loggingService.error("AuraTestFilter.loadTestMocks(): Failed to add mock " + def, t);
                 error = true;
             }
         }
@@ -498,7 +526,7 @@ public class AuraTestFilter {
                 super.sendRedirect(location);
             }
         };
-        RequestDispatcher dispatcher = req.getServletContext().getContext(uri).getRequestDispatcher(uri);
+        RequestDispatcher dispatcher = req.getRequestDispatcher(uri);
         if (dispatcher == null) {
             return null;
         }
@@ -525,6 +553,14 @@ public class AuraTestFilter {
         String qs = String.format("aura.testTimeout=%s&aura.nonce=%s", timeout, System.nanoTime());
         String suiteSrcUrl = createURI(targetDescriptor.getNamespace(), targetDescriptor.getName(),
                 targetDescriptor.getDefType(), null, Format.JS, Authentication.AUTHENTICATED.name(), testName, qs);
+
+        if (contextService.isEstablished()) {
+            String contextPath = contextService.getCurrentContext().getContextPath();
+            if (!AuraTextUtil.isNullEmptyOrWhitespace(contextPath)) {
+                suiteSrcUrl = contextPath + suiteSrcUrl;
+            }
+        }
+
         tag = tag + String.format("<script src='%s'%s></script>\n", suiteSrcUrl, "");
         return tag;
     }
@@ -557,19 +593,20 @@ public class AuraTestFilter {
             testDef = getTestCase(suiteDef, testName);
             testDef.validateDefinition();
         } catch (QuickFixException e) {
-            out.append(String.format("$A.test.run('%s',{},1,'%s');", testName, e.getMessage()));
+            out.append(String.format("$A.test.run('%s',{},1,{'message':'%s'}});", testName, e.getMessage()));
             return;
         }
         
         out.append(
                 String.format(
+                    "var suiteCode=%2$s\n;" +
                     "var testBootstrapFunction = function(testName, suiteProps, testTimeout) { \n"+
                             "if(!$A.test.isComplete()) {\n"+
                                 "if(window.sessionStorage) {\n"+
                                     "var oldStatus = sessionStorage.getItem('TestRunStatus'); \n"+
                                     "sessionStorage.setItem('TestRunStatus',(oldStatus?oldStatus:'')+'Run '+testName+', timeStamp#'+$A.test.time()+'.'); \n"+
                                 "}\n"+
-                                "$A.test.run(testName, suiteProps, testTimeout); \n"+
+                                "$A.test.run(testName, suiteProps, testTimeout, Aura['appBootstrap'] && Aura['appBootstrap']['error']); \n"+
                             "} else {\n"+
                                 "if(window.sessionStorage) {\n"+
                                     "var oldStatus = sessionStorage.getItem('TestRunStatus'); \n"+
@@ -581,19 +618,19 @@ public class AuraTestFilter {
                          "&& window.$A && window.$A.test && window.$A.test.isComplete instanceof Function ) { \n"+//but the test wasn't
                          "if(window.sessionStorage) {\n"+
                                 //"var oldStatus = sessionStorage.getItem('TestRunStatus'); \n"+
-                                "sessionStorage.setItem('TestRunStatus','Run %s directly, as bootstrap finish before we can push test to its run-after, timeStamp#'+$A.test.time()+'.'); \n"+
+                                "sessionStorage.setItem('TestRunStatus','Run %1$s directly, as bootstrap finish before we can push test to its run-after, timeStamp#'+$A.test.time()+'.'); \n"+
                          "}\n"+
-                         "testBootstrapFunction('%s', %s, '%s'); \n"+
+                         "testBootstrapFunction('%1$s', suiteCode, '%3$s'); \n"+
                     "} else {\n"+
                         "if(window.sessionStorage) {\n"+
                             //"var oldStatus = sessionStorage.getItem('TestRunStatus'); \n"+
-                            "sessionStorage.setItem('TestRunStatus','Push %s to bootstrap run after, timeStamp#'+$A.test.time()+'.'); \n"+
+                            "sessionStorage.setItem('TestRunStatus','Push %1$s to bootstrap run after, timeStamp#'+((window.$A && window.$A.test) ? $A.test.time():Date.now())+'.'); \n"+
                         "}\n"+
                         "window.Aura || (window.Aura = {}); \n"+
                         "window.Aura.afterBootstrapReady || (window.Aura.afterBootstrapReady = []); \n"+
-                        "window.Aura.afterBootstrapReady.push(testBootstrapFunction.bind(this, '%s', %s, '%s')); \n"+
+                        "window.Aura.afterBootstrapReady.push(testBootstrapFunction.bind(this, '%1$s', suiteCode, '%3$s')); \n"+
                     "} \n"
-                    ,testName, testName, suiteDef.getCode()+"\t\n", testTimeout, testName, testName, suiteDef.getCode()+"\t\n", testTimeout)
+                    ,testName, suiteDef.getCode()+"\t\n", testTimeout)
         );
     }
 
@@ -621,9 +658,9 @@ public class AuraTestFilter {
             if (name == null) {
                 Matcher matcher = AuraRewriteFilter.DESCRIPTOR_PATTERN.matcher(path);
                 if (matcher.matches()) {
-                    type = "app".equals(matcher.group(3)) ? DefType.APPLICATION : DefType.COMPONENT;
                     namespace = matcher.group(1);
                     name = matcher.group(2);
+                    type = "app".equals(matcher.group(3)) ? DefType.APPLICATION : DefType.COMPONENT;
                 }
             }
 

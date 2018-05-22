@@ -39,6 +39,9 @@ Aura.bootstrapMark = function (mark, value) {
 // before aura.js is loaded/executed, so verifyBootstrap() is never invoked.
 //#if {"excludeModes" : ["DOC","TESTING","AUTOTESTING", "TESTINGDEBUG", "AUTOTESTINGDEBUG"]}
 (function bootstrapRobustness() {
+    // Run once a second, so 10 seconds total wait.
+    var max_retries = 10;
+    var retryCount = 0;
     function verifyBootstrap() {
         document.removeEventListener('DOMContentLoaded', verifyBootstrap);
 
@@ -47,46 +50,64 @@ Aura.bootstrapMark = function (mark, value) {
 
         var state = $A.clientService.getBootstrapState();
 
-        // wait for bootstrap to load from storage:
+        // wait for bootstrap to load from storage or network:
         // 1. wait for $A.initAsync()'s AuraContext callback to be invoked: gvpsFromStorage gets assigned true/false
-        // 2. if gvpsFromStorage is true then wait for bootstrap from storage (if false then bootstrap is not loaded from storage)
+        // 2. if gvpsFromStorage is true then wait for bootstrap from storage
+        // 3. if gvpsFromStorage is false then bootstrap is not loaded from storage so wait for bootstrap from network
+        // Note: When offline is disabled: gvpsFromStorage will always be false.
         //
         // wait for "in progress" app cache
-        // 1.state['appcache'] is appCache progress indicator, if it's undefined, then we don't wait
-        // 2.when offline is disabled, progress = 0 when page initially loads
-        //  if progress < 0 then considered an error; 
-        //  if progress >=100 then considered done, so we wait for < 100.
+        // state['appcache'] is appCache progress indicator.
+        //  1. progress = undefined, there is no app.manifest on the page, so don't wait.
+        //  2. progress = 0 when page initially loads
+        //  3. if progress = -1 then considered an app cache error(the app would work but app cache won't be available) so we wait for >= 0.
+        //  4. if progress >=100 then considered done, so we wait for < 100.
         //
         // inline.js will always be set to true as long as inline.js was actually loaded and didn't 404 or 5XX
         //  if inline.js failed to load, we're really screwed and we'll need to attempt a reload.
-        if (state["inline.js"] && ($A.clientService.gvpsFromStorage === undefined || ($A.clientService.gvpsFromStorage && Aura["appBootstrapCacheStatus"] === undefined)) ||
-            (typeof state["appcache"] !== "undefined" && state["appcache"] < 100)) {
+        var appCacheProgress = state["appcache"];
+        var allFilesLoaded;
+        if (appCacheProgress === -1) {
+            allFilesLoaded = Object.keys(state).reduce(function(prev, curr) {
+                return prev && state[curr];
+            }, true);
+            if (!allFilesLoaded) {
+                if(retryCount < max_retries) {
+                    retryCount++;
+                    setTimeout(verifyBootstrap, 1000);
+                } else {
+                    $A.clientService.dumpCachesAndReload(true, {"cause": "Aura.verifyBootstrap: Failed bootstrap state: " + JSON.stringify(state)});
+                }
+            }
+
+            return;
+        }
+        if ((state["inline.js"] && ($A.clientService.gvpsFromStorage === undefined || ($A.clientService.gvpsFromStorage && Aura["appBootstrapCacheStatus"] === undefined))) ||
+            (typeof appCacheProgress !== "undefined" && appCacheProgress >= 0 && appCacheProgress < 100)) {
             setTimeout(verifyBootstrap, 1000);
             return;
         }
 
-        var allFilesLoaded = Object.keys(state).reduce(function(prev, curr) {
+        allFilesLoaded = Object.keys(state).reduce(function(prev, curr) {
             return prev && state[curr];
         }, true);
         if (!allFilesLoaded) {
-            $A.clientService.dumpCachesAndReload(true);
+            $A.clientService.dumpCachesAndReload(true, {"cause": "Aura.verifyBootstrap: Failed bootstrap state: " + JSON.stringify(state)});
         }
     }
 
     document.addEventListener('DOMContentLoaded', verifyBootstrap);
 })();
 //#end
+
+function noop() {}
+
 // This, $A, is supposed to be our ONLY window-polluting top-level variable.
 // Everything else in Aura is attached to it.
 // window['$A'] = {};
 
 // -- Polyfills --------------------------------------------------------
-// #include aura.polyfill.Array
-// #include aura.polyfill.Function
-// #include aura.polyfill.RequestAnimationFrame
-// #include aura.polyfill.Object
 // #include aura.polyfill.Json
-// #include aura.polyfill.Promise
 // #include aura.polyfill.TextEncoder
 // #include aura.polyfill.stackframe
 // #include aura.polyfill.error-stack-parser
@@ -100,6 +121,7 @@ Aura.bootstrapMark = function (mark, value) {
 // -- Utils ------------------------------------------------------------
 // #include aura.util.Style
 // #include aura.util.Bitset
+// #include aura.util.Duration
 // #include aura.util.NumberFormat
 // #include aura.util.Mutex
 // #include aura.util.DocLevelHandler
@@ -138,6 +160,7 @@ Aura.bootstrapMark = function (mark, value) {
 
 // -- Component ---------------------------------------------------------
 // #include aura.component.ComponentClassRegistry
+// #include aura.component.ComponentDefLoader
 // #include aura.component.ComponentDefStorage
 // #include aura.component.Component
 // #include aura.component.BaseComponent
@@ -147,6 +170,7 @@ Aura.bootstrapMark = function (mark, value) {
 // #include aura.component.IterationComponent
 // #include aura.component.TextComponent
 // #include aura.component.InteropComponent
+// #include aura.component.InteropModule
 // #include aura.component.ComponentDef
 // #include aura.component.InteropComponentDef
 // #include aura.component.ActionValueProvider
@@ -171,10 +195,12 @@ Aura.bootstrapMark = function (mark, value) {
 // -- Event --------------------------------------------------------------
 // #include aura.event.EventDef
 // #include aura.event.Event
+// #include aura.event.InteropEvent
 
 // -- Controller ---------------------------------------------------------
 // #include aura.controller.ActionDef
 // #include aura.controller.Action
+// #include aura.controller.ActionStorage
 // #include aura.controller.ControllerDef
 
 // -- Attribute ----------------------------------------------------------
@@ -188,9 +214,6 @@ Aura.bootstrapMark = function (mark, value) {
 // -- RequiredVersion ----------------------------------------------------------
 // #include aura.requiredVersion.RequiredVersionDef
 // #include aura.requiredVersion.RequiredVersionDefSet
-
-// -- L10n ---------------------------------------------------------------
-// #include aura.l10n.AuraLocalizationContext
 
 // -- Storage -------------------------------------------------------------
 // #include aura.storage.AuraStorageService
@@ -207,13 +230,20 @@ Aura.bootstrapMark = function (mark, value) {
 // #include aura.AuraLocalizationService
 // #include aura.AuraStyleService
 // #include aura.metrics.AuraMetricsService
-// #include aura.AuraExportsModule
 
-// -- Mode injection ------------------------------------------------------
+//-- Module Exports ----------------------------------------------------------
+// #include aura.modules.AuraExportsServiceApi
+// #include aura.modules.AuraExportsCompat
+// #include aura.modules.AuraExportsStorage
+// #include aura.modules.AuraExportsLogger
+// #include aura.modules.AuraExportsAssert
+// #include aura.modules.AuraExportsMetricsService
+
+// -- Mode injection ---------------------------------------------------------
 // #include {"excludeModes" : ["PRODUCTION", "PRODUCTIONDEBUG"], "path" : "aura.AuraDevToolService"}
 
 //-- LockerService -----------------------------------------------------------
-//#include aura.locker.LockerService
+//#include aura.lockerservice.LockerService
 
 // -- $A Instance ------------------------------------------------------------
 // #include aura.AuraInstance
@@ -278,8 +308,12 @@ window['aura'] = window['$A'];
 */
 
 Aura["frameworkJsReady"] = true;
-// only run scripts from custom template if inlineJs is complete, otherwise inline will handle them
-if (Aura["inlineJsLocker"] && Aura["inlineJsReady"]) {
+
+// This should be similar to initFramework
+if (Aura["initConfig"]) {
+    // LockerService must be initialized before scripts can be executed.
+    $A.lockerService.initialize(Aura["initConfig"]["context"]);
+
     var scripts = Aura["inlineJsLocker"];
     if (scripts) {
         for (var i = 0; i < scripts.length; i++) {
@@ -287,12 +321,10 @@ if (Aura["inlineJsLocker"] && Aura["inlineJsReady"]) {
         }
         delete Aura["inlineJsLocker"];
     }
-}
-if (Aura["initConfig"]) {
-  setTimeout(function () {
-    $A.initAsync(Aura["initConfig"]);
-  }, 0);
-}
 
+    setTimeout(function () {
+        $A.initAsync(Aura["initConfig"]);
+    }, 0);
+}
 
 // External libraries (like moment.js) will be appended here

@@ -15,9 +15,11 @@
  */
 package org.auraframework.service;
 
+import java.util.List;
 import java.util.Map;
 
 import org.auraframework.Aura;
+import org.auraframework.instance.Action;
 import org.auraframework.system.LoggingContext;
 import org.auraframework.system.LoggingContext.KeyValueLogger;
 import org.auraframework.util.json.Json;
@@ -39,6 +41,8 @@ public interface LoggingService extends AuraService {
     public static final String TIMER_DESERIALIZATION = "deSerialization";
     public static final String AURA_REQUEST_QUERY = "auraRequestQuery";
     public static final String AURA_REQUEST_URI = "auraRequestURI";
+    public static final String PAGE_URI = "pageURI";
+    public static final String APP = "app";
     public static final String MESSAGE = "message";
     public static final String REQUEST_METHOD = "requestMethod";
     public static final String STATUS = "httpStatus";
@@ -62,12 +66,12 @@ public interface LoggingService extends AuraService {
      * Close and clean up logging context
      */
     void release();
-    
+
     /**
      * Start timers for an action.
      */
-    void startAction(String actionName);
-    
+    void startAction(String actionName, Action action);
+
     /**
      * Stop all timers for an action
      */
@@ -152,17 +156,26 @@ public interface LoggingService extends AuraService {
      * flush the logged values.
      */
     void flush();
-    
+
     /**
      * get a key value pair logger that appends to the buffer
      */
     KeyValueLogger getKeyValueLogger(StringBuffer log);
-    
+
     /**
      * write a Content Security Policy report to the logs
      * @param report a deserialized JSON map
      */
     void logCSPReport(Map<String, Object> report);
+
+    /**
+     * Log deprecated Aura client API usages.
+     *
+     * Do not use this method outside of framework.
+     *
+     * @param usages - a map of deprecated API name and a list of its callers
+     */
+    void logDeprecationUsages(Map<String, List<String>> usages);
 
     /**
      * Logs an informational message, independent of context such as action or
@@ -171,7 +184,7 @@ public interface LoggingService extends AuraService {
      * the logs with) that arises during normal, successful operation.
      */
     void info(String message);
-    
+
     /**
      * Logs a warning message, independent of context such as action or
      * timers, for which context-sensitive methods can be provided via other
@@ -180,7 +193,16 @@ public interface LoggingService extends AuraService {
      * will be followed.
      */
     void warn(String message);
-    
+
+    /**
+     * Logs a warning message and its cause Throwable, independent of context
+     * such as action or timers, for which context-sensitive methods can be
+     * provided via other methods.  Use this method to report suspicious, but
+     * perhaps not wrong, situations, or minor problems for which a clear
+     * workaround is available and will be followed.
+     */
+    void warn(String message, Throwable cause);
+
     /**
      * Logs an error message, independent of context such as action or timers,
      * for which context-sensitive methods can be provided via other methods.
@@ -196,8 +218,8 @@ public interface LoggingService extends AuraService {
      * wrong.
      */
     void error(String message, Throwable cause);
-    
-	void serializeActions(Json json);
-    
+
+    void serializeActions(Json json);
+
     void serialize(Json json);
 }

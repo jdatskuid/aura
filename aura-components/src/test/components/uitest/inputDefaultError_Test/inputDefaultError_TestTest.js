@@ -121,7 +121,6 @@
      * Show inputDefault error then take it away, then put it back
      */
     testInputDefaultToggles : {
-        browsers: ["-IE7"],
         attributes: {"caseToRender" : "default"},
         test : [function(cmp){
             // Validate the components
@@ -200,9 +199,9 @@
             var created = false;
             $A.createComponent("uitest:inputErrorComponent", {}, function(errorCmp) {
                 $A.createComponent("ui:inputText", {
+                    "aura:id":"clientCreatedInvalid",
                     "errorComponent" : [ errorCmp ]
                 }, function(inputCmp){
-                    cmp.index("clientCreatedInvalid", inputCmp.getGlobalId());
                     var newBody = cmp.getSuper().get("v.body");
                     newBody.unshift(inputCmp);
                     cmp.set("v.body", newBody);
@@ -234,11 +233,11 @@
         attributes: {"caseToRender" : "clientCreated"},
         test : [function(cmp) {
             var created = false;
-            $A.createComponent("ui:inputDefaultError", { value : ["one","two"] }, function(errorCmp) {
+            $A.createComponent("ui:inputDefaultError", {"value" : ["one","two"] }, function(errorCmp) {
                 $A.createComponent("ui:inputText", {
+                    "aura:id":"clientCreatedInvalid",
                     "errorComponent" : [ errorCmp ]
                 }, function(inputCmp){
-                    cmp.index("clientCreatedInvalid", inputCmp.getGlobalId());
                     var newBody = cmp.getSuper().get("v.body");
                     newBody.unshift(inputCmp);
                     cmp.set("v.body", newBody);

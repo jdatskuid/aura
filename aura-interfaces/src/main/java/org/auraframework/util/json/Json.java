@@ -76,48 +76,78 @@ public interface Json {
         ABSTRACT("isAbstract","ab"),
         ACCESS("xs" /*"access"*/,"xs"),
         ACTION("action","x"),
+        ACTIONGROUP("actionGroup","ag"),
         ACTIONS("action","xx"),
         ACTIONDEFS("actionDefs","ac"),
         ACTIONTYPE("actionType","at"),
+        APIVERSION("apiVersion","av"),
         ATTRIBUTES("attributes","a"),
         ATTRIBUTEDEFS("attributeDefs","ad"),
+        BACKGROUND("background","b"),
+        CABOOSE("caboose","ca"),
+        CDN_HOST("cdnHost", "ch"),
+        CLASSNAME("className","cl"),
+        CODE("code","co"),
+        COMPONENTCLASS("componentClass","cc"),
         COMPONENTDEF("componentDef","c"),
         CONTROLLERDEF("controllerDef","cd"),
         CREATIONPATH("creationPath","cp"),
         CSSPRELOADED("isCSSPreloaded","css"),
         DEFAULT("default","d"),
+        DEFAULTFLAVOR("defaultFlavor","df"),
         DEFTYPE("defType","dt"),
-        DESCRIPTOR("descriptor","de"),
+//TODO: "descriptor" is hard coded in many place, this is a tough one to replace (TW)
+//        DESCRIPTOR("descriptor","de"),
+        DESCRIPTOR("descriptor","descriptor"),
+        DYNAMICALLYFLAVORABLE("dynamicallyFlavorable","dyf"),
         EVENTDEF("eventDef","ed"),
         EVENTS("events","e"),
         FACETS("facets","fa"),
+        FLAVOR("flavor", "fl"),
+        FLAVORABLE("flavorable", "fb"),
+        FLAVOREDSTYLEDEF("flavoredStyleDef", "fst"),
+        FLAVORABLECHILD("hasFlavorableChild", "fc"),
+        FLAVOROVERRIDES("flavorOverrides", "fo"),
         FUNCTIONS("functions","f"),
+        HANDLERDEFS("handlerDefs","hd"),
         HANDLERS("handlers","eh"),
         HASSERVERDEPENDENCIES("hasServerDeps","hs"),
         HELPERDEF("helperDef","h"),
         INCLUDES("includes","ic"),
+        INCLUDEFACETS("includeFacets","if"),
         INTERFACES("interfaces","i"),
+        LOAD("load","lo"),
         LOCALID("localId","lid"),
+        LOCATIONCHANGEEVENTDEF("locationChangeEventDef","lc"),
+        LOCATORDEFS("locaterDefs","ld"),
         MEMBERS("members","mm"),
+        MINVERSION("minVersion", "mv"),
         MODEL("model","m"),
         MODELDEF("modelDef","md"),
+        METHODDEFS("methodDefs","med"),
         METHODS("methods","me"),
         NAME("name","n"),
         ORIGINAL("original","o"),
         PARAMS("params","pa"),
+        PHASE("phase","ph"),
         PROVIDE("provide","p"),
         PROVIDERDEF("providerDef","pd"),
+        PUBLICCACHINGENABLED("publicCachingEnabled", "pce"),
+        PUBLICCACHINGEXPIRATION("publicCachingExpiration", "pcex"),
         REGISTEREVENTDEFS("registerEventDefs","re"),
         RENDERERDEF("rendererDef","rd"),
         REQUIRED("required","rq"),
         REQUIREDVERSIONDEFS("requiredVersionDefs","rv"),
+        REQUIRELOCKER("requireLocker", "rl"),
         RETURNTYPE("returnType","rt"),
-        SERIAL_ID("s"/*"serId"*/,"sid"),
-        SERIAL_REFID("r"/*"serRefId"*/,"rid"),
+        SERIAL_ID("s"/*"serId"*/,"s"),
+        SERIAL_REFID("r"/*"serRefId"*/,"r"),
         STYLEDEF("styleDef","st"),
         SUBDEFS("subDefs","sb"),
         SUPERDEF("superDef","su"),
+        TOKENS("tokens","tk"),
         TYPE("type","t"),
+        URIADDRESSABLEDEFINITIONS("uriAddressableDefs", "uad"),
         VALUE("v"/*"value"*/,"v"),
         VALUES("values","vv"),
         VALUEPROVIDER("valueProvider","vp");
@@ -135,13 +165,12 @@ public interface Json {
             return useShortName?this.shortName:this.name;
         }
 
-        private static Boolean useShortName=false;
+        private static Boolean useShortName=true;
         public static void useShortKey(Boolean useShortKey){
             useShortName=useShortKey;
         }
     }
 
-    void checkIndent(IndentType type, String message);
     void close() throws IOException;
 
     Appendable getAppendable();
@@ -158,10 +187,6 @@ public interface Json {
     void writeBinaryStreamEnd() throws IOException;
     void writeBreak() throws IOException;
     void writeComma() throws IOException;
-    void writeComment(String body) throws IOException;
-    void writeCommentBegin() throws IOException;
-    void writeCommentBody(String body) throws IOException;
-    void writeCommentEnd() throws IOException;
     void writeDate(Date value) throws IOException;
     void writeIndent() throws IOException;
     void writeLiteral(Object value) throws IOException;
@@ -174,4 +199,6 @@ public interface Json {
     void writeMapSeparator() throws IOException;
     void writeString(Object value) throws IOException;
     void writeValue(Object value) throws IOException;
+    void startCapturing();
+    String stopCapturing();
 }

@@ -34,13 +34,14 @@
             resizer._resizer = $A.getCallback(function() {
                 if (!resizer._resizing) {
                     resizer._resizing = true;
-
                     setTimeout(function() {
                         try {
-                            for (var n in resizer._resizerComponentSet) {
-                                var c = resizer._resizerComponentSet[n];
-                                if (c.isValid()) {
-                                    c.update();
+                            if (resizer._resizerComponentSet) {
+                                for (var n in resizer._resizerComponentSet) {
+                                    var c = resizer._resizerComponentSet[n];
+                                    if (c.isValid()) {
+                                        c.update();
+                                    }
                                 }
                             }
                         } catch (e) {
@@ -84,7 +85,7 @@
         var n;
         if (component.isValid() && resizer._resizer) {
             var id = component.getGlobalId();
-            if ($A.util.isUndefined(resizer._resizerComponentSet[id])) {
+            if (!resizer._resizerComponentSet || $A.util.isUndefined(resizer._resizerComponentSet[id])) {
                 return;
             }
 
@@ -101,12 +102,15 @@
                 }
             }
 
-            delete resizer._pendingUpdates[id];
+            // clean pending updates for given component.
+            if (resizer._pendingUpdates) {                
+                delete resizer._pendingUpdates[id];
 
-            // Check to see if all components have called in and we're ready to
-            // actually perform the resizer() call
-            for (n in resizer._pendingUpdates) {
-                return;
+                // Check to see if all components have called in and we're ready to
+                // actually perform the resizer() call
+                if (Object.keys(resizer._pendingUpdates).length > 0) {
+                    return;
+                }
             }
 
             resizer._resizing = false;

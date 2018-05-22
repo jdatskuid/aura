@@ -23,12 +23,11 @@ import org.auraframework.def.RootDefinition;
 import org.auraframework.def.TypeDef;
 import org.auraframework.impl.system.DefinitionImpl;
 import org.auraframework.system.Location;
-import org.auraframework.throwable.AuraRuntimeException;
-import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import java.io.IOException;
 import java.util.Set;
@@ -73,14 +72,20 @@ public final class AttributeDefImpl extends DefinitionImpl<AttributeDef> impleme
     }
 
     /**
-     * @return The ValueDef that defines type information about Values for instances of this AttributeDef
+     * @return The TypeDef that defines type information about Values for instances of this AttributeDef
      * @throws QuickFixException
+     * @deprecated use #getTypeDesc()
      */
     @Override
+    @Deprecated
     public TypeDef getTypeDef() throws QuickFixException {
+        if (typeDefDescriptor == null) {
+            return null;
+        }
         return typeDefDescriptor.getDef();
     }
 
+    @Override
     public DefDescriptor<TypeDef> getTypeDesc() {
         return typeDefDescriptor;
     }
@@ -112,20 +117,41 @@ public final class AttributeDefImpl extends DefinitionImpl<AttributeDef> impleme
 
     @Override
     public void serialize(Json json) throws IOException {
-        json.writeMapBegin();
-        json.writeMapEntry("name", descriptor);
-        json.writeMapEntry("type", typeDefDescriptor);
-        json.writeValue(getAccess());
+        json.writeLiteral("[");
+        // 0: name
+        json.writeValue(descriptor);
+        json.writeLiteral(",");
 
+        // 1: type
+        json.writeValue(typeDefDescriptor);
+        json.writeLiteral(",");
+
+        // 2: access
+        json.writeValue(getAccess().getAccessCode());
+        json.writeLiteral(",");
+
+        // 3: required
+        json.writeValue(required);
+
+        // 4: default
         if (defaultValue != null) {
-            json.writeMapEntry("default", defaultValue.getValue());
+            json.writeLiteral(",");
+            json.writeValue(defaultValue.getValue());
         }
-
-        if (required) {
-            json.writeMapEntry("required", true);
+        else if (typeDefDescriptor != null) {
+            if (typeDefDescriptor.getQualifiedName().equals("aura://List") || typeDefDescriptor.getName().endsWith("[]")) {
+                json.writeLiteral(",[]");
+            }
+            else if (!typeDefDescriptor.getQualifiedName().equals("aura://Boolean") &&
+                    !typeDefDescriptor.getQualifiedName().equals("aura://String") &&
+                    !typeDefDescriptor.getQualifiedName().equals("aura://Decimal") &&
+                    !typeDefDescriptor.getQualifiedName().equals("aura://Number") &&
+                    !typeDefDescriptor.getQualifiedName().equals("aura://Integer")) {
+                json.writeLiteral(",");
+                json.writeValue(null);
+            }
         }
-
-        json.writeMapEnd();
+        json.writeLiteral("]");
     }
 
     @Override
@@ -158,21 +184,16 @@ public final class AttributeDefImpl extends DefinitionImpl<AttributeDef> impleme
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
-        super.validateReferences();
-        try {
-            TypeDef typeDef = typeDefDescriptor.getDef();
-            if (defaultValue != null) {
-                defaultValue.parseValue(typeDef);
-                defaultValue.validateReferences();
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        super.validateReferences(validationContext);
+        TypeDef typeDef = validationContext.getAccessibleDefinition(typeDefDescriptor);
+        if (defaultValue != null) {
+            // FIXME(goliver): It is possible that we should repackage exceptions from
+            // parseValue, but let's not try to be clever right now. This code goes via
+            // a rather circuitious path that we should probably clean up.
+            defaultValue.parseValue(typeDef);
 
-            }
-        } catch (AuraRuntimeException e) {
-            if (e.getCause() instanceof ClassNotFoundException) {
-                throw new DefinitionNotFoundException(typeDefDescriptor, getLocation());
-            } else {
-                throw e; // Don't try to be clever about unknown bad things!
-            }
+            defaultValue.validateReferences(validationContext);
         }
     }
 

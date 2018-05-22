@@ -21,22 +21,10 @@ import static org.mockito.Matchers.anyBoolean;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
-import static org.mockito.Mockito.times;
-
-import org.auraframework.adapter.ExceptionAdapter;
-import org.auraframework.adapter.ServletUtilAdapter;
-import org.auraframework.def.DefDescriptor;
-import org.auraframework.http.resource.AuraResourceImpl.AuraResourceException;
-import org.auraframework.service.ServerService;
-import org.auraframework.system.AuraContext;
-import org.auraframework.system.AuraContext.Format;
-import org.auraframework.util.test.util.UnitTestCase;
-import org.junit.Test;
-import org.mockito.Mockito;
-import org.springframework.mock.web.MockHttpServletResponse;
+import static org.mockito.Mockito.when;
 
 import java.io.Writer;
 import java.util.HashSet;
@@ -45,19 +33,32 @@ import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
+import org.auraframework.adapter.ExceptionAdapter;
+import org.auraframework.adapter.ServletUtilAdapter;
+import org.auraframework.def.DefDescriptor;
+import org.auraframework.http.resource.AuraResourceImpl.AuraResourceException;
+import org.auraframework.service.ServerService;
+import org.auraframework.system.AuraContext;
+import org.auraframework.system.AuraContext.Format;
+import org.junit.Assert;
+import org.junit.Test;
+import org.mockito.Matchers;
+import org.mockito.Mockito;
+import org.springframework.mock.web.MockHttpServletResponse;
+
 /**
  * Simple (non-integration) test case for {@link AppCss}, most useful for exercising hard-to-reach error
  * conditions. I would like this test to be in the "aura" module (vice "aura-impl"), but the configuration there isn't
  * friendly to getting a context service, and I think changing that may impact other tests, so I'm leaving it at least
  * for now.
  */
-public class AppCssTest extends UnitTestCase {
+public class AppCssTest {
     /**
      * Name is API!.
      */
     @Test
     public void testName() {
-        assertEquals("app.css", new AppCss().getName());
+        Assert.assertEquals("app.css", new AppCss().getName());
     }
 
     /**
@@ -65,7 +66,7 @@ public class AppCssTest extends UnitTestCase {
      */
     @Test
     public void testFormat() {
-        assertEquals(Format.CSS, new AppCss().getFormat());
+        Assert.assertEquals(Format.CSS, new AppCss().getFormat());
     }
 
     /**
@@ -128,8 +129,8 @@ public class AppCssTest extends UnitTestCase {
         AppCss appCss = new AppCss();
         appCss.setServletUtilAdapter(servletUtilAdapter);
         appCss.setServerService(serverService);
-        Mockito.when(servletUtilAdapter.verifyTopLevel(Mockito.any(HttpServletRequest.class),
-                    Mockito.any(HttpServletResponse.class), Mockito.any(AuraContext.class)))
+        Mockito.when(servletUtilAdapter.verifyTopLevel(Matchers.any(HttpServletRequest.class),
+                    Matchers.any(HttpServletResponse.class), Matchers.any(AuraContext.class)))
             .thenReturn(null);
 
         appCss.write(null, null, null);
@@ -137,8 +138,8 @@ public class AppCssTest extends UnitTestCase {
         //
         // This is the known call to get the null.
         // 
-        Mockito.verify(servletUtilAdapter, Mockito.times(1)).verifyTopLevel(Mockito.any(HttpServletRequest.class),
-                    Mockito.any(HttpServletResponse.class), Mockito.any(AuraContext.class));
+        Mockito.verify(servletUtilAdapter, Mockito.times(1)).verifyTopLevel(Matchers.any(HttpServletRequest.class),
+                    Matchers.any(HttpServletResponse.class), Matchers.any(AuraContext.class));
 
         //
         // Nothing else should happen.
@@ -164,6 +165,6 @@ public class AppCssTest extends UnitTestCase {
         appCss.setContentType(response);
 
         // Assert
-        assertEquals("text/css", response.getContentType());
+        Assert.assertEquals("text/css", response.getContentType());
     }
 }

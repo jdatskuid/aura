@@ -18,72 +18,66 @@ Function.RegisterNamespace("Test.Aura");
 [Fixture]
 Test.Aura.AuraLocalizationServiceTest = function() {
     var Aura = {
-        Services: {
+        Services: {},
+        Utils: {
+            SecureFilters: {},
+            Util: {}
         }
     };
 
     // Mock the exp() function defined in Aura.js, this is originally used for exposing members using a export.js file
     Mocks.GetMocks(Object.Global(), {
         "Aura": Aura,
-        "AuraLocalizationService":function(){}
+        "AuraLocalizationService":function(){},
+        "navigator": {
+            "userAgent": ""
+        },
+        "window": {}
     })(function() {
         [Import("aura-impl/src/main/resources/aura/AuraLocalizationService.js")]
+        [Import("aura-impl/src/main/resources/aura/util/Duration.js"),
+         Import("aura-impl/src/main/resources/aura/util/Util.js")]
     });
 
     var targetService = new Aura.Services.AuraLocalizationService();
 
-    var targetDate = "07/10/2013";
-    var targetDateFormat = "DD-MM-YYYY";
     var targetDateTime = "07/10/2013 12:00:00";
-    var targetDateTimeFormat = "DD-MM-YYYY hh:mm:ss";
     var targetTime = "12:00:00";
-    var targetTimeFormat = "hh:mm:ss";
-    var targetLocale = "en";
-    var targetTimezone = "PST";
-    var targetNumber = 101;
-    var targetPercent = '10%';
-    var targetCurrency = '$100';
     var targetNumberFormat = "nFormat";
     var targetPercentFormat = "pFormat";
     var targetCurrencyFormat = "cFormat";
 
-    var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
-        assert: function () {},
-        get:function(value){
-            if(value == "$Locale.dateFormat") return targetDateFormat;
-            if(value == "$Locale.datetimeFormat") return targetDateTimeFormat;
-            if(value == "$Locale.timeFormat") return targetTimeFormat;
-            if(value == "$Locale.timezone") return targetTimezone;
-            if(value == "$Locale.numberFormat") return targetNumberFormat;
-            if(value == "$Locale.percentFormat") return targetPercentFormat;
-            if(value == "$Locale.currencyFormat") return targetCurrencyFormat;
+    var mockUtil = Mocks.GetMocks(Object.Global(), {
+        "$A": {
+            assert: function () {},
+            deprecated: function() {},
+            auraError: function() {},
+            get:function(value){
+                if(value === "$Locale.dateFormat") return "YYYY-MM-DD";
+                if(value === "$Locale.datetimeFormat") return "YYYY-MM-DD hh:mm:ss";
+                if(value === "$Locale.timeFormat") return "hh:mm:ss";
+                if(value === "$Locale.timezone") return "PST";
+                if(value === "$Locale.numberFormat") return targetNumberFormat;
+                if(value === "$Locale.percentFormat") return targetPercentFormat;
+                if(value === "$Locale.currencyFormat") return targetCurrencyFormat;
+                if(value === "$Locale.firstDayOfWeek") return 1;
+            },
+            localizationService: {
+                normalizeDateTimeUnit: function(unit) {
+                    return unit;
+                }
+            },
+            logger: {
+                reportError: function(){}
+            },
+            util: {
+                isString: Aura.Utils.Util.prototype.isString,
+                isNumber: Aura.Utils.Util.prototype.isNumber
+            },
+            warning: function(){}
         },
-        clientService: {
-            loadClientLibrary: function (name, callback) {
-                callback();
-            }
-        },
-        lockerService: {
-            instanceOf: function(value, type) {
-                return value instanceof type;
-            }
-        }
+        "Aura": Aura
     });
-
-    var mockInvalidDate = {
-        isValid:function(){
-            return false;
-        }
-    };
-
-    var mockDate = {
-        isValid:function(){
-            return true;
-        },
-        toString:function(){
-            return targetDate;
-        }
-    };
 
     var mockDateTime = {
         isValid:function(){
@@ -94,134 +88,98 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         },
         toDate:function(){
             return targetDateTime;
-        }
+        },
+        getTime: function() {}
     };
 
-    var mockTime = {
-        isValid:function(){
-            return true;
-        },
-        toString:function(){
-            return targetTime;
-        }
-    };
-
-    var mockMomentConstructor = Mocks.GetMock(Object.Global(), "moment", function(value, format, locale){
-        if(value == mockDate) return mockDate;
-        if(value == mockDateTime) return mockDateTime;
-        if(value == mockTime) return mockTime;
-        return mockInvalidDate;
-    });
-
-    var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
-        utc:function(value){
-            if(value == mockDate) return mockDate;
-            if(value == mockDateTime) return mockDateTime;
-            if(value == mockTime) return mockTime;
-            return mockInvalidDate;
-        },
-        localeData:function(value){
-            if(value == targetLocale || value == "zh-cn") return true;
-            return false;
-        }
-    });
-
-    var mockDisplayDateTime = Mocks.GetMock(targetService, "displayDateTime", function(mDate, format, locale){
-        return mDate.toString() + format + locale;
-    });
-
-    var mockGetNormalizedFormat = Mocks.GetMock(targetService, "getNormalizedFormat", function(format){
-        return format;
-    });
-
-    var mockGetAvailableMomentLocale = Mocks.GetMock(targetService, "getAvailableMomentLocale", function(locale){
-        return locale;
-    });
-
-    var mockLazyInitTimeZoneInfo = Mocks.GetMock(targetService, "lazyInitTimeZoneInfo", function(timezone, callback){
-        callback(mockDateTime, timezone);
-    });
-
-    var mockWallTime = Mocks.GetMock(Object.Global(), "WallTime",{
-        zones: {
-            PST:true,
-            EST:false
-        }
-    });
-
+    /**
+     * These tests are only verify that the APIs call expected function and argument.
+     * For tests related to calculation, please see DurationTest.js
+     */
     [Fixture]
-    function displayDuration(){
-
-        var targetNoSuffix = "noSuffix";
-        var targetDuration={
-            humanize:function(noSuffix){
-                if(noSuffix == targetNoSuffix)return true;
-            },
-            asDays:function(){
-                return "365";
-            },
-            asHours:function(){
-                return "24";
-            },
-            asMilliseconds:function(){
-                return "3600000";
-            },
-            asMinutes:function(){
-                return "60";
-            },
-            asMonths:function(){
-                return "12";
-            },
-            asSeconds:function(){
-                return "3600";
-            },
-            asYears:function(){
-                return "2013";
-            },
-            days:function(){
-                return "365";
-            },
-            hours:function(){
-                return "24";
-            },
-            milliseconds:function(){
-                return "3600000";
-            },
-            minutes:function(){
-                return "60";
-            },
-            months:function(){
-                return "12";
-            },
-            seconds:function(){
-                return "3600";
-            },
-            years:function(){
-                return "2013";
+    function displayDuration() {
+        var mockMoment = {
+            isDuration: function() {
+                return false;
             }
         };
 
         [Fact]
-        function displayDuration(){
+        function displayDuration() {
             // Arrange
-            var expected = true;
-            var actual;
+            var targetService = new Aura.Services.AuraLocalizationService();
+
+            var mockHumanize = Stubs.GetMethod();
+            var mockMomentDuration = {
+                humanize: mockHumanize
+            };
+            var mockMoment = {
+                duration: function() {
+                    return mockMomentDuration;
+                },
+                isDuration: function() {
+                    return false;
+                }
+            };
+            targetService.moment = mockMoment;
 
             // Act
-            actual = targetService.displayDuration(targetDuration, targetNoSuffix);
+            mockUtil(function() {
+                var duration = new Aura.Utils.Duration(2, "hour", mockMoment);
+                targetService.displayDuration(duration);
+            });
 
             // Assert
-            Assert.Equal(expected, actual);
+            Assert.Equal(1, mockHumanize.Calls.length);
         }
 
         [Fact]
-        function displayDurationInDays(){
+        function displayDurationWithSuffix() {
             // Arrange
-            var expected = "365";
+            var targetService = new Aura.Services.AuraLocalizationService();
+
             var actual;
+            var mockMomentDuration = {
+                // moment duration uses with suffix as param
+                humanize: function(withSuffix) {
+                    actual = withSuffix
+                }
+            };
+            var mockMoment = {
+                duration: function() {
+                    return mockMomentDuration;
+                },
+                isDuration: function() {
+                    return false;
+                }
+            };
+            targetService.moment = mockMoment;
+
 
             // Act
-            actual = targetService.displayDurationInDays(targetDuration);
+            mockUtil(function() {
+                var duration = new Aura.Utils.Duration(2, "hour", mockMoment);
+                targetService.displayDuration(duration, true);
+            });
+
+            // Assert
+            Assert.True(actual);
+        }
+
+        [Fact]
+        function displayDurationInDays() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockAsUnit = Stubs.GetMethod("day", expected);
+            var mockDuration = {
+                asUnit: mockAsUnit
+            };
+
+            // Act
+            var actual = targetService.displayDurationInDays(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
@@ -230,11 +188,17 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         [Fact]
         function displayDurationInHours(){
             // Arrange
-            var expected = "24";
-            var actual;
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockAsUnit = Stubs.GetMethod("hour", expected);
+            var mockDuration = {
+                asUnit: mockAsUnit
+            };
 
             // Act
-            actual = targetService.displayDurationInHours(targetDuration);
+            var actual = targetService.displayDurationInHours(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
@@ -242,116 +206,175 @@ Test.Aura.AuraLocalizationServiceTest = function() {
 
         [Fact]
         function displayDurationInMilliseconds(){
-            // Arrange
-            var expected = "3600000";
-            var actual;
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockAsUnit = Stubs.GetMethod("millisecond", expected);
+            var mockDuration = {
+                asUnit: mockAsUnit
+            };
 
             // Act
-            actual = targetService.displayDurationInMilliseconds(targetDuration);
+            var actual = targetService.displayDurationInMilliseconds(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
         [Fact]
-        function displayDurationInMinutes(){
-            // Arrange
-            var expected = "60";
-            var actual;
+        function displayDurationInMinutes() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockAsUnit = Stubs.GetMethod("minute", expected);
+            var mockDuration = {
+                asUnit: mockAsUnit
+            };
 
             // Act
-            actual = targetService.displayDurationInMinutes(targetDuration);
+            var actual = targetService.displayDurationInMinutes(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
         [Fact]
-        function displayDurationInMonths(){
-            // Arrange
-            var expected = "12";
-            var actual;
+        function displayDurationInMonths() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockAsUnit = Stubs.GetMethod("month", expected);
+            var mockDuration = {
+                asUnit: mockAsUnit
+            };
 
             // Act
-            actual = targetService.displayDurationInMonths(targetDuration);
+            var actual = targetService.displayDurationInMonths(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
         [Fact]
-        function displayDurationInSeconds(){
-            // Arrange
-            var expected = "3600";
-            var actual;
+        function displayDurationInSeconds() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockAsUnit = Stubs.GetMethod("second", expected);
+            var mockDuration = {
+                asUnit: mockAsUnit
+            };
 
             // Act
-            actual = targetService.displayDurationInSeconds(targetDuration);
+            var actual = targetService.displayDurationInSeconds(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
         [Fact]
-        function displayDurationInYears(){
-            // Arrange
-            var expected = "2013";
-            var actual;
+        function displayDurationInYears() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockAsUnit = Stubs.GetMethod("year", expected);
+            var mockDuration = {
+                asUnit: mockAsUnit
+            };
 
             // Act
-            actual = targetService.displayDurationInYears(targetDuration);
+            var actual = targetService.displayDurationInYears(mockDuration);
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    /**
+     * These tests are only verify that the APIs call expected function and argument.
+     * For tests related to calculation, please see DurationTest.js
+     */
+    [Fixture]
+    function getDuration() {
+
+        var mockMoment = {
+            isDuration: function() {
+                return false;
+            }
+        };
+
+        [Fact]
+        function getDaysInDuration() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockGetUnit = Stubs.GetMethod("year", expected);
+            var mockDuration = {
+                getUnit: mockGetUnit
+            };
+
+            // Act
+            var actual = targetService.getDaysInDuration(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
         [Fact]
-        function getDaysInDuration(){
-            // Arrange
-            var expected = "365";
-            var actual;
+        function getHoursInDuration() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockGetUnit = Stubs.GetMethod("hour", expected);
+            var mockDuration = {
+                getUnit: mockGetUnit
+            };
 
             // Act
-            actual = targetService.getDaysInDuration(targetDuration);
+            var actual = targetService.getHoursInDuration(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
         [Fact]
-        function getHoursInDuration(){
-            // Arrange
-            var expected = "24";
-            var actual;
+        function getMillisecondsInDuration() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockGetUnit = Stubs.GetMethod("millisecond", expected);
+            var mockDuration = {
+                getUnit: mockGetUnit
+            };
 
             // Act
-            actual = targetService.getHoursInDuration(targetDuration);
+            var actual = targetService.getMillisecondsInDuration(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
         [Fact]
-        function getMillisecondsInDuration(){
-            // Arrange
-            var expected = "3600000";
-            var actual;
+        function getMinutesInDuration() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockGetUnit = Stubs.GetMethod("minute", expected);
+            var mockDuration = {
+                getUnit: mockGetUnit
+            };
 
             // Act
-            actual = targetService.getMillisecondsInDuration(targetDuration);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function getMinutesInDuration(){
-            // Arrange
-            var expected = "60";
-            var actual;
-
-            // Act
-            actual = targetService.getMinutesInDuration(targetDuration);
+            var actual = targetService.getMinutesInDuration(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
@@ -359,85 +382,53 @@ Test.Aura.AuraLocalizationServiceTest = function() {
 
         [Fact]
         function getMonthsInDuration(){
-            // Arrange
-            var expected = "12";
-            var actual;
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockGetUnit = Stubs.GetMethod("month", expected);
+            var mockDuration = {
+                getUnit: mockGetUnit
+            };
 
             // Act
-            actual = targetService.getMonthsInDuration(targetDuration);
+            var actual = targetService.getMonthsInDuration(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
         [Fact]
-        function getSecondsInDuration(){
-            // Arrange
-            var expected = "3600";
-            var actual;
+        function getSecondsInDuration() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockGetUnit = Stubs.GetMethod("second", expected);
+            var mockDuration = {
+                getUnit: mockGetUnit
+            };
 
             // Act
-            actual = targetService.getSecondsInDuration(targetDuration);
+            var actual = targetService.getSecondsInDuration(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
         [Fact]
-        function getYearsInDuration(){
-            // Arrange
-            var expected = "2013";
-            var actual;
+        function getYearsInDuration() {
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.moment = mockMoment;
+
+            var expected = "expected";
+            var mockGetUnit = Stubs.GetMethod("year", expected);
+            var mockDuration = {
+                getUnit: mockGetUnit
+            };
 
             // Act
-            actual = targetService.getYearsInDuration(targetDuration);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-    }
-
-    [Fixture]
-    function duration(){
-
-        var targetNum = "Num";
-        var targetUnit = "Unit";
-        var mockMoment = Mocks.GetMock(Object.Global(), 'moment',{
-            duration:function(num, unit){
-                if(unit){
-                    if(num == targetNum && unit == targetUnit)return "With Unit";
-                }
-                else{
-                    if(num == targetNum)return "Without Unit";
-                }
-            }
-        });
-
-        [Fact]
-        function durationWithoutUnit(){
-            // Arrange
-            var expected = "Without Unit";
-            var actual;
-
-            // Act
-            mockMoment(function(){
-                actual = targetService.duration(targetNum, undefined);
-            });
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function durationWithUnit(){
-            // Arrange
-            var expected = "With Unit";
-            var actual;
-
-            // Act
-            mockMoment(function(){
-                actual = targetService.duration(targetNum, targetUnit);
-            });
+            var actual = targetService.getYearsInDuration(mockDuration);
 
             // Assert
             Assert.Equal(expected, actual);
@@ -445,45 +436,23 @@ Test.Aura.AuraLocalizationServiceTest = function() {
     }
 
     [Fixture]
-    function DateLimits(){
-
-        var targetDate = "date";
-        var targetUnit = "Unit";
-
-        var mockMomentConstr = Mocks.GetMock(Object.Global(), "moment", function(date){
-            if(date == targetDate)return mockDuration;
-        });
-
-        var mockDuration={
-            endOf:function(unit){
-                if(unit == targetUnit) {
-                    return {
-                        toDate:function(){
-                            return "endOf";
-                        }
-                    };
-                }
-            },
-            startOf:function(unit){
-                if(unit == targetUnit) {
-                    return {
-                        toDate:function(){
-                            return "startOf";
-                        }
-                    };
-                }
-            }
-        };
+    function duration() {
 
         [Fact]
-        function endOf(){
+        function RespectsNumParam() {
             // Arrange
-            var expected = "endOf";
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var expected = "expectedNum";
             var actual;
+            targetService.moment = {
+                duration: function(num, unit) {
+                    actual = num;
+                }
+            };
 
             // Act
-            mockMomentConstr(function(){
-                actual = targetService.endOf(targetDate, targetUnit);
+            mockUtil(function() {
+                targetService.duration(expected);
             });
 
             // Assert
@@ -491,14 +460,20 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         }
 
         [Fact]
-        function startOf(){
+        function RespectsUnitParam() {
             // Arrange
-            var expected = "startOf";
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var expected = "expectedUnit";
             var actual;
+            targetService.moment = {
+                duration: function(num, unit) {
+                    actual = unit;
+                }
+            };
 
             // Act
-            mockMomentConstr(function(){
-                actual = targetService.startOf(targetDate, targetUnit);
+            mockUtil(function() {
+                targetService.duration(30, expected);
             });
 
             // Assert
@@ -507,7 +482,373 @@ Test.Aura.AuraLocalizationServiceTest = function() {
     }
 
     [Fixture]
-    function formatDate(){
+    function endOf() {
+
+        [Fact]
+        function ReturnsParsedlDateIfUnitIsFalsy() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var expected = new Date();
+            var date = "date";
+            var actual;
+
+            targetService.normalizeDateTimeInput = Stubs.GetMethod(date, expected);
+
+            // Act
+            mockUtil(function() {
+                actual = targetService.endOf(date, undefined);
+            });
+
+            // Assert
+            Assert.True(expected === actual);
+        }
+
+        [Fact]
+        function ReturnsInvalidlDateForInvalidDateType() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var expected = "Invalid Date";
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                actual = targetService.endOf([new Date()], "month");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toString());
+        }
+
+        [Fact]
+        function DoesNotMutateOriginalDate() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var date = new Date(2013, 2, 3, 6);
+            var expected = date.getTime();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                actual = targetService.endOf(date, "day");
+            });
+
+            // Assert
+            Assert.Equal(expected, date.getTime());
+        }
+
+        [Fact]
+        function EndOfYear() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2008-12-31
+            var expected = new Date(2008, 11, 31, 23, 59, 59, 999).toISOString();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2008-04-03
+                actual = targetService.endOf(new Date(2008, 3, 3), "year");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function EndOfMonth() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2008-02-29
+            var expected = new Date(2008, 1, 29, 23, 59, 59, 999).toISOString();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2008-02-03
+                actual = targetService.endOf(new Date(2008, 1, 3), "month");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function EndOfDayWithTimestampInput() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-04-01 23:59:59
+            var expected = new Date(2013, 3, 1, 23, 59, 59, 999).toISOString();
+            // 2013-04-1 03:20:30
+            var timestamp = new Date(2013, 3, 1, 3, 20, 30).getTime();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                actual = targetService.endOf(timestamp, "day");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function EndOfHour() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-04-01 03:59
+            var expected = new Date(2013, 3, 1, 3, 59, 59, 999).toISOString();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2013-04-03 03:20
+                actual = targetService.endOf(new Date(2013, 3, 1, 3, 20), "hour");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function EndOfMinute() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-04-01 03:20:59
+            var expected = new Date(2013, 3, 1, 3, 20, 59, 999).toISOString();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2013-04-03 03:20:30
+                actual = targetService.endOf(new Date(2013, 3, 1, 3, 20, 30), "minute");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function EndOfSecondWithTimestampInput() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-04-03 00:00:00:999
+            var expected = new Date(2013, 3, 3, 3, 20, 30, 999).toISOString();
+            // 2013-04-03 03:20:30:123
+            var timestamp = new Date(2013, 3, 3, 3, 20, 30, 123).getTime();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                actual = targetService.endOf(timestamp, "second");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+    }
+
+    [Fixture]
+    function startOf() {
+
+        [Fact]
+        function ReturnsParsedDateIfUnitIsFalsy() {
+             // Arrange
+             var targetService = new Aura.Services.AuraLocalizationService();
+             var expected = new Date();
+             var date = "date";
+             var actual;
+
+             targetService.normalizeDateTimeInput = Stubs.GetMethod(date, expected);
+
+             // Act
+             mockUtil(function() {
+                 actual = targetService.startOf(date, undefined);
+             });
+
+             // Assert
+             Assert.True(expected === actual);
+        }
+
+        [Fact]
+        function ReturnsInvalidDateForInvalidDateType() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var expected = "Invalid Date";
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                actual = targetService.endOf([new Date()], "month");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toString());
+        }
+
+        [Fact]
+        function DoesNotMutateOriginalDate() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var date = new Date(2013, 2, 3, 6);
+            var expected = date.getTime();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                actual = targetService.startOf(date, "day");
+            });
+
+            // Assert
+            Assert.Equal(expected, date.getTime());
+        }
+
+        [Fact]
+        function StartOfYear() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-01-01
+            var expected = new Date(2013, 0, 1).toISOString();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2013-04-03
+                actual = targetService.startOf(new Date(2013, 3, 3), "year");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function StartOfMonth() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-04-01
+            var expected = new Date(2013, 3, 1).toISOString();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2013-04-03
+                actual = targetService.startOf(new Date(2013, 3, 3), "month");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function StartOfDayWithTimestampInput() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-04-03 00:00:00
+            var expected = new Date(2013, 3, 3, 0, 0, 0).toISOString();
+            var timestamp = new Date(2013, 3, 3, 3, 20, 30).getTime();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2013-04-03 03:20:30
+                actual = targetService.startOf(timestamp, "day");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function StartOfHour() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-04-01
+            var expected = new Date(2013, 3, 1, 3, 0, 0).toISOString();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2013-04-03
+                actual = targetService.startOf(new Date(2013, 3, 1, 3, 20, 30), "hour");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function StartOfMinute() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-04-01 03:20:00
+            var expected = new Date(2013, 3, 1, 3, 20, 0).toISOString();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2013-04-03 03:20:30
+                actual = targetService.startOf(new Date(2013, 3, 1, 3, 20, 30), "minute");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function StartOfSecondWithTimestampInput() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            // 2013-04-03 00:00:00:000
+            var expected = new Date(2013, 3, 3, 3, 20, 30, 0).toISOString();
+            // 2013-04-03 03:20:30:123
+            var timestamp = new Date(2013, 3, 3, 3, 20, 30, 123).getTime();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                actual = targetService.startOf(timestamp, "second");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+
+        [Fact]
+        function StartOfWeekIfFirstDayIsMonday() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+
+            // 2018-03-01
+            var expected = new Date(2018, 1, 26).toISOString();
+            var actual;
+
+            // Act
+            mockUtil(function() {
+                // 2018-02-26
+                actual = targetService.startOf(new Date(2018, 2, 1), "week");
+            });
+
+            // Assert
+            Assert.Equal(expected, actual.toISOString());
+        }
+    }
+
+    [Fixture]
+    function formatDate() {
 
         [Fact]
         function CallsDisplayDateTimeWithMomentDateForValidDate(){
@@ -524,22 +865,24 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
 
-             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
+            targetService.moment.isMoment = function() {
+                return false;
+            };
+
+            var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value) {}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDate("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatDate("date", "format");
             });
 
             // Assert
@@ -561,25 +904,26 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
+            targetService.moment.isMoment = function(){
+                return false;
+            };
 
             var expected = "format";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.dateFormat") return expected;
+                    if(value === "$Locale.dateFormat") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDate("date");
-                });
+            mockUtil(function(){
+                targetService.formatDate("date");
             });
 
 
@@ -602,27 +946,27 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
+            targetService.moment.isMoment = function(){
+                return false;
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDate("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatDate("date", "format");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -647,24 +991,25 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
+            targetService.moment.isMoment = function(){
+                return false;
+            };
 
              var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value) {}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDateUTC("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatDateUTC("date", "format");
             });
 
             // Assert
@@ -686,29 +1031,29 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "format";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.dateFormat") return expected;
+                    if(value === "$Locale.dateFormat") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDateUTC("date");
-                });
+            mockUtil(function(){
+                targetService.formatDateUTC("date");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -729,29 +1074,29 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDateUTC("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatDateUTC("date", "format");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -776,22 +1121,23 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
              var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value) {}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDateTime("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatDateTime("date", "format");
             });
 
             // Assert
@@ -813,27 +1159,27 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "format";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.datetimeFormat") return expected;
+                    if(value === "$Locale.datetimeFormat") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDateTime("date");
-                });
+            mockUtil(function(){
+                targetService.formatDateTime("date");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -854,27 +1200,27 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDateTime("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatDateTime("date", "format");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -899,24 +1245,25 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
              var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value) {}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDateTimeUTC("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatDateTimeUTC("date", "format");
             });
 
             // Assert
@@ -938,29 +1285,29 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "format";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.datetimeFormat") return expected;
+                    if(value === "$Locale.datetimeFormat") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDateTimeUTC("date");
-                });
+            mockUtil(function(){
+                targetService.formatDateTimeUTC("date");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -981,29 +1328,29 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatDateTimeUTC("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatDateTimeUTC("date", "format");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -1011,7 +1358,7 @@ Test.Aura.AuraLocalizationServiceTest = function() {
     }
 
     [Fixture]
-    function formatTime(){
+    function formatTime() {
 
         [Fact]
         function CallsDisplayDateTimeWithMomentDateForValidDate(){
@@ -1028,22 +1375,23 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
              var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value) {}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatTime("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatTime("date", "format");
             });
 
             // Assert
@@ -1065,27 +1413,27 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "format";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.timeFormat") return expected;
+                    if(value === "$Locale.timeFormat") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatTime("date");
-                });
+            mockUtil(function(){
+                targetService.formatTime("date");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -1106,27 +1454,27 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatTime("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatTime("date", "format");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -1150,24 +1498,25 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
              var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value) {}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatTimeUTC("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatTimeUTC("date", "format");
             });
 
             // Assert
@@ -1189,29 +1538,29 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "format";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.timeFormat") return expected;
+                    if(value === "$Locale.timeFormat") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatTimeUTC("date");
-                });
+            mockUtil(function(){
+                targetService.formatTimeUTC("date");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -1232,29 +1581,29 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
+            targetService.moment.isMoment = function() {
+                return false;
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isUndefined: function(value) { return value === undefined; }
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.formatTimeUTC("date", "format");
-                });
+            mockUtil(function(){
+                targetService.formatTimeUTC("date", "format");
             });
-
 
             // Assert
             Assert.Equal(expected, actual);
@@ -1262,73 +1611,343 @@ Test.Aura.AuraLocalizationServiceTest = function() {
     }
 
     [Fixture]
-    function DateComparisons(){
-
-        var targetDate1 = "date1";
-        var targetDate2 = "date2";
-        var targetUnit = "unit";
-
-        var mockDuration={
-            isAfter:function(date2, unit){
-                if(date2 == targetDate2 && unit == targetUnit) return "isAfter";
-            },
-            isBefore:function(date2, unit){
-                if(date2 == targetDate2 && unit == targetUnit) return "isBefore";
-            },
-            isSame:function(date2, unit){
-                if(date2 == targetDate2 && unit == targetUnit) return "isSame";
-            }
-        };
-
-        var mockMomentConstr = Mocks.GetMock(Object.Global(), "moment", function(date){
-            if(date == targetDate1)return mockDuration;
-        });
+    function isAfter() {
 
         [Fact]
-        function isAfter(){
+        function UnitDefaultsToMillisecond() {
             // Arrange
-            var expected = "isAfter";
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date1 = new Date(2016, 3, 3, 12, 26, 30, 999);
+            var date2 = new Date(2016, 3, 3, 12, 26, 30, 1);
             var actual;
 
             //Act
-            mockMomentConstr(function(){
-                actual = targetService.isAfter(targetDate1, targetDate2, targetUnit);
+            mockUtil(function() {
+                actual = targetService.isAfter(date1, date2);
             });
 
             // Assert
-            Assert.Equal(expected, actual);
+            Assert.True(actual);
         }
 
-
         [Fact]
-        function isBefore(){
+        function UsesDefaultUnitIfInvalid() {
             // Arrange
-            var expected = "isBefore";
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date1 = new Date(2016, 3, 3, 12, 26, 30, 999);
+            var date2 = new Date(2016, 3, 3, 12, 26, 30, 1);
             var actual;
 
             //Act
-            mockMomentConstr(function(){
-                actual = targetService.isBefore(targetDate1, targetDate2, targetUnit);
+            mockUtil(function() {
+                actual = targetService.isAfter(date1, date2, "invalidUnit");
             });
 
             // Assert
-            Assert.Equal(expected, actual);
+            Assert.True(actual);
         }
 
-
         [Fact]
-        function isSame(){
+        function PositiveComparisonWithUnit() {
             // Arrange
-            var expected = "isSame";
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var date1 = new Date(2016, 3, 3, 12);
+            var date2 = new Date(2016, 3, 3, 5);
             var actual;
 
             //Act
-            mockMomentConstr(function(){
-                actual = targetService.isSame(targetDate1, targetDate2, targetUnit);
+            mockUtil(function() {
+                actual = targetService.isAfter(date1, date2, "hour");
             });
 
             // Assert
-            Assert.Equal(expected, actual);
+            Assert.True(actual);
+        }
+
+        [Fact]
+        function NegativeComparisonWithUnit() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var date1 = new Date(2016, 3, 3);
+            var date2 = new Date(2016, 3, 5);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isAfter(date1, date2, "month");
+            });
+
+            // Assert
+            Assert.False(actual);
+        }
+    }
+
+    [Fixture]
+    function isBefore() {
+
+        [Fact]
+        function UnitDefaultsToMillisecond() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date1 = new Date(2016, 3, 3, 12, 26, 30, 1);
+            var date2 = new Date(2016, 3, 3, 12, 26, 30, 999);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBefore(date1, date2);
+            });
+
+            // Assert
+            Assert.True(actual);
+        }
+
+        [Fact]
+        function UsesDefaultUnitIfInvalid() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date1 = new Date(2016, 3, 3, 12, 26, 30, 1);
+            var date2 = new Date(2016, 3, 3, 12, 26, 30, 999);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBefore(date1, date2, "invalidUnit");
+            });
+
+            // Assert
+            Assert.True(actual);
+        }
+
+        [Fact]
+        function PositiveComparisonWithUnit() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var date1 = new Date(2016, 3, 3, 1);
+            var date2 = new Date(2016, 3, 3, 12);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBefore(date1, date2, "hour");
+            });
+
+            // Assert
+            Assert.True(actual);
+        }
+
+        [Fact]
+        function NegativeComparisonWithUnit() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var date1 = new Date(2016, 3, 12);
+            var date2 = new Date(2016, 3, 1);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBefore(date1, date2, "month");
+            });
+
+            // Assert
+            Assert.False(actual);
+        }
+    }
+
+    [Fixture]
+    function isSame() {
+
+        [Fact]
+        function UnitDefaultsToMillisecond() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date1 = new Date(2016, 3, 3, 12, 26, 30, 1);
+            var date2 = new Date(2016, 3, 3, 12, 26, 30, 999);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isSame(date1, date2);
+            });
+
+            // Assert
+            Assert.False(actual);
+        }
+
+        [Fact]
+        function UsesDefaultUnitIfInvalid() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date1 = new Date(2016, 3, 3, 12, 26, 30, 1);
+            var date2 = new Date(2016, 3, 3, 12, 26, 30, 999);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isSame(date1, date2, "invalidUnit");
+            });
+
+            // Assert
+            Assert.False(actual);
+        }
+
+        [Fact]
+        function PositiveComparisonWithUnit() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var date1 = new Date(2016, 3, 3, 1, 1);
+            var date2 = new Date(2016, 3, 3, 1, 20);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isSame(date1, date2, "hour");
+            });
+
+            // Assert
+            Assert.True(actual);
+        }
+
+        [Fact]
+        function NegativeComparisonWithUnit() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var date1 = new Date(2016, 3, 12);
+            var date2 = new Date(2016, 3, 1);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBefore(date1, date2, "month");
+            });
+
+            // Assert
+            Assert.False(actual);
+        }
+    }
+
+    [Fixture]
+    function isBetween() {
+
+        [Fact]
+        function ReturnsFalseIfDateIsBeforeFromDate() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var fromDate = new Date(2016, 3, 1);
+            var toDate = new Date(2016, 3, 15);
+            var date = new Date(2016, 2, 28);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBetween(date, fromDate, toDate, "day");
+            });
+
+            // Assert
+            Assert.False(actual);
+        }
+
+        [Fact]
+        function ReturnsFalseIfDateIsAfterToDate() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var fromDate = new Date(2016, 3, 1);
+            var toDate = new Date(2016, 3, 15);
+            var date = new Date(2016, 3, 30);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBetween(date, fromDate, toDate, "day");
+            });
+
+            // Assert
+            Assert.False(actual);
+        }
+
+        [Fact]
+        function ReturnsTrueIfDateEqualsFromDate() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var fromDate = new Date(2016, 3, 1, 12, 30, 00);
+            var toDate = new Date(2016, 3, 15, 13, 20, 00);
+            var date = new Date(2016, 3, 1, 12, 30, 00);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBetween(date, fromDate, toDate, "minutes");
+            });
+
+            // Assert
+            Assert.True(actual);
+        }
+
+        [Fact]
+        function ReturnsTrueIfDateEqualsToDate() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var fromDate = new Date(2016, 3, 1, 12, 30, 00);
+            var toDate = new Date(2016, 3, 15, 13, 20, 00);
+            var date = new Date(2016, 3, 15, 13, 20, 00);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBetween(date, fromDate, toDate, "minutes");
+            });
+
+            // Assert
+            Assert.True(actual);
+        }
+
+        [Fact]
+        function ReturnsTrueIfInBetween() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+            var fromDate = new Date(2016, 3, 1, 12, 30, 00);
+            var toDate = new Date(2016, 3, 15, 15, 20, 00);
+            var date = new Date(2016, 3, 15, 13, 40, 00);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBetween(date, fromDate, toDate, "hour");
+            });
+
+            // Assert
+            Assert.True(actual);
+        }
+
+        [Fact]
+        function ReturnsTrueIfInBetweenForWeek() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            targetService.setupDateTimeUnitAlias();
+
+            var fromDate = new Date(2018, 1, 26);
+            var toDate = new Date(2018, 2, 16);
+            var date = new Date(2018, 2, 1);
+            var actual;
+
+            //Act
+            mockUtil(function() {
+                actual = targetService.isBetween(date, fromDate, toDate, "week");
+            });
+
+            // Assert
+            Assert.True(actual);
         }
     }
 
@@ -1359,23 +1978,21 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
 
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isBoolean: function(value) { return typeof value === "boolean" },
-                    isUndefined: function(value) { return value === undefined; }
+                    isBoolean: Aura.Utils.Util.prototype.isBoolean,
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    actual = targetService.parseDateTime("date", "format");
-                });
+            mockUtil(function(){
+                actual = targetService.parseDateTime("date", "format");
             });
 
             // Assert
@@ -1395,23 +2012,21 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 toDate: Stubs.GetMethod()
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
 
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isBoolean: function(value) { return typeof value === "boolean" },
-                    isUndefined: function(value) { return value === undefined; }
+                    isBoolean: Aura.Utils.Util.prototype.isBoolean,
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.parseDateTime("date", "format");
-                });
+            mockUtil(function(){
+                targetService.parseDateTime("date", "format");
             });
 
             // Assert
@@ -1434,26 +2049,24 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 toDate: function() {}
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isBoolean: function(value) { return typeof value === "boolean" },
-                    isUndefined: function(value) { return value === undefined; }
+                    isBoolean: Aura.Utils.Util.prototype.isBoolean,
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.parseDateTime("date", "format", true);
-                });
+            mockUtil(function(){
+                targetService.parseDateTime("date", "format", true);
             });
 
             // Assert
@@ -1476,26 +2089,24 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 toDate: function() {}
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(){
+            targetService.moment = function() {
                 return momentDate;
-            });
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isBoolean: function(value) { return typeof value === "boolean" },
-                    isUndefined: function(value) { return value === undefined; }
+                    isBoolean: Aura.Utils.Util.prototype.isBoolean,
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.parseDateTime("date", "format");
-                });
+            mockUtil(function(){
+                targetService.parseDateTime("date", "format");
             });
 
             // Assert
@@ -1532,25 +2143,23 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 }
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
 
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isBoolean: function(value) { return typeof value === "boolean" },
-                    isUndefined: function(value) { return value === undefined; }
+                    isBoolean: Aura.Utils.Util.prototype.isBoolean,
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value) {}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    actual = targetService.parseDateTimeUTC("date", "format");
-                });
+            mockUtil(function(){
+                actual = targetService.parseDateTimeUTC("date", "format");
             });
 
             // Assert
@@ -1570,25 +2179,23 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 toDate: Stubs.GetMethod()
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
 
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isBoolean: function(value) { return typeof value === "boolean" },
-                    isUndefined: function(value) { return value === undefined; }
+                    isBoolean: Aura.Utils.Util.prototype.isBoolean,
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value) {}
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.parseDateTimeUTC("date", "format");
-                });
+            mockUtil(function(){
+                targetService.parseDateTimeUTC("date", "format");
             });
 
             // Assert
@@ -1611,28 +2218,26 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 toDate: function() {}
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isBoolean: function(value) { return typeof value === "boolean" },
-                    isUndefined: function(value) { return value === undefined; }
+                    isBoolean: Aura.Utils.Util.prototype.isBoolean,
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.parseDateTimeUTC("date", "format", true);
-                });
+            mockUtil(function(){
+                targetService.parseDateTimeUTC("date", "format", true);
             });
 
             // Assert
@@ -1655,86 +2260,95 @@ Test.Aura.AuraLocalizationServiceTest = function() {
                 toDate: function() {}
             };
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 utc: function() {
                     return momentDate;
                 }
-            });
+            };
 
             var expected = "locale";
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 util: {
-                    isBoolean: function(value) { return typeof value === "boolean" },
-                    isUndefined: function(value) { return value === undefined; }
+                    isBoolean: Aura.Utils.Util.prototype.isBoolean,
+                    isUndefined: Aura.Utils.Util.prototype.isUndefined
                 },
                 get: function(value){
-                    if(value == "$Locale.langLocale") return expected;
+                    if(value === "$Locale.langLocale") return expected;
                 }
             });
 
             // Act
-            mockMoment(function(){
-                mockUtil(function(){
-                    targetService.parseDateTimeUTC("date", "format");
-                });
+            mockUtil(function(){
+                targetService.parseDateTimeUTC("date", "format");
             });
 
             // Assert
             Assert.Equal(expected, actual);
         }
-
     }
 
     [Fixture]
-    function parseDateTimeISO8601(){
+    function parseDateTimeISO8601() {
 
-        var mockMoment = Mocks.GetMock(Object.Global(), "moment", function(dateTimeString){
-            if(dateTimeString == mockDateTime) return mockDateTime;
-            if(dateTimeString == "null") return null;
-            return mockInvalidDate;
-        });
+        var createTargetService = function() {
+             var targetService = new Aura.Services.AuraLocalizationService();
+             var mockInvalidDate = {
+                    isValid: function(){
+                        return false;
+                    }
+                };
+
+             targetService.moment = function(dateTimeString) {
+                if (dateTimeString === null) {
+                    return null;
+                } else if (dateTimeString === "invalid") {
+                    return mockInvalidDate;
+                } else if (typeof dateTimeString === "string") {
+                    return mockDateTime;
+                }
+            };
+            return targetService;
+        }
 
         [Fact]
-        function ReturnsNullForEmptyDateTimeString(){
+        function ReturnsNullForInvalidDateTimeString() {
             // Arrange
-            var targetService = new Aura.Services.AuraLocalizationService();
+            var targetService = createTargetService();
+            var actual;
 
             // Act
-            var actual = targetService.parseDateTimeISO8601("");
+            mockUtil(function() {
+                actual = targetService.parseDateTimeISO8601("invalid");
+            });
 
             // Assert
             Assert.Null(actual);
         }
 
         [Fact]
-        function ReturnsNullWhenMomentReturnsNull(){
+        function ReturnsNullWhenMomentReturnsNull() {
             // Arrange
             var expected = null;
-            var targetService = new Aura.Services.AuraLocalizationService();
-            var actual;
+            var targetService = createTargetService();
 
             // Act
-            mockMoment(function(){
-                actual = targetService.parseDateTimeISO8601("null");
-            });
+            var actual = targetService.parseDateTimeISO8601(null);
 
             // Assert
             Assert.Null(actual);
         }
 
         [Fact]
-        function ValidDateTime(){
+        function ReturnsDateTimeForValidDateTime() {
             // Arrange
             var expected = targetDateTime;
-            var actual;
+            var targetService = createTargetService();
 
             // Act
-            mockMoment(function(){
-                actual = targetService.parseDateTimeISO8601(targetDateTime);
-            });
+            var actual = targetService.parseDateTimeISO8601("2017-11-12T12:30:40.123");
 
             // Assert
-            Assert.Equal(expected, actual);
+            Assert.True(expected === actual);
         }
     }
 
@@ -1746,9 +2360,12 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             // Arrange
             var expected = "";
             var targetService = new Aura.Services.AuraLocalizationService();
+            var actual;
 
             // Act
-            var actual = targetService.toISOString(expected);
+            mockUtil(function() {
+                actual = targetService.toISOString(expected);
+            });
 
             // Assert
             Assert.Equal(expected, actual);
@@ -1771,45 +2388,11 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         }
 
         [Fact]
-        function CallsToISOStringOnDateIfExits() {
-            // Arrange
-            var targetService = new Aura.Services.AuraLocalizationService();
-            var date = new Date();
-            date.toISOString = Stubs.GetMethod();
-
-            // Act
-            mockUtil(function() {
-                targetService.toISOString(date);
-            });
-
-            // Assert
-            Assert.Equal(1, date.toISOString.Calls.length);
-        }
-
-        [Fact]
-        function ReturnsISOStringForDateWithToISOString(){
+        function ReturnsISOString() {
             // Arrange
             var targetService = new Aura.Services.AuraLocalizationService();
             var expected = "2004-11-09T12:30:59.123Z";
             var date = new Date(Date.UTC(2004,10,09,12,30,59,123));
-            var actual;
-
-            // Act
-            mockUtil(function() {
-                actual = targetService.toISOString(date);
-            });
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function ReturnsISOStringForDateWithoutToISOString(){
-            // Arrange
-            var targetService = new Aura.Services.AuraLocalizationService();
-            var expected = "2004-11-09T12:30:59.123Z";
-            var date = new Date(Date.UTC(2004,10,09,12,30,59,123));
-            date.toISOString = undefined;
             var actual;
 
             // Act
@@ -1826,17 +2409,6 @@ Test.Aura.AuraLocalizationServiceTest = function() {
     [Fixture]
     function UTCToWallTime() {
 
-        var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
-            tz: {
-                zone: function(timezone) {
-                    if (timezone === "unsupported") {
-                        return null;
-                    }
-                    return Stubs.GetObject({});
-                }
-            }
-        });
-
         [Fact]
         function CallbackWithOriginalDateWhenZoneIsGMT() {
             // Arrange
@@ -1846,10 +2418,8 @@ Test.Aura.AuraLocalizationServiceTest = function() {
 
             // Act
             mockUtil(function () {
-                mockMoment(function () {
-                    targetService.UTCToWallTime(expected, "GMT", function(date) {
-                        actual = date;
-                    });
+                targetService.UTCToWallTime(expected, "GMT", function(date) {
+                    actual = date;
                 });
             });
 
@@ -1860,23 +2430,64 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         [Fact]
         function UsesUserTimezoneIfTimeZoneIsFalsy() {
             // Arrange
-            var expected = targetDateTime;
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var mockGet = Stubs.GetMethod("$Locale.timezone", "UTC");
             var actual;
 
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
-                get:function(value){
-                    if(value == "$Locale.timezone") return "UTC";
-                },
                 assert: function () {},
-                warning: function() {}
+                get: mockGet
             });
 
             // Act
             mockUtil(function() {
                 // when timezone is UTC, callback gets called with the original date
-                targetService.UTCToWallTime(mockDateTime, undefined, function(date) {
-                    actual = date;
-                });
+                targetService.UTCToWallTime(mockDateTime, undefined, function() {});
+            });
+
+            // Assert
+            Assert.Equal(1, mockGet.Calls.length);
+        }
+
+        [Fact]
+        function UsesUserTimeZoneIfTimeZoneIsUnsupported() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var mockGet = Stubs.GetMethod("$Locale.timezone", "America/Los_Angeles");
+
+            var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
+                assert: function () {},
+                warning: function() {},
+                get: mockGet
+            });
+
+            // Act
+            mockUtil(function() {
+                targetService.UTCToWallTime(new Date(), "unsupported", function() {});
+            });
+
+            // Assert
+            Assert.Equal(1, mockGet.Calls.length);
+        }
+
+        [Fact]
+        function ConvertsTimeBasedOnTimeZone() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date = new Date(Date.UTC(2017, 1, 3, 20, 30));
+             // minus 8 hours
+            var expected = new Date(Date.UTC(2017, 1, 3, 12, 30)).toISOString();
+            var actual;
+
+            var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
+                assert: function () {},
+            });
+
+            // Act
+            mockUtil(function() {
+                targetService.UTCToWallTime(date, "America/Los_Angeles", function(wallTime) {
+                        actual = wallTime.toISOString();
+                    });
             });
 
             // Assert
@@ -1884,27 +2495,85 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         }
 
         [Fact]
-        function UsesUserTimezoneIfTimeZoneIsUnsupported(){
+        function ConvertsTimeInDst() {
             // Arrange
-            var expected = targetDateTime;
+            var targetService = new Aura.Services.AuraLocalizationService();
+            // 2013-10-03T06:01:00.000Z
+            var date = new Date(Date.UTC(2017, 9, 3, 6, 1));
+            // minus 4 hours
+            var expected = new Date(Date.UTC(2017, 9, 3, 2, 1)).toISOString();
             var actual;
 
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
-                get:function(value){
-                    if(value == "$Locale.timezone") return "UTC";
-                },
                 assert: function () {},
-                warning: function() {}
             });
 
             // Act
             mockUtil(function() {
-                mockMoment(function() {
-                    // when timezone is UTC, callback gets called with the original date
-                    targetService.UTCToWallTime(mockDateTime, "unsupported", function(date) {
-                        actual = date;
+                targetService.UTCToWallTime(date, "America/New_York", function(wallTime) {
+                        actual = wallTime.toISOString();
                     });
-                });
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        function ConvertsTimeForZoneWithPositiveOffset() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            // 2013-12-03T06:01:00.000Z
+            var date = new Date(Date.UTC(2013, 12, 3, 6, 1));
+            // plus 1 hours
+            var expected = new Date(Date.UTC(2013, 12, 3, 7, 1)).toISOString();
+            var actual;
+
+            var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
+                assert: function () {},
+            });
+
+            // Act
+            mockUtil(function() {
+                targetService.UTCToWallTime(date, "Europe/Berlin", function(wallTime) {
+                        actual = wallTime.toISOString();
+                    });
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        function ConvertsTimeAcrossDifferentMonths() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date = new Date(Date.UTC(2017, 9, 1, 0, 0));
+             // minus 8 hours
+            var expected = new Date(Date.UTC(2017, 8, 30, 17, 0)).toISOString();
+
+            // Act
+            mockUtil(function() {
+                targetService.UTCToWallTime(date, "America/Los_Angeles", function(wallTime) {
+                        actual = wallTime.toISOString();
+                    });
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        function ConvertsTimeAcrossDifferentYears() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date = new Date(Date.UTC(2018, 1, 1, 0, 0));
+             // minus 8 hours
+            var expected = new Date(Date.UTC(2017, 12, 31, 17, 0)).toISOString();
+
+            // Act
+            mockUtil(function() {
+                targetService.UTCToWallTime(date, "America/Los_Angeles", function(wallTime) {
+                        actual = wallTime.toISOString();
+                    });
             });
 
             // Assert
@@ -1913,18 +2582,7 @@ Test.Aura.AuraLocalizationServiceTest = function() {
     }
 
     [Fixture]
-    function WallTimeToUTC(){
-
-        var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
-            tz: {
-                zone: function(timezone) {
-                    if (timezone === "unsupported") {
-                        return null;
-                    }
-                    return Stubs.GetObject({});
-                }
-            }
-        });
+    function WallTimeToUTC() {
 
         [Fact]
         function CallbackWithOriginalDateWhenZoneIsGMT() {
@@ -1935,35 +2593,7 @@ Test.Aura.AuraLocalizationServiceTest = function() {
 
             // Act
             mockUtil(function () {
-                mockMoment(function () {
-                    targetService.WallTimeToUTC(expected, "GMT", function(date) {
-                        actual = date;
-                    });
-                });
-            });
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function UsesUserTimezoneIfTimeZoneIsFalsy(){
-            // Arrange
-            var expected = targetDateTime;
-            var actual;
-
-            var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
-                get:function(value){
-                    if(value == "$Locale.timezone") return "UTC";
-                },
-                assert: function () {},
-                warning: function() {}
-            });
-
-            // Act
-            mockUtil(function() {
-                // when timezone is UTC, callback gets called with the original date
-                targetService.WallTimeToUTC(mockDateTime, undefined, function(date) {
+                targetService.WallTimeToUTC(expected, "GMT", function(date) {
                     actual = date;
                 });
             });
@@ -1973,27 +2603,152 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         }
 
         [Fact]
-        function UsesUserTimezoneIfTimeZoneIsUnsupported(){
+        function UsesUserTimezoneIfTimeZoneIsFalsy() {
             // Arrange
-            var expected = targetDateTime;
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var mockGet = Stubs.GetMethod("$Locale.timezone", "UTC");
             var actual;
 
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
-                get:function(value){
-                    if(value == "$Locale.timezone") return "UTC";
-                },
                 assert: function () {},
-                warning: function() {}
+                get: mockGet
             });
 
             // Act
             mockUtil(function() {
-                mockMoment(function() {
-                    // when timezone is UTC, callback gets called with the original date
-                    targetService.WallTimeToUTC(mockDateTime, "unsupported", function(date) {
-                        actual = date;
+                // when timezone is UTC, callback gets called with the original date
+                targetService.WallTimeToUTC(mockDateTime, undefined, function() {});
+            });
+
+            // Assert
+            Assert.Equal(1, mockGet.Calls.length);
+        }
+
+        [Fact]
+        function UsesUserTimeZoneIfTimeZoneIsUnsupported() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var mockGet = Stubs.GetMethod("$Locale.timezone", "America/Los_Angeles");
+
+            var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
+                assert: function () {},
+                warning: function() {},
+                get: mockGet
+            });
+
+            // Act
+            mockUtil(function() {
+                targetService.WallTimeToUTC(new Date(), "unsupported", function() {});
+            });
+
+            // Assert
+            Assert.Equal(1, mockGet.Calls.length);
+        }
+
+        [Fact]
+        function ConvertsTimeBasedOnTimeZone() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date = new Date(Date.UTC(2017, 1, 3, 20, 30));
+            // plus 8 hours
+            var expected = new Date(Date.UTC(2017, 1, 4, 4, 30)).toISOString();
+            var actual;
+
+            var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
+                assert: function () {},
+            });
+
+            // Act
+            mockUtil(function() {
+                targetService.WallTimeToUTC(date, "America/Los_Angeles", function(utc) {
+                        actual = utc.toISOString();
                     });
-                });
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        function ConvertsTimeInDst() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            // 2013-10-03T06:01:00.000Z
+            var date = new Date(Date.UTC(2017, 9, 3, 6, 1));
+            // plus 4 hours
+            var expected = new Date(Date.UTC(2017, 9, 3, 10, 1)).toISOString();
+            var actual;
+
+            var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
+                assert: function () {},
+            });
+
+            // Act
+            mockUtil(function() {
+                targetService.WallTimeToUTC(date, "America/New_York", function(utc) {
+                        actual = utc.toISOString();
+                    });
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        function ConvertsTimeForZoneWithPositiveOffset() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            // 2013-12-03T06:01:00.000Z
+            var date = new Date(Date.UTC(2013, 12, 3, 6, 1));
+            // minus 1 hours
+            var expected = new Date(Date.UTC(2013, 12, 3, 5, 1)).toISOString();
+            var actual;
+
+            var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
+                assert: function () {},
+            });
+
+            // Act
+            mockUtil(function() {
+                targetService.WallTimeToUTC(date, "Europe/Berlin", function(utc) {
+                        actual = utc.toISOString();
+                    });
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        function ConvertsTimeAcrossDifferentMonths() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date = new Date(Date.UTC(2017, 8, 30, 17, 0));
+            // plus 8 hours
+            var expected = new Date(Date.UTC(2017, 9, 1, 0, 0)).toISOString();
+
+            //Act
+            mockUtil(function() {
+                targetService.WallTimeToUTC(date, "America/Los_Angeles", function(utc) {
+                        actual = utc.toISOString();
+                    });
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        function ConvertsTimeAcrossDifferentYears() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date = new Date(Date.UTC(2017, 12, 31, 17, 0));
+            // plus 8 hours
+            var expected = new Date(Date.UTC(2018, 0, 1, 0, 0)).toISOString();
+
+            //Act
+            mockUtil(function() {
+                targetService.WallTimeToUTC(date, "America/Los_Angeles", function(utc) {
+                        actual = utc.toISOString();
+                    });
             });
 
             // Assert
@@ -2002,34 +2757,38 @@ Test.Aura.AuraLocalizationServiceTest = function() {
     }
 
     [Fixture]
-    function displayDateTime(){
-
-        var targetFormat = "format";
-        var targetLang = "lang";
-
-        var targetDateTimeObj={
-            l:'',
-            f:'',
-            locale:function(lang){
-                if(lang == targetLang) this.l = lang;
-            },
-            format:function(format){
-                if(format == targetFormat) this.f = format + this.l;
-                return this.f;
-            }
-        };
+    function getDateStringBasedOnTimezone() {
 
         [Fact]
-        function InvalidLocale(){
+        function DoesNotMutateOriginalDate() {
             // Arrange
-            var expected = targetFormat;
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var date = new Date(Date.UTC(2017, 9, 3, 16, 1));
+            var expected = date.toISOString();
+
+            // Act
+            mockUtil(function() {
+                targetService.getDateStringBasedOnTimezone("America/Los_Angeles", date, function() {});
+            });
+
+            // Assert
+            Assert.Equal(expected, date.toISOString());
+        }
+
+        [Fact]
+        function CallbacksWithDateStringBasedOnTimeZone() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            // 2013-10-03T16:01:00.000Z
+            var date = new Date(Date.UTC(2017, 9, 3, 16, 1));
+            var expected = "2017-10-03";
             var actual;
 
             // Act
-            mockMoment(function () {
-                mockGetNormalizedFormat(function(){
-                    actual = targetService.displayDateTime(targetDateTimeObj, targetFormat, '');
-                });
+            mockUtil(function() {
+                targetService.getDateStringBasedOnTimezone("America/Los_Angeles", date, function(dateString) {
+                        actual = dateString;
+                    });
             });
 
             // Assert
@@ -2037,20 +2796,95 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         }
 
         [Fact]
-        function validFormatAndLocale(){
+        function CallbacksWithDateStringForDifferentDays() {
             // Arrange
-            var expected = targetFormat+targetLang;
+            var targetService = new Aura.Services.AuraLocalizationService();
+            // 2013-10-03T16:01:00.000Z
+            var date = new Date(Date.UTC(2017, 9, 3, 2, 1));
+
+            var expected = "2017-10-02";
             var actual;
 
             // Act
-            mockGetAvailableMomentLocale(function(){
-                mockGetNormalizedFormat(function(){
-                    actual = targetService.displayDateTime(targetDateTimeObj, targetFormat, targetLang);
-                });
+            mockUtil(function() {
+                targetService.getDateStringBasedOnTimezone("America/Los_Angeles", date, function(dateString) {
+                        actual = dateString;
+                    });
             });
 
             // Assert
             Assert.Equal(expected, actual);
+        }
+    }
+
+    [Fixture]
+    function displayDateTime() {
+
+        [Fact]
+        function DoesNotSetLocaleIfFalsy() {
+            // Arrange
+            var targetService = new Aura.Services.AuraLocalizationService();
+            var actual = false;
+            var mockMomentDate = {
+                locale: function() {
+                    actual = true;
+                },
+                format: function() {}
+            }
+
+            // Act
+            targetService.displayDateTime(mockMomentDate, "format", "");
+
+            // Assert
+            Assert.False(actual);
+        }
+
+        [Fact]
+        function UsesAvailableMomentLocale() {
+           // Arrange
+           var targetService = new Aura.Services.AuraLocalizationService();
+           var expected = "expectedLocale";
+           var locale = "locale";
+
+           var actual;
+           var mockMomentDate = {
+                locale: function(momentLocale) {
+                    actual = momentLocale;
+                },
+                format: function() {}
+           }
+
+           targetService.getAvailableMomentLocale = Stubs.GetMethod(locale, expected);
+
+           // Act
+           targetService.displayDateTime(mockMomentDate, "format", locale);
+
+           // Assert
+           Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        function UsesNormalizedFormat() {
+           // Arrange
+           var targetService = new Aura.Services.AuraLocalizationService();
+           var expected = "expectedFormat";
+           var format = "format";
+
+           var actual;
+           var mockMomentDate = {
+                locale: function() {},
+                format: function(normalizedFormat) {
+                    actual = normalizedFormat;
+                }
+           }
+
+           targetService.getNormalizedFormat = Stubs.GetMethod(format, expected);
+
+           // Act
+           targetService.displayDateTime(mockMomentDate, format);
+
+           // Assert
+           Assert.Equal(expected, actual);
         }
     }
 
@@ -2280,17 +3114,14 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             var expected = "zh-cn";
             var targetService = new Aura.Services.AuraLocalizationService();
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 locales: function(){
                     return [expected];
                 }
-            });
+            };
 
             // Act
-            var actual;
-            mockMoment(function(){
-                actual = targetService.normalizeToMomentLocale("zh_CN");
-            });
+            var actual = targetService.normalizeToMomentLocale("zh_CN");
 
             // Assert
             Assert.Equal(expected, actual);
@@ -2302,17 +3133,14 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             var expected = "de";
             var targetService = new Aura.Services.AuraLocalizationService();
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 locales: function(){
                     return [expected];
                 }
-            });
+            };
 
             // Act
-            var actual;
-            mockMoment(function(){
-                actual = targetService.normalizeToMomentLocale("de_DE");
-            });
+            var actual = targetService.normalizeToMomentLocale("de_DE");
 
             // Assert
             Assert.Equal(expected, actual);
@@ -2324,22 +3152,37 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             var expected = "en";
             var targetService = new Aura.Services.AuraLocalizationService();
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 locales: function(){
                     return [];
                 }
-            });
+            };
 
             // Act
-            var actual;
-            mockMoment(function(){
-                actual = targetService.normalizeToMomentLocale("not_matching");
-            });
+            var actual = targetService.normalizeToMomentLocale("not_matching");
 
             // Assert
             Assert.Equal(expected, actual);
         }
 
+        [Fact]
+        function ReturnsNbForNorNorwegian(){
+            // Arrange
+            var expected = "nb";
+            var targetService = new Aura.Services.AuraLocalizationService();
+
+            targetService.moment = {
+                locales: function(){
+                    return [expected];
+                }
+            };
+
+            // Act
+            var actual = targetService.normalizeToMomentLocale("no_No");
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
     }
 
     [Fixture]
@@ -2375,17 +3218,14 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             // Arrange
             var targetService = new Aura.Services.AuraLocalizationService();
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 locales: function(){
                     return ["zh-cn"];
                 }
-            });
+            };
 
             // Act
-            var actual;
-            mockMoment(function(){
-                actual = targetService.isAvailableLocale("ZH-CN");
-            });
+            var actual = targetService.isAvailableLocale("ZH-CN");
 
             // Assert
             Assert.True(actual);
@@ -2398,17 +3238,14 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             var locale = "zh_CN";
             var targetService = new Aura.Services.AuraLocalizationService();
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 locales: function(){
                     return [expected];
                 }
-            });
+            };
 
             // Act
-
-            mockMoment(function(){
-                targetService.isAvailableLocale(locale);
-            });
+            targetService.isAvailableLocale(locale);
             var actual = targetService.localeCache[locale];
 
             // Assert
@@ -2420,38 +3257,14 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             // Arrange
             var targetService = new Aura.Services.AuraLocalizationService();
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment = {
                 locales: function(){
                     return [];
                 }
-            });
+            };
 
             // Act
-            var actual;
-            mockMoment(function(){
-                actual = targetService.isAvailableLocale("unavailable");
-            });
-
-            // Assert
-            Assert.False(actual);
-        }
-
-        [Fact]
-        function ReturnsFalseForUnavailableLocale(){
-            // Arrange
-            var targetService = new Aura.Services.AuraLocalizationService();
-
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
-                locales: function(){
-                    return [];
-                }
-            });
-
-            // Act
-            var actual;
-            mockMoment(function(){
-                actual = targetService.isAvailableLocale("unavailable");
-            });
+            var actual = targetService.isAvailableLocale("unavailable");
 
             // Assert
             Assert.False(actual);
@@ -2461,17 +3274,14 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         function ReturnsTrueIfEnLocaleIsAvailable(){
             var targetService = new Aura.Services.AuraLocalizationService();
 
-            var mockMoment = Mocks.GetMock(Object.Global(), "moment", {
+            targetService.moment =  {
                 locales: function(){
                     return ["en"];
                 }
-            });
+            };
 
             // Act
-            var actual;
-            mockMoment(function(){
-                actual = targetService.isAvailableLocale("en-US");
-            });
+            var actual = targetService.isAvailableLocale("en-US");
 
             // Assert
             Assert.True(actual);
@@ -2496,7 +3306,7 @@ Test.Aura.AuraLocalizationServiceTest = function() {
 
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 get: function(key) {
-                    if(key == "$Locale.langLocale") return javaLocale;
+                    if(key === "$Locale.langLocale") return javaLocale;
                 }
             });
 
@@ -2530,7 +3340,7 @@ Test.Aura.AuraLocalizationServiceTest = function() {
 
             var mockUtil = Mocks.GetMock(Object.Global(), "$A", {
                 get: function(key) {
-                    if(key == "$Locale.langLocale") return javaLocale;
+                    if(key === "$Locale.langLocale") return javaLocale;
                 }
             });
 
@@ -2557,20 +3367,20 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         [Fact]
         function formatNumber(){
             // Arrange
-            var expected = targetNumber;
+            var expected = 101;
             var actual;
 
             var mockGetDefaultNumberFormat = Mocks.GetMock(targetService, "getDefaultNumberFormat", function(){
                 return {
-                    format: function(number){
-                        if(number == targetNumber) return targetNumber;
+                    format: function(number) {
+                        if(number === expected) return expected;
                     }
                 };
             });
 
             // Act
             mockGetDefaultNumberFormat(function(){
-                actual = targetService.formatNumber(targetNumber);
+                actual = targetService.formatNumber(expected);
             });
 
             // Assert
@@ -2580,20 +3390,20 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         [Fact]
         function formatPercent(){
             // Arrange
-            var expected = targetPercent;
+            var expected = "10%";
             var actual;
 
             var mockGetDefaultPercentFormat = Mocks.GetMock(targetService, "getDefaultPercentFormat", function(){
                 return {
                     format: function(number){
-                        if(number == targetPercent) return targetPercent;
+                        if(number === expected) return expected;
                     }
                 };
             });
 
             // Act
             mockGetDefaultPercentFormat(function(){
-                actual = targetService.formatPercent(targetPercent);
+                actual = targetService.formatPercent(expected);
             });
 
             // Assert
@@ -2603,20 +3413,20 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         [Fact]
         function formatCurrency(){
             // Arrange
-            var expected = targetCurrency;
+            var expected = "$100";
             var actual;
 
             var mockGetDefaultCurrencyFormat = Mocks.GetMock(targetService, "getDefaultCurrencyFormat", function(){
                 return {
                     format: function(number){
-                        if(number == targetCurrency) return targetCurrency;
+                        if(number === expected) return expected;
                     }
                 };
             });
 
             // Act
             mockGetDefaultCurrencyFormat(function(){
-                actual = targetService.formatCurrency(targetCurrency);
+                actual = targetService.formatCurrency(expected);
             });
 
             // Assert
@@ -2635,7 +3445,7 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             var mockNumberFormat = {};
 
             var mockNumberFormatConstructor = Mocks.GetMock(Object.Global(), "Aura", { "Utils" : {"NumberFormat": function(format, symbols){
-                if(format == targetNumberFormat && symbols == targetSymbols) return mockNumberFormat;
+                if(format === targetNumberFormat && symbols === targetSymbols) return mockNumberFormat;
             }}});
 
             // Act
@@ -2658,7 +3468,7 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             var mockNumberFormat = {};
 
             var mockNumberFormatConstructor = Mocks.GetMock(Object.Global(), "Aura", { "Utils" : {"NumberFormat": function(val){
-                if(val == targetNumberFormat) return mockNumberFormat;
+                if(val === targetNumberFormat) return mockNumberFormat;
             }}});
 
             // Act
@@ -2679,7 +3489,7 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             var mockNumberFormat = {};
 
             var mockNumberFormatConstructor = Mocks.GetMock(Object.Global(), "Aura", { "Utils" : {"NumberFormat": function(val){
-                if(val == targetPercentFormat) return mockNumberFormat;
+                if(val === targetPercentFormat) return mockNumberFormat;
             }}});
 
             // Act
@@ -2700,7 +3510,7 @@ Test.Aura.AuraLocalizationServiceTest = function() {
             var mockNumberFormat = {};
 
             var mockNumberFormatConstructor = Mocks.GetMock(Object.Global(), "Aura", { "Utils" : {"NumberFormat": function(val){
-                if(val == targetCurrencyFormat) return mockNumberFormat;
+                if(val === targetCurrencyFormat) return mockNumberFormat;
             }}});
 
             // Act
@@ -2715,115 +3525,4 @@ Test.Aura.AuraLocalizationServiceTest = function() {
         }
     }
 
-    [Fixture]
-    function pad(){
-
-        [Fact]
-        function pad0(){
-            // Arrange
-            var expected = '00';
-            var actual;
-
-            // Act
-            actual = targetService.pad(0);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function pad1(){
-            // Arrange
-            var expected = '01';
-            var actual;
-
-            // Act
-            actual = targetService.pad(1);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function pad9(){
-            // Arrange
-            var expected = '09';
-            var actual;
-
-            // Act
-            actual = targetService.pad(9);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function pad10(){
-            // Arrange
-            var expected = '10';
-            var actual;
-
-            // Act
-            actual = targetService.pad(10);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-    }
-
-    [Fixture]
-    function doublePad(){
-
-        [Fact]
-        function pad0(){
-            // Arrange
-            var expected = '000';
-            var actual;
-
-            // Act
-            actual = targetService.doublePad(0);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function pad1(){
-            // Arrange
-            var expected = '001';
-            var actual;
-
-            // Act
-            actual = targetService.doublePad(1);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function pad9(){
-            // Arrange
-            var expected = '099';
-            var actual;
-
-            // Act
-            actual = targetService.doublePad(99);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-
-        [Fact]
-        function pad10(){
-            // Arrange
-            var expected = '100';
-            var actual;
-
-            // Act
-            actual = targetService.doublePad(100);
-
-            // Assert
-            Assert.Equal(expected, actual);
-        }
-    }
 }

@@ -285,15 +285,14 @@ AuraHistoryService.prototype.getEvent = function(){
 AuraHistoryService.prototype.changeHandler = function(){
 
     var loc = this.getLocationHash() || this.getHistoryState();
-    var context = $A.getContext();
 
     // The event should be accessible in the context of the application.
-    context.setCurrentAccess($A.getRoot());
+    $A.clientService.setCurrentAccess($A.getRoot());
     var event;
     try {
         event = $A.eventService.newEvent(this.getEvent());
     } finally {
-        context.releaseCurrentAccess();
+        $A.clientService.releaseCurrentAccess();
     }
 
     if(!event) {
@@ -308,9 +307,11 @@ AuraHistoryService.prototype.changeHandler = function(){
         //
         var parsedHash = this.parseLocation(loc);
         var parameters = {};
-        var attributes = event.getDef().getAttributeDefs();
-        for(var attribute in attributes) {
-            if(attributes["hasOwnProperty"](attribute) && parsedHash["hasOwnProperty"](attribute)) {
+        var attributes = event.getDef().getAttributeDefs().getNames();
+        var attribute;
+        for(var c=0,length=attributes.length;c<length;c++) {
+            attribute = attributes[c];
+            if(parsedHash.hasOwnProperty(attribute)) {
                 parameters[attribute] = parsedHash[attribute];
             }
         }

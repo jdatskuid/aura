@@ -18,9 +18,13 @@ package org.auraframework.modules.impl;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.inject.Inject;
+
 import org.auraframework.def.module.ModuleDef.CodeType;
-import org.auraframework.modules.ModulesCompiler;
 import org.auraframework.modules.ModulesCompilerData;
+import org.auraframework.service.LoggingService;
+import org.auraframework.tools.node.api.NodeLambdaFactory;
+import org.auraframework.tools.node.impl.sidecar.NodeLambdaFactorySidecar;
 import org.auraframework.util.test.util.UnitTestCase;
 import org.junit.Test;
 
@@ -33,97 +37,75 @@ import com.google.common.io.Files;
  */
 public class ModulesCompilerTest extends UnitTestCase {
 
-    /**
-     * Test the compile method that takes the sources map
-     */
-    @Test
-    public void testModulesCompilerJ2V8Sources() throws Exception {
-        ModulesCompiler compiler = new ModulesCompilerJ2V8();
+    // NOTE: use to specify which service type to use when running tests
+    private static final NodeLambdaFactory FACTORY = NodeLambdaFactorySidecar.INSTANCE;
 
-        String componentPath = "modules/moduletest/moduletest.js";
-        String sourceTemplate = Files
-                .toString(getResourceFile("/testdata/modules/moduletest/moduletest.html"), Charsets.UTF_8);
+    @Inject
+    private LoggingService loggingService;
+
+    @Test
+    public void test() throws Exception {
+        ModulesCompiler compiler = new ModulesCompilerNode(FACTORY, loggingService);
+        String entry = "modules/moduletest/moduletest.js";
+        String sourceTemplate = Files.toString(getResourceFile("/testdata/modules/moduletest/moduletest.html"),
+                Charsets.UTF_8);
         String sourceClass = Files.toString(getResourceFile("/testdata/modules/moduletest/moduletest.js"),
                 Charsets.UTF_8);
-        
-        Map<String,String> sources = new HashMap<>();
+
+        Map<String, String> sources = new HashMap<>();
         sources.put("modules/moduletest/moduletest.js", sourceClass);
         sources.put("modules/moduletest/moduletest.html", sourceTemplate);
 
-        ModulesCompilerData compilerData = compiler.compile(componentPath, sources);
-        String expected = Files.toString(getResourceFile("/testdata/modules/moduletest/expected.js"),
-                Charsets.UTF_8);
+        ModulesCompilerData compilerData = compiler.compile(entry, sources);
+        String expected = Files.toString(getResourceFile("/testdata/modules/moduletest/expected.js"), Charsets.UTF_8);
 
         assertEquals(expected.trim(), compilerData.codes.get(CodeType.DEV).trim());
-        assertEquals("[x-test]", compilerData.bundleDependencies.toString());
-    }
-    
-    @Test
-    public void testModulesCompilerJ2V8() throws Exception {
-        ModulesCompiler compiler = new ModulesCompilerJ2V8();
-
-        String componentPath = "modules/moduletest/moduletest.js";
-        String sourceTemplate = Files
-                .toString(getResourceFile("/testdata/modules/moduletest/moduletest.html"), Charsets.UTF_8);
-        String sourceClass = Files.toString(getResourceFile("/testdata/modules/moduletest/moduletest.js"),
-                Charsets.UTF_8);
-
-        ModulesCompilerData compilerData = compiler.compile(componentPath, sourceTemplate, sourceClass);
-        String expected = Files.toString(getResourceFile("/testdata/modules/moduletest/expected.js"),
-                Charsets.UTF_8);
-
-        assertEquals(expected.trim(), compilerData.codes.get(CodeType.DEV).trim());
-        assertEquals("[x-test]", compilerData.bundleDependencies.toString());
+        assertEquals("[x-test, engine]", compilerData.bundleDependencies.toString());
     }
 
     @Test
-    public void testModulesCompilerJ2V8ErrorInHtml() throws Exception {
-        ModulesCompiler compiler = new ModulesCompilerJ2V8();
-
-        String componentPath = "modules/errorInHtml/errorInHtml.js";
+    public void testErrorInHtml() throws Exception {
+        ModulesCompiler compiler = new ModulesCompilerNode(FACTORY, loggingService);
+        String entry = "modules/errorInHtml/errorInHtml.js";
         String sourceTemplate = Files.toString(getResourceFile("/testdata/modules/errorInHtml/errorInHtml.html"),
                 Charsets.UTF_8);
         String sourceClass = Files.toString(getResourceFile("/testdata/modules/errorInHtml/errorInHtml.js"),
                 Charsets.UTF_8);
 
+        Map<String, String> sources = new HashMap<>();
+        sources.put("modules/errorInHtml/errorInHtml.js", sourceClass);
+        sources.put("modules/errorInHtml/errorInHtml.html", sourceTemplate);
+
         try {
-            compiler.compile(componentPath, sourceTemplate, sourceClass);
+            compiler.compile(entry, sources);
             fail("should report a syntax error");
         } catch (Exception e) {
+            e.printStackTrace();
             String message = Throwables.getRootCause(e).getMessage();
-            assertEquals("Error: modules/errorInHtml/errorInHtml.html: Unexpected token (2:5)", message.substring(0, 67));
+            assertTrue(message, message.contains(
+                    "Invalid HTML syntax: non-void-html-element-start-tag-with-trailing-solidus. For more information, please visit https://html.spec.whatwg.org/multipage/parsing.html#parse-error-non-void-html-element-start-tag-with-trailing-solidus"));
         }
     }
 
     @Test
-    public void testModulesCompilerJ2V8ErrorInJs() throws Exception {
-        ModulesCompiler compiler = new ModulesCompilerJ2V8();
-
-        String componentPath = "modules/errorInJs/errorInJs.js";
+    public void testErrorInJs() throws Exception {
+        ModulesCompiler compiler = new ModulesCompilerNode(FACTORY, loggingService);
+        String entry = "modules/errorInJs/errorInJs.js";
         String sourceTemplate = Files.toString(getResourceFile("/testdata/modules/errorInJs/errorInJs.html"),
                 Charsets.UTF_8);
         String sourceClass = Files.toString(getResourceFile("/testdata/modules/errorInJs/errorInJs.js"),
                 Charsets.UTF_8);
 
+        Map<String, String> sources = new HashMap<>();
+        sources.put("modules/errorInJs/errorInJs.js", sourceClass);
+        sources.put("modules/errorInJs/errorInJs.html", sourceTemplate);
+
         try {
-            compiler.compile(componentPath, sourceTemplate, sourceClass);
+            compiler.compile(entry, sources);
             fail("should report a syntax error");
         } catch (Exception e) {
-            Throwable cause = Throwables.getRootCause(e);
-            assertEquals("Error: modules/errorInJs/errorInJs.js: Unexpected token (1:11)", cause.getMessage().substring(0, 62));
+            String message = Throwables.getRootCause(e).getMessage();
+            assertTrue(message, message.contains("Error: modules/errorInJs/errorInJs.js: Unexpected token, expected \"{\" (2:4)"));
         }
     }
-
-    // tests for ModulesCompilerNode:
-
-//    @Test
-//    public void testModulesCompilerNode() throws Exception {
-//        ModulesCompilerNode compiler = new ModulesCompilerNode();
-//        File file = getResourceFile("/testdata/modules/moduletest/moduletest.js");
-//        assertTrue(file.getAbsolutePath(), file.exists());
-//        String result = compiler.compile(file).code;
-//        String expected = Files.toString(getResourceFile("/testdata/modules/moduletest/expected.js"),
-//                Charsets.UTF_8);
-//        assertEquals(expected, result);
-//    }
 }

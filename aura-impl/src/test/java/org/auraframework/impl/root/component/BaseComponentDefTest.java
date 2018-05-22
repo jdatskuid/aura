@@ -47,6 +47,7 @@ import org.auraframework.def.RendererDef;
 import org.auraframework.def.StyleDef;
 import org.auraframework.impl.root.RootDefinitionTest;
 import org.auraframework.impl.system.DefDescriptorImpl;
+import org.auraframework.impl.validation.ReferenceValidationContextImpl;
 import org.auraframework.service.CompilerService;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.Location;
@@ -55,16 +56,20 @@ import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.InvalidExpressionException;
 import org.auraframework.throwable.quickfix.InvalidReferenceException;
 import org.auraframework.throwable.quickfix.QuickFixException;
+import org.auraframework.util.json.Json;
 import org.auraframework.util.json.JsonEncoder;
 import org.auraframework.util.json.JsonReader;
 import org.auraframework.util.json.JsonStreamReader;
 import org.auraframework.util.test.annotation.UnAdaptableTest;
+import org.auraframework.validation.ReferenceValidationContext;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.google.common.base.Function;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends RootDefinitionTest<T> {
@@ -310,7 +315,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
                 null, null, null, false, false, AuraContext.Access.INTERNAL);
 
         Map<?, ?> json = (Map<?, ?>) new JsonReader().read(toJson(cmpDef));
-        String componentClass = (String) json.get("componentClass");
+        String componentClass = (String) json.get(Json.ApplicationKey.COMPONENTCLASS.toString());
 
         assertNotNull(componentClass);
     }
@@ -351,10 +356,9 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
 
     @Test
     public void testAppendDependenciesWithNone() throws Exception {
-        Set<DefDescriptor<?>> dependencies = new HashSet<>();
         BaseComponentDef bcd = vendor.makeBaseComponentDefWithNulls(getDefClass(), "aura:test", null, null, null, null,
                 null, null, null, null, null, null, null, false, false, AuraContext.Access.INTERNAL);
-        bcd.appendDependencies(dependencies);
+        Set<DefDescriptor<?>> dependencies = bcd.getDependencySet();
 
         assertFalse(dependencies.isEmpty());
         assertEquals(1, dependencies.size());
@@ -405,8 +409,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
                         StyleDef.class);
         addSourceAutoCleanup(styleDesc, ".THIS {}");
 
-        Set<DefDescriptor<?>> dependencies = new HashSet<>();
-        definitionService.getDefinition(cmpDesc).appendDependencies(dependencies);
+        Set<DefDescriptor<?>> dependencies = definitionService.getDefinition(cmpDesc).getDependencySet();
 
         Set<DefDescriptor<?>> expected = Sets.newHashSet(parentDesc, childDesc, intfDesc, eventDesc, styleDesc);
         if (!dependencies.containsAll(expected)) {
@@ -462,8 +465,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
                         StyleDef.class);
         addSourceAutoCleanup(styleDesc, ".THIS {}");
 
-        Set<DefDescriptor<?>> dependencies = new HashSet<>();
-        definitionService.getDefinition(cmpDesc).appendDependencies(dependencies);
+        Set<DefDescriptor<?>> dependencies = definitionService.getDefinition(cmpDesc).getDependencySet();
 
         Set<DefDescriptor<?>> expected = Sets.newHashSet(parentDesc, childDesc, intfDesc, providerDesc, modelDesc,
                 controllerDesc, eventDesc, styleDesc, rendererDesc);
@@ -520,7 +522,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
                 String.format(
                         baseTag,
                         String.format(
-                                "extends='%s' implements='%s' provider='%s' model='%s' controller='%s' renderer='%s'",
+                                "extends='%s' implements='%s' provider='%s' model='%s' controller='%s' renderer='%s' helper='%s'",
                                 parentDesc.getDescriptorName(), intfDesc.getDescriptorName(), providerDesc, modelDesc,
                                 controllerDesc, rendererDesc, helperDesc),
                         String.format(
@@ -532,10 +534,10 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
                         StyleDef.class);
         addSourceAutoCleanup(styleDesc, ".THIS {}");
 
-        Set<DefDescriptor<?>> dependencies = new HashSet<>();
-        definitionService.getDefinition(cmpDesc).appendDependencies(dependencies);
+        Set<DefDescriptor<?>> dependencies = definitionService.getDefinition(cmpDesc).getDependencySet();
 
-        Set<DefDescriptor<?>> expected = Sets.newHashSet(parentDesc, childDesc, intfDesc, eventDesc, styleDesc);
+        Set<DefDescriptor<?>> expected = Sets.newHashSet(parentDesc, childDesc, intfDesc, eventDesc, styleDesc,
+                providerDesc, modelDesc, controllerDesc, rendererDesc, helperDesc);
         if (!dependencies.containsAll(expected)) {
             StringBuilder msg = new StringBuilder("missing dependencies:");
             expected.removeAll(dependencies);
@@ -1165,7 +1167,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
     @Test
     public void testGetDependenciesDefaultNamespace() throws QuickFixException {
         T baseComponentDef = define(baseTag, "", "<aura:dependency resource=\"*://aura:*\" type=\"EVENT\"/>");
-        assertEquals("Dependency not found", "[*://aura:*[EVENT]]", baseComponentDef.getDependencies().toString());
+        assertEquals("Dependency not found", "[markup://aura:*[EVENT]]", baseComponentDef.getDependencies().toString());
     }
 
     /**
@@ -1175,19 +1177,20 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
     @Test
     public void testGetDependenciesNonDefaultNamespace() throws QuickFixException {
         T baseComponentDef = define(baseTag, "", "<aura:dependency resource=\"*://auratest:*\" type=\"EVENT\"/>");
-        assertEquals("Dependency not found", "[*://auratest:*[EVENT]]", baseComponentDef.getDependencies().toString());
+        assertEquals("Dependency not found", "[markup://auratest:*[EVENT]]", baseComponentDef.getDependencies().toString());
     }
 
     /**
      * InvalidDefinitionException for nonexistent dependency.
      */
     @Test
+    @Ignore("this is no longer thrown")
     public void testDependencyNonExistent() {
         try {
             define(baseTag, "", "<aura:dependency resource=\"*://idontexist:*\"/>");
             fail("Should not be able to load non-existant resource as dependency");
         } catch (QuickFixException e) {
-            checkExceptionFull(e, InvalidDefinitionException.class, "Invalid dependency *://idontexist:*[COMPONENT]");
+            checkExceptionFull(e, InvalidDefinitionException.class, "Invalid dependency ://idontexist:*[COMPONENT]");
         }
     }
 
@@ -1201,7 +1204,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
             define(baseTag, "", "<aura:dependency resource=\"*://auratest.*\"/>");
             fail("Should not be able to load resource, bad DefDescriptor format");
         } catch (QuickFixException e) {
-            checkExceptionFull(e, InvalidDefinitionException.class, "Illegal namespace in *://auratest.*");
+            checkExceptionFull(e, InvalidDefinitionException.class, "Invalid namespace of auratest.* in *://auratest.*");
         }
 
         // Another invalid descriptor pattern
@@ -1209,7 +1212,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
             define(baseTag, "", "<aura:dependency resource=\"*:auratest:*\"/>");
             fail("Should not be able to load resource, bad DefDescriptor format");
         } catch (QuickFixException e) {
-            checkExceptionFull(e, InvalidDefinitionException.class, "Illegal name in *:auratest:*");
+            checkExceptionFull(e, InvalidDefinitionException.class, "Invalid name of auratest:* in *:auratest:*");
         }
     }
 
@@ -1357,7 +1360,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
                 "model='java://org.auraframework.components.test.java.model.TestJavaModel'", "");
         assertTrue("When a component has a model, the component has server dependencies .",
                 baseComponentDef.hasLocalDependencies());
-        assertEquals(true, this.serializeAndReadAttributeFromDef(baseComponentDef, "hasServerDeps"));
+        assertEquals(true, this.serializeAndReadAttributeFromDef(baseComponentDef, Json.ApplicationKey.HASSERVERDEPENDENCIES.toString()));
     }
 
     /**
@@ -1430,6 +1433,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
         assertTrue("Abstract Component with serverside providers have server dependecies.", definitionService
                 .getDefinition(baseComponentDef.getDescriptor()).hasLocalDependencies());
     }
+    
 
     /**
      * hasLocalDependencies is true if super has local model dependency. Test method for
@@ -1924,7 +1928,7 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
     }
 
     /**
-     * Test method for {@link Definition#validateReferences()}.
+     * Test method for {@link Definition#validateReferences(ReferenceValidationContext)}.
      */
     @Test
     public void testValidateReferencesWithNonExistentParent() throws Exception {
@@ -1932,8 +1936,9 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
                 getAuraTestingUtil().getNonce("test:cmp"), null, null, null, null, null,
                 null, definitionService.getDefDescriptor("test:nonExistentComponentParent", getDefClass()), null, null,
                 null, null, false, false, AuraContext.Access.INTERNAL);
+        ReferenceValidationContext validationContext = new ReferenceValidationContextImpl(Maps.newHashMap());
         try {
-            bcd.validateReferences();
+            bcd.validateReferences(validationContext);
             fail("Should have thrown AuraException because the parent doesn't exist.");
         } catch (DefinitionNotFoundException e) {
             checkExceptionFull(
@@ -1945,24 +1950,24 @@ public abstract class BaseComponentDefTest<T extends BaseComponentDef> extends R
     }
 
     /**
-     * Test method for {@link Definition#validateReferences()}.
+     * Test method for {@link Definition#validateReferences(ReferenceValidationContext)}.
      */
     @Test
     public void testValidateReferencesWithNonExtensibleParent() throws Exception {
         DefDescriptor<T> parentDesc = addSourceAutoCleanup(getDefClass(), String.format(baseTag, "", ""));
-        BaseComponentDef bcd = vendor.makeBaseComponentDefWithNulls(getDefClass(),
-                getAuraTestingUtil().getNonce("test:cmp"), null, null, null, null, null,
-                null, parentDesc, null, null, null, null, false, false, AuraContext.Access.INTERNAL);
+        DefDescriptor<T> desc = addSourceAutoCleanup(getDefClass(), String.format(baseTag, "extends='"+parentDesc.getDescriptorName()+"'", ""));
+        InvalidDefinitionException expected = null;
         try {
-            bcd.validateReferences();
-            fail("Should have thrown AuraException because the parent isn't extensible.");
+            definitionService.getDefinition(desc);
         } catch (InvalidDefinitionException e) {
-            checkExceptionFull(
-                    e,
-                    InvalidDefinitionException.class,
-                    String.format("%s cannot extend non-extensible component %s", bcd.getDescriptor()
-                            .getQualifiedName(), parentDesc.getQualifiedName()));
+            expected = e;
         }
+        assertNotNull("Should have failed on non extensible item", expected);
+        checkExceptionFull(
+                expected,
+                InvalidDefinitionException.class,
+                String.format("%s cannot extend non-extensible component %s", desc.getQualifiedName(),
+                        parentDesc.getQualifiedName()));
     }
 
     /**

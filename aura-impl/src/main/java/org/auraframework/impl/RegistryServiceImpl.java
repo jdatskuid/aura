@@ -16,7 +16,6 @@
 package org.auraframework.impl;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.ObjectInputStream;
@@ -28,14 +27,13 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
+import java.util.function.Predicate;
 
 import javax.annotation.PostConstruct;
 import javax.inject.Inject;
 
-import org.apache.log4j.Logger;
 import org.auraframework.adapter.ComponentLocationAdapter;
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.ExceptionAdapter;
@@ -45,13 +43,11 @@ import org.auraframework.cache.Cache;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.impl.compound.controller.CompoundControllerDefFactory;
-import org.auraframework.impl.controller.AuraStaticControllerDefRegistry;
+import org.auraframework.impl.controller.AuraGlobalControllerDefRegistry;
 import org.auraframework.impl.java.JavaSourceLoader;
-import org.auraframework.impl.source.SourceFactory;
 import org.auraframework.impl.source.file.FileBundleSourceLoader;
-import org.auraframework.impl.source.file.FileSourceLoader;
 import org.auraframework.impl.source.file.ModuleFileBundleSourceLoader;
-import org.auraframework.impl.source.resource.ResourceSourceLoader;
+import org.auraframework.impl.system.BundleAwareDefRegistry;
 import org.auraframework.impl.system.CompilingDefRegistry;
 import org.auraframework.impl.system.NonCachingDefRegistryImpl;
 import org.auraframework.impl.system.PassThroughDefRegistry;
@@ -61,12 +57,15 @@ import org.auraframework.impl.type.AuraStaticTypeDefRegistry;
 import org.auraframework.service.CachingService;
 import org.auraframework.service.CompilerService;
 import org.auraframework.service.DefinitionService;
+import org.auraframework.service.LoggingService;
 import org.auraframework.service.RegistryService;
 import org.auraframework.system.AuraContext.Authentication;
 import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.system.BundleSource;
+import org.auraframework.system.BundleSourceLoader;
 import org.auraframework.system.DefRegistry;
 import org.auraframework.system.FileBundleSourceBuilder;
+import org.auraframework.system.InternalNamespaceSourceLoader;
 import org.auraframework.system.RegistrySet;
 import org.auraframework.system.RegistrySet.RegistrySetKey;
 import org.auraframework.system.SourceListener;
@@ -90,6 +89,8 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
 
     private ExceptionAdapter exceptionAdapter;
 
+    private LoggingService loggingService;
+
     @Inject
     private CompilerService compilerService;
 
@@ -103,9 +104,14 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
 
     private CachingService cachingService;
 
-    private List<ComponentLocationAdapter> locationAdapters;
+    @Inject
+    private Optional<List<ComponentLocationAdapter>> locationAdapters;
 
-    private static final Logger _log = Logger.getLogger(RegistryService.class);
+    // FIXME: This is busted. Requiring our adapters to be sorted by type means that
+    // the implemenation is sloppy in a way that is quite fragile.
+    private List<ComponentLocationAdapter> sortedAdapters;
+
+    private AuraGlobalControllerDefRegistry globalControllerDefRegistry;
 
     private ConcurrentHashMap<ComponentLocationAdapter, SourceLocationInfo> locationMap = new ConcurrentHashMap<>();
 
@@ -144,10 +150,6 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
     private static final Set<String> MODULE_PREFIXES = ImmutableSet.of(DefDescriptor.MARKUP_PREFIX);
 
     private static final Set<DefType> MODULE_DEFTYPES = EnumSet.of(DefType.MODULE);
-
-    // Subtracts supported bundle source DefTypes in order to create two separate registries
-    // for FileSourceLoader and FileBundleSourceLoader
-    private static final Set<DefType> MARKUP_DEFTYPES = Sets.difference(ALL_MARKUP_DEFTYPES, BundleSource.bundleDefTypes);
 
     private static class SourceLocationInfo {
         public final List<DefRegistry> staticLocationRegistries;
@@ -188,45 +190,16 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
         }
     }
 
-    /**
-     * Get an input stream from a file name.
-     *
-     * @param path the path to open.
-     */
-    private InputStream getFileInputStream(String path) {
-        File file = new File(path);
-        FileInputStream fis = null;
-
-        try {
-            fis = new FileInputStream(file);
-        } catch (Throwable t) {
-            // don't die.
-            // This can occur because the file is unreadable, or doesn't exist. We only
-            // log an error if the file exists.
-            if (file.exists()) {
-                _log.error("Unable to open registries file", t);
-            }
-        }
-        return fis;
-    }
-
     private DefRegistry[] getStaticRegistries(ComponentLocationAdapter location) {
-        InputStream ris = null;
-
-        String pkg = location.getComponentSourcePackage();
-        if (pkg != null) {
-            ris = location.getClass().getClassLoader().getResourceAsStream(pkg + "/.registries");
-        } else {
-            File compSource = location.getComponentSourceDir();
-            if (compSource != null && compSource.canRead()) {
-                ris = getFileInputStream(compSource + "/.registries");
-            }
+        String pkg = location.getComponentSourcePackageAlways();
+        if (pkg == null) {
+            return null;
         }
-        if (ris != null) {
-            ObjectInputStream ois = null;
-
-            try {
-                ois = new ObjectInputStream(ris);
+        try (InputStream ris = location.getClass().getClassLoader().getResourceAsStream(pkg + "/.registries")) {
+            if (ris == null) {
+                return null;
+            }
+            try (ObjectInputStream ois = new ObjectInputStream(ris)) {
                 Object o = ois.readObject();
                 if (o instanceof List) {
                     @SuppressWarnings("unchecked")
@@ -234,26 +207,37 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
                     return l.toArray(new DefRegistry[l.size()]);
                 }
                 return (DefRegistry[]) ois.readObject();
-            } catch (Exception e) {
-                // Do not fail here, just act as if we don't have a registries file.
-                // You'd have to create a bad registries file...
-                _log.error("Unable to read registries file", e);
-            } finally {
-                try {
-                    ris.close();
-                } catch (IOException e) {
-                    throw new AuraRuntimeException(e);
-                }
-                if (ois != null) {
-                    try {
-                        ois.close();
-                    } catch (IOException e) {
-                        throw new AuraRuntimeException(e);
+            }
+        } catch (Exception e) {
+            // Do not fail here, just act as if we don't have a registries file.
+            // You'd have to create a bad registries file...
+            loggingService.warn("Unable to read registries file", e);
+        }
+        return null;
+    }
+
+    /**
+     * mark namespaces as internal.
+     *
+     * Note that this code is very broken, especially the bit about modules. Positional enforcement is a sure
+     * way to make things break.
+     */
+    private void markInternalNamespaces(SourceLoader loader) {
+        if (loader instanceof InternalNamespaceSourceLoader) {
+            for (String namespace : loader.getNamespaces()) {
+                InternalNamespaceSourceLoader internalLoader = (InternalNamespaceSourceLoader)loader;
+                if (internalLoader.isInternalNamespace(namespace)) {
+                    String existing = configAdapter.getInternalNamespacesMap().get(namespace.toLowerCase());
+                    if (existing == null) {
+                        // Prevents module loaders from overriding exiting namespaces
+                        // module source loaders may holder lower case namespaces of existing namespaces
+                        // which it is to override so we need to keep the existing case sensitive namespace
+                        // in order for modules to use existing namespaces.
+                        configAdapter.addInternalNamespace(namespace);
                     }
                 }
             }
         }
-        return null;
     }
 
     private SourceLocationInfo createSourceLocationInfo(ComponentLocationAdapter location) {
@@ -261,84 +245,68 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
         DefRegistry[] staticRegs = getStaticRegistries(location);
         String pkg = location.getComponentSourcePackage();
         String canonical = null;
-        List<SourceLoader> markupLoaders = Lists.newArrayList();
+        BundleSourceLoader markupLoader = null;
         List<DefRegistry> markupRegistries = Lists.newArrayList();
         ModuleFileBundleSourceLoader moduleBundleSourceLoader = null;
         if (pkg != null) {
             if (!modules) {
-                ResourceSourceLoader rsl = new ResourceSourceLoader(pkg);
-                markupLoaders.add(rsl);
-                markupRegistries.add(new CompilingDefRegistry(rsl, MARKUP_PREFIXES, MARKUP_DEFTYPES, compilerService));
-                markupRegistries.add(new CompilingDefRegistry(new FileBundleSourceLoader(pkg, fileMonitor, builders),
-                        MARKUP_PREFIXES, BundleSource.bundleDefTypes, compilerService));
+                markupLoader = new FileBundleSourceLoader(pkg, fileMonitor, builders);
+                markupRegistries.add(new BundleAwareDefRegistry(markupLoader,
+                        MARKUP_PREFIXES, ALL_MARKUP_DEFTYPES, compilerService, true));
             } else {
                 moduleBundleSourceLoader = new ModuleFileBundleSourceLoader(pkg, fileMonitor, builders);
+                markupLoader = moduleBundleSourceLoader;
             }
         } else if (location.getComponentSourceDir() != null) {
             File components = location.getComponentSourceDir();
             if (!components.canRead() || !components.canExecute() || !components.isDirectory()) {
-                _log.error("Unable to find " + components + ", ignored.");
+                loggingService.warn("Unable to find " + components + ", ignored.");
             } else {
-                FileSourceLoader fsl;
-                if (!modules) {
-                    // modules requires BundleSource to allow multiple js/css files so skip FileSourceLoader
-                    fsl = new FileSourceLoader(components, fileMonitor);
-                    markupLoaders.add(fsl);
-                    // MARKUP_DEFTYPES is the difference between all and BundleSource DefTypes
-                    // Thus, creating two CompilingDefRegistry, FileSourceLoader and FileBundleSourceLoader
-                    // works without DefType registry conflicts
-                    markupRegistries.add(new CompilingDefRegistry(fsl, MARKUP_PREFIXES, MARKUP_DEFTYPES, compilerService));
-                    markupRegistries.add(new CompilingDefRegistry(new FileBundleSourceLoader(components, fileMonitor, builders),
-                            MARKUP_PREFIXES, BundleSource.bundleDefTypes, compilerService));
-                } else {
-                    moduleBundleSourceLoader = new ModuleFileBundleSourceLoader(components, fileMonitor, builders);
-                }
-                File generatedJavaBase = location.getJavaGeneratedSourceDir();
-                if (generatedJavaBase != null && generatedJavaBase.exists()) {
-                    fsl = new FileSourceLoader(generatedJavaBase, fileMonitor);
-                    markupLoaders.add(fsl);
-                    markupRegistries.add(new CompilingDefRegistry(fsl, MARKUP_PREFIXES, MARKUP_DEFTYPES, compilerService));
-                }
                 try {
                     canonical = components.getCanonicalPath();
                 } catch (IOException ioe) {
                     // doh! ignore, not sure what we can do.
                     throw new AuraRuntimeException("unable to get canonical path", ioe);
                 }
+                if (fileMonitor != null) {
+                    Long creationTime = null;
+                    if (staticRegs != null && staticRegs.length > 0) {
+                        creationTime = staticRegs[0].getCreationTime();
+                    }
+                    fileMonitor.addDirectory(canonical, creationTime);
+                }
+                if (!modules) {
+                    markupLoader = new FileBundleSourceLoader(components, fileMonitor, builders);
+                    markupRegistries.add(new BundleAwareDefRegistry(markupLoader,
+                            MARKUP_PREFIXES, ALL_MARKUP_DEFTYPES, compilerService, true));
+                } else {
+                    moduleBundleSourceLoader = new ModuleFileBundleSourceLoader(components, fileMonitor, builders);
+                    markupLoader = moduleBundleSourceLoader;
+                }
             }
         } else {
             Set<SourceLoader> loaders = location.getSourceLoaders();
             if (!loaders.isEmpty()) {
-                markupLoaders.addAll(loaders);
                 for (SourceLoader loader : loaders) {
-                    markupRegistries.add(new PassThroughDefRegistry(loader, ALL_MARKUP_DEFTYPES, MARKUP_PREFIXES, true, compilerService));
+                    markupRegistries.add(new PassThroughDefRegistry(loader, ALL_MARKUP_DEFTYPES, MARKUP_PREFIXES,
+                                true, compilerService));
+                    markInternalNamespaces(loader);
                 }
             }
         }
-        
-        if (modules && moduleBundleSourceLoader != null) {
-            markupLoaders.add(moduleBundleSourceLoader);
-            DefRegistry defRegistry = new CompilingDefRegistry(moduleBundleSourceLoader, MODULE_PREFIXES, MODULE_DEFTYPES, compilerService);
-            markupRegistries.add(defRegistry);
-            // register namespaces to optimize processing of definition references
-            configAdapter.addModuleNamespaces(defRegistry.getNamespaces());
+        if (markupLoader != null) {
+            markInternalNamespaces(markupLoader);
         }
-        
-        //
-        // Ooh, now _this_ is ugly. Because internal namespaces are tracked by the
-        // SourceFactory constructor, we'd best build a source factory for every loader.
-        // This ensures that we do in the case of static registries. Note that it also
-        // allows us to see source on static registries.
-        //
-        SourceFactory sf = new SourceFactory(markupLoaders, configAdapter);
+
+        if (modules && moduleBundleSourceLoader != null) {
+            DefRegistry defRegistry = new BundleAwareDefRegistry(moduleBundleSourceLoader, MODULE_PREFIXES, MODULE_DEFTYPES, compilerService, true);
+            markupRegistries.add(defRegistry);
+        }
+
         if (staticRegs != null) {
             for (DefRegistry reg : staticRegs) {
                 if (reg instanceof StaticDefRegistryImpl) {
-                    ((StaticDefRegistryImpl)reg).setSourceFactory(sf);
-                }
-                if (reg.getDefTypes().contains(DefType.MODULE)) {
-                    // register precompiled module registry namespaces
-                    configAdapter.addModuleNamespaces(reg.getNamespaces());
+                    ((StaticDefRegistryImpl)reg).setSourceLoader(markupLoader);
                 }
             }
         }
@@ -356,21 +324,28 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
     }
 
     /**
-     * Get the component location adapter registries.
+     * Get the component location adapter registries
+     * 
+     * @param filterIn if non-null get only the location adapters that match the filter
      */
-    private List<DefRegistry> getCLARegistries() {
-        Collection<ComponentLocationAdapter> markupLocations = getAllComponentLocationAdapters();
+    private List<DefRegistry> getCLARegistries(Predicate<ComponentLocationAdapter> filterIn) {
+        Collection<ComponentLocationAdapter> markupLocations = getLocationAdapters();
         List<DefRegistry> regBuild = Lists.newArrayList();
 
         regBuild.add(AuraStaticTypeDefRegistry.INSTANCE);
-        regBuild.add(AuraStaticControllerDefRegistry.getInstance(definitionService));
-        for (ComponentLocationAdapter location : markupLocations) {
-            if (location != null) {
-                SourceLocationInfo sli = getSourceLocationInfo(location);
-                if (!sli.isChanged() && sli.staticLocationRegistries != null) {
-                    regBuild.addAll(sli.staticLocationRegistries);
-                } else {
-                    regBuild.addAll(sli.markupRegistries);
+        regBuild.add(globalControllerDefRegistry);
+
+        if (markupLocations != null) {
+            for (ComponentLocationAdapter location : markupLocations) {
+                if (location != null) {
+                    if (filterIn == null || filterIn.test(location)) {
+                        SourceLocationInfo sli = getSourceLocationInfo(location);
+                        if (!sli.isChanged() && sli.staticLocationRegistries != null) {
+                            regBuild.addAll(sli.staticLocationRegistries);
+                        } else {
+                            regBuild.addAll(sli.markupRegistries);
+                        }
+                    }
                 }
             }
         }
@@ -407,18 +382,14 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
         final RegistrySetKey registrySetCacheKey = new RegistrySetKey(mode, access, sessionCacheKey);
 
         try {
-            return cache.get(registrySetCacheKey, new Callable<RegistrySet>() {
+            return cache.get(registrySetCacheKey, () -> {
+                RegistrySet res = buildDefaultRegistrySet(mode, access);
 
-                @Override
-                public RegistrySet call() throws Exception {
-                    RegistrySet res = buildDefaultRegistrySet(mode, access);
-
-                    if (res == null) {
-                        // see com.google.common.cache.Cache#get; this method may never return null.
-                        throw new NullPointerException("null RegistrySet for key=" + registrySetCacheKey);
-                    }
-                    return res;
+                if (res == null) {
+                    // see com.google.common.cache.Cache#get; this method may never return null.
+                    throw new NullPointerException("null RegistrySet for key=" + registrySetCacheKey);
                 }
+                return res;
             });
         } catch (UncheckedExecutionException e) {
             // thrown if a unchecked exception was thrown in call
@@ -431,10 +402,10 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
             throw new Error(e.getCause());
         }
     }
-
-    // test accessible
-    RegistrySet buildDefaultRegistrySet(Mode mode, Authentication access) {
-        List<DefRegistry> registries = getCLARegistries();
+    
+    @Override
+    public RegistrySet buildRegistrySet(Mode mode, Authentication access, Predicate<ComponentLocationAdapter> filterIn) {
+        List<DefRegistry> registries = getCLARegistries(filterIn);
         for (RegistryAdapter adapter : adapters) {
             DefRegistry[] provided = adapter.getRegistries(mode, access, null);
             if (registries != null && provided != null) {
@@ -442,6 +413,11 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
             }
         }
         return new RegistryTrie(registries);
+    }
+
+    // test accessible
+    RegistrySet buildDefaultRegistrySet(Mode mode, Authentication access) {
+        return buildRegistrySet(mode, access, null);
     }
 
     @Override
@@ -466,20 +442,8 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
                 MODULE_PREFIXES, MODULE_DEFTYPES, compilerService);
     }
 
-    private  Collection<ComponentLocationAdapter> getAllComponentLocationAdapters() {
-        List<ComponentLocationAdapter> ret = Lists.newArrayList();
-        //ret.addAll(ServiceLocator.get().getAll(ComponentLocationAdapter.class));
-        ret.addAll(locationAdapters);
-
-        String prop = System.getProperty("aura.componentDir");
-        if (prop != null) {
-            ret.add(new ComponentLocationAdapter.Impl(new File(prop)));
-        }
-        return ret;
-    }
-
     @Override
-    public void onSourceChanged(DefDescriptor<?> source, SourceMonitorEvent event, String filePath) {
+    public void onSourceChanged(SourceMonitorEvent event, String filePath) {
         synchronized (this) {
             if (filePath != null) {
                 File file = new File(filePath);
@@ -577,23 +541,40 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
      * @return the locationAdapters
      */
     public List<ComponentLocationAdapter> getLocationAdapters() {
-        return locationAdapters;
+        // Synchronize on this because location adapters can be replaced.
+        synchronized(this) {
+            if (this.sortedAdapters == null) {
+                List<ComponentLocationAdapter> temporaryWorkingSet;
+                temporaryWorkingSet = locationAdapters.orElse(null);
+                if (temporaryWorkingSet == null) {
+                    temporaryWorkingSet = Lists.newArrayList();
+                } else {
+                    temporaryWorkingSet = Lists.newArrayList(temporaryWorkingSet);
+                }
+                temporaryWorkingSet.sort(Comparator.comparing(ComponentLocationAdapter::type));
+                this.sortedAdapters = temporaryWorkingSet;
+            }
+            return this.sortedAdapters;
+        }
     }
 
     /**
      * @param locationAdapters the locationAdapters to set
      */
-    @Inject
     public void setLocationAdapters(List<ComponentLocationAdapter> locationAdapters) {
+        // FIXME!!!!
         // component locations MUST be processed first as their namespaces MUST be available for lookup
         // to allow modules to override as their namespace are all lower cased
         // DefType.COMPONENT before DefType.MODULE
-        Collections.sort(locationAdapters, Comparator.comparing(location -> location.type()));
-        this.locationAdapters = locationAdapters;
+        synchronized (this) {
+            this.locationAdapters = Optional.of(locationAdapters);
+            this.sortedAdapters = null;
+        }
     }
 
-    public ExceptionAdapter getExceptionAdapter() {
-        return exceptionAdapter;
+    @Inject
+    public void setAuraGlobalControllerDefRegistry(AuraGlobalControllerDefRegistry globalControllerDefRegistry) {
+        this.globalControllerDefRegistry = globalControllerDefRegistry;
     }
 
     @Inject
@@ -602,8 +583,12 @@ public class RegistryServiceImpl implements RegistryService, SourceListener {
     }
 
     @Inject
+    public void setLoggingService(LoggingService loggingService) {
+        this.loggingService = loggingService;
+    }
+
+    @Inject
     public void setCachingService(CachingService cachingService) {
         this.cachingService = cachingService;
     }
-
 }

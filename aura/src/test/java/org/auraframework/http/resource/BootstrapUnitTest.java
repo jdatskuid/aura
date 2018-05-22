@@ -28,6 +28,7 @@ import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
+import org.auraframework.http.BootstrapUtil;
 import org.auraframework.instance.InstanceStack;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
@@ -35,21 +36,22 @@ import org.auraframework.service.InstanceService;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.AuraContext.Format;
 import org.auraframework.util.json.DefaultJsonSerializationContext;
-import org.auraframework.util.test.util.UnitTestCase;
+import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Matchers;
 import org.mockito.Mockito;
 
 import com.google.common.collect.Maps;
 
-public class BootstrapUnitTest extends UnitTestCase {
+public class BootstrapUnitTest {
     @Test
     public void testName() {
-        assertEquals("bootstrap.js", new Bootstrap().getName());
+        Assert.assertEquals("bootstrap.js", new Bootstrap().getName());
     }
 
     @Test
     public void testFormat() {
-        assertEquals(Format.JS, new Bootstrap().getFormat());
+        Assert.assertEquals(Format.JS, new Bootstrap().getFormat());
     }
 
     @Test
@@ -78,10 +80,11 @@ public class BootstrapUnitTest extends UnitTestCase {
             }
 
             @Override
-            public Boolean loadLabels() {
-                return true;
+            protected void loadLabels(AuraContext context) {
             }
         };
+
+        bootstrap.setBootstrapUtil(new BootstrapUtil());
 
         HttpServletResponse response = Mockito.mock(HttpServletResponse.class);
         StringWriter writer = new StringWriter();
@@ -126,7 +129,7 @@ public class BootstrapUnitTest extends UnitTestCase {
         bootstrap.write(request, response, context);
 
         if (!writer.toString().contains("\"token\":\"" + csrfToken + "\"")) {
-            fail("Missing CSRF token in payload: " + writer.toString());
+            Assert.fail("Missing CSRF token in payload: " + writer.toString());
         }
         Mockito.verify(configAdapter, Mockito.times(1)).getCSRFToken();
     }
@@ -140,8 +143,7 @@ public class BootstrapUnitTest extends UnitTestCase {
             }
 
             @Override
-            public Boolean loadLabels() {
-                return true;
+            protected void loadLabels(AuraContext context) {
             }
         };
 
@@ -179,7 +181,7 @@ public class BootstrapUnitTest extends UnitTestCase {
         bootstrap.write(request, response, context);
 
         if (writer.toString().contains("\"token\":")) {
-            fail("CSRF token should not be in payload: " + writer.toString());
+            Assert.fail("CSRF token should not be in payload: " + writer.toString());
         }
         Mockito.verify(configAdapter, Mockito.never()).getCSRFToken();
     }
@@ -194,8 +196,7 @@ public class BootstrapUnitTest extends UnitTestCase {
             }
 
             @Override
-            public Boolean loadLabels() {
-                return true;
+            protected void loadLabels(AuraContext context) {
             }
         };
 
@@ -233,8 +234,8 @@ public class BootstrapUnitTest extends UnitTestCase {
 
         bootstrap.write(request, response, context);
 
-        Mockito.verify(servletUtilAdapter, Mockito.times(1)).send404(Mockito.any(), Mockito.eq(request),
-                Mockito.eq(response));
+        Mockito.verify(servletUtilAdapter, Mockito.times(1)).send404(Matchers.any(), Matchers.eq(request),
+                Matchers.eq(response));
     }
 
     /**
@@ -267,10 +268,10 @@ public class BootstrapUnitTest extends UnitTestCase {
         bootstrap.setCacheHeaders(response, appDefDesc);
 
         if (shouldCache) {
-            Mockito.verify(servletUtilAdapter).setCacheTimeout(Mockito.any(HttpServletResponse.class),
-                    Mockito.eq(expirationSetting.longValue() * 1000));
+            Mockito.verify(servletUtilAdapter).setCacheTimeout(Matchers.any(HttpServletResponse.class),
+                    Matchers.eq(expirationSetting.longValue() * 1000), Matchers.eq(false));
         } else {
-            Mockito.verify(servletUtilAdapter).setNoCache(Mockito.any(HttpServletResponse.class));
+            Mockito.verify(servletUtilAdapter).setNoCache(Matchers.any(HttpServletResponse.class));
         }
         Mockito.verifyNoMoreInteractions(servletUtilAdapter);
     }

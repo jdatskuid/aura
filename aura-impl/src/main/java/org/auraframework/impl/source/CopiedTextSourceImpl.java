@@ -30,7 +30,8 @@ import org.auraframework.system.TextSource;
 public class CopiedTextSourceImpl<D extends Definition> extends AbstractTextSourceImpl<D> {
     private final String contents;
     private final String defaultNamespace;
-    private long lastModified;
+    private final long lastModified;
+    private final String hashValue;
 
     public CopiedTextSourceImpl(TextSource<D> original) {
         this(original.getDescriptor(), original, original.getMimeType());
@@ -40,8 +41,8 @@ public class CopiedTextSourceImpl<D extends Definition> extends AbstractTextSour
         super(descriptor, original.getSystemId(), mimeType);
         this.contents = original.getContents();
         this.defaultNamespace = original.getDefaultNamespace();
-        this.hash.setHash(this.contents.getBytes());
         this.lastModified = original.getLastModified();
+        this.hashValue = original.getHash();
     }
 
     @Override
@@ -60,6 +61,12 @@ public class CopiedTextSourceImpl<D extends Definition> extends AbstractTextSour
         return this.defaultNamespace;
     }
 
+    @Override
+    public String getHash() {
+        return hashValue;
+    }
+
+    @Override
     public long getLastModified() {
         return this.lastModified;
     }

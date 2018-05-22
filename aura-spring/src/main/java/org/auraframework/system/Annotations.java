@@ -56,6 +56,12 @@ public interface Annotations {
     }
 
     @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @interface ActionGroup {
+        String value();
+    }
+
+    @Retention(RetentionPolicy.RUNTIME)
     @Target(ElementType.PARAMETER)
     @interface Key {
         String value();
@@ -81,5 +87,16 @@ public interface Annotations {
     @Target(ElementType.METHOD)
     @interface Type {
         String value();
+    }
+
+    /**
+     * Marks a server action to be cacheable on public HTTP cache.
+     * 
+     * The expiration value sets the cache expiration time in seconds.
+     */
+    @Retention(RetentionPolicy.RUNTIME)
+    @Target(ElementType.METHOD)
+    @interface PublicCachingEnabled {
+        int expiration();
     }
 }

@@ -44,7 +44,7 @@ function ExpressionComponent(config, localCreation) {
     this.localIndex = {};
     this.destroyed=0;
     this.version = config["version"];
-    this.owner = context.getCurrentAccess();
+    this.owner = $A.clientService.getCurrentAccessGlobalId();
     this.name='';
 
     // allows components to skip creation path checks if it's doing something weird
@@ -100,7 +100,7 @@ function ExpressionComponent(config, localCreation) {
     }
 
     // add this component to the global index
-    $A.componentService.index(this);
+    $A.componentService.indexComponent(this);
 
     // sets this components definition, preferring partialconfig if it exists
     this.setupComponentDef(this.partialConfig || config);
@@ -134,7 +134,7 @@ function ExpressionComponent(config, localCreation) {
 
     // create all value providers for this component m/v/c etc.
     this.setupValueProviders(config["valueProviders"]);
-    
+
     // initialize attributes
     this.setupAttributes(configAttributes, localCreation);
 
@@ -169,12 +169,11 @@ ExpressionComponent.prototype.setContainerComponentId = function(containerCompon
     // Specific to Expressions only.
     if(this.isValid()) {
         // set the containerComponentId for expression values to the expression component itself
-        var context = $A.getContext();
-        var enableAccessChecks = context.enableAccessChecks;
+        var enableAccessChecks = $A.clientService.enableAccessChecks;
         try {
             // JBA: turn off access checks so we can evaluate this expression
             // safely just for this statement
-            context.enableAccessChecks = false;
+            $A.clientService.enableAccessChecks = false;
             var facetValue = this.get("v.value");
             if($A.util.isArray(facetValue)){
                 for(var fidx = 0; fidx < facetValue.length; fidx++) {
@@ -192,7 +191,7 @@ ExpressionComponent.prototype.setContainerComponentId = function(containerCompon
         }
         finally {
             // flip access checks back to their initial value
-            context.enableAccessChecks = enableAccessChecks;
+            $A.clientService.enableAccessChecks = enableAccessChecks;
         }
     }
 };
@@ -209,7 +208,7 @@ ExpressionComponent.prototype.setupValueProviders = function(customValueProvider
     }
 };
 
-/** 
+/**
  * Component.js has logic that is specific to HtmlComponent. Great! So we can move that into here and out of Component.js
  * That logic is the LockerService part to assign trust to the owner.
  */
@@ -222,7 +221,7 @@ ExpressionComponent.prototype.setupComponentDef = function() {
 };
 
 /**
- * Simple type checking. All simple components implement aura:rootComponent and cannot be extended, 
+ * Simple type checking. All simple components implement aura:rootComponent and cannot be extended,
  * so the simple condition here is sufficient unless any of the individual components change.
  */
 ExpressionComponent.prototype.isInstanceOf = function(type) {
@@ -233,22 +232,24 @@ ExpressionComponent.prototype.isInstanceOf = function(type) {
 ExpressionComponent.prototype["renderer"] = {
     "render" : function(component) {
         var value = component.attributeSet.getValue("value");
-        if($A.util.isUndefinedOrNull(value)){
+        if ($A.util.isUndefinedOrNull(value)) {
             value = "";
         }
 
-        if(!($A.util.isComponent(value) || $A.util.isArray(value))){
+        if (!$A.util.isComponent(value) && !$A.util.isArray(value)) {
             // JBUCH: HALO: TODO: MIGHT BE ABLE TO RETURN THIS TO SIMPLE TEXTNODE MANAGEMENT
             var owner = component.getOwner();
-            var context = $A.getContext();
-            context.setCurrentAccess(owner);
+            $A.clientService.setCurrentAccess(owner);
             try {
-                value = component._lastRenderedTextNode = $A.createComponentFromConfig({ "descriptor": "markup://aura:text", "attributes":{ value: value } });
-                value.setContainerComponentId(component.globalId);                
+                value = component._lastRenderedTextNode = $A.createComponentFromConfig({
+                    "descriptor": "markup://aura:text",
+                    "attributes":{ "value": value }
+                });
+                value.setContainerComponentId(component.globalId);
             } finally {
-                context.releaseCurrentAccess();
+                $A.clientService.releaseCurrentAccess();
             }
-            
+
             $A.lockerService.trust(owner, value);
         }
 
@@ -259,24 +260,27 @@ ExpressionComponent.prototype["renderer"] = {
         var ret=[];
         if (component.isRendered()) {
             var value = component.attributeSet.getValue("value");
-            if(!($A.util.isComponent(value)||$A.util.isArray(value))){
-                if($A.util.isUndefinedOrNull(value)){
+            if (!($A.util.isComponent(value)||$A.util.isArray(value))) {
+                if ($A.util.isUndefinedOrNull(value)) {
                     value = "";
                 }
-                if(component._lastRenderedTextNode && component._lastRenderedTextNode.isValid()){
+                if (component._lastRenderedTextNode && component._lastRenderedTextNode.isValid()) {
                     // JBUCH: HALO: TODO: MIGHT BE ABLE TO RETURN THIS TO SIMPLE TEXTNODE MANAGEMENT
                     component._lastRenderedTextNode.set("v.value",value,true);
-                    value=component._lastRenderedTextNode;
+                    value = component._lastRenderedTextNode;
                     return $A.rerender(value);
-                }else {
-                    value = component._lastRenderedTextNode = $A.createComponentFromConfig({"descriptor": 'markup://aura:text', "attributes": {"value": value }});
+                } else {
+                    value = component._lastRenderedTextNode = $A.createComponentFromConfig({
+                        "descriptor": 'markup://aura:text',
+                        "attributes": { "value": value }
+                    });
                     value.setContainerComponentId(component.globalId);
                 }
-            }else if (component._lastRenderedTextNode) {
+            } else if (component._lastRenderedTextNode) {
                 component._lastRenderedTextNode.destroy();
                 delete component._lastRenderedTextNode;
             }
-            ret=$A.renderingService.rerenderFacet(component, value);
+            ret = $A.renderingService.rerenderFacet(component, value);
         }
         return ret;
     },

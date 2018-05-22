@@ -15,8 +15,6 @@
  */
 package org.auraframework.integration.test.error;
 
-import com.google.common.base.Function;
-
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.DefDescriptor;
@@ -24,20 +22,16 @@ import org.auraframework.integration.test.util.WebDriverTestCase;
 import org.auraframework.system.AuraContext.Authentication;
 import org.auraframework.system.AuraContext.Format;
 import org.auraframework.system.AuraContext.Mode;
-import org.auraframework.test.adapter.MockConfigAdapter;
 import org.auraframework.util.test.annotation.ThreadHostileTest;
 import org.auraframework.util.test.annotation.UnAdaptableTest;
 import org.junit.Test;
 import org.openqa.selenium.By;
-import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.ui.ExpectedCondition;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
-import javax.inject.Inject;
-
 /**
- * What should you see when something goes wrong. {@link ThreadHostile} due to setProdConfig and friends.
+ * What should you see when something goes wrong. {@link ThreadHostileTest} due to setProdConfig and friends.
  */
 @UnAdaptableTest
 public class ExceptionHandlingUITest extends WebDriverTestCase {
@@ -46,11 +40,8 @@ public class ExceptionHandlingUITest extends WebDriverTestCase {
 
     private static final String errorBoxPath = "div.auraForcedErrorBox div#auraErrorMessage";
 
-    @Inject
-    MockConfigAdapter mockConfigAdapter;
-
     private void setProdConfig() throws Exception {
-        mockConfigAdapter.setIsProduction(true);
+        getMockConfigAdapter().setIsProduction(true);
         contextService.endContext();
         contextService.startContext(Mode.DEV, Format.HTML, Authentication.AUTHENTICATED);
     }
@@ -232,7 +223,7 @@ public class ExceptionHandlingUITest extends WebDriverTestCase {
     }
 
     /**
-     * Generic error message displayed in PRODUCTION if component renderer throws.
+     * Generic error message displayed in PRODUCTION if component renderer throws.import com.google.common.base.Function;
      */
     @ThreadHostileTest("PRODUCTION")
     @Test
@@ -311,12 +302,7 @@ public class ExceptionHandlingUITest extends WebDriverTestCase {
         // Wait till prior prior client-side change is gone indicating page
         // reload
         WebDriverWait wait = new WebDriverWait(getDriver(), 30);
-        wait.until(new ExpectedCondition<Boolean>() {
-            @Override
-            public Boolean apply(WebDriver d) {
-                return !getAuraUITestingUtil().getBooleanEval("return !!document.__PageModifiedTestFlag");
-            }
-        });
+        wait.until((ExpectedCondition<Boolean>) d -> !getAuraUITestingUtil().getBooleanEval("return !!document.__PageModifiedTestFlag"));
         // Wait for page to reload and aura framework initialization
         getAuraUITestingUtil().waitForAuraInit();
         getAuraUITestingUtil().waitForElementText(By.cssSelector(".uiOutputText"), "initial", true);
@@ -330,12 +316,7 @@ public class ExceptionHandlingUITest extends WebDriverTestCase {
         DefDescriptor<?> cdd = addSourceAutoCleanup(ComponentDef.class,
                 "<aura:component>{!'&lt;'}script{!'&gt;'}alert('foo');{!'&lt;'}/script{!'&gt;'}</aura:component>");
         openRaw(getAppUrl("", String.format("<%s:%s/>", cdd.getNamespace(), cdd.getName())));
-        getAuraUITestingUtil().waitForElementFunction(By.tagName("body"), new Function<WebElement, Boolean>() {
-                @Override
-			    public Boolean apply(WebElement elem) {
-				    return elem.getText().contains("alert(");
-			    }
-            },
+        getAuraUITestingUtil().waitForElementFunction(By.tagName("body"), elem -> elem.getText().contains("alert("),
             "XSS may have injected a bad <script> tag");
         assertEquals("", getAuraUITestingUtil().getAuraErrorMessage());
     }
@@ -345,12 +326,7 @@ public class ExceptionHandlingUITest extends WebDriverTestCase {
         DefDescriptor<?>  cdd = addSourceAutoCleanup(ComponentDef.class,
                 "<aura:component>{!'&lt;script&gt;'}alert({!'\"foo\");&lt;/script&gt;'}</aura:component>");
         openRaw(getAppUrl("", String.format("<%s:%s/>", cdd.getNamespace(), cdd.getName())));
-        getAuraUITestingUtil().waitForElementFunction(By.tagName("body"), new Function<WebElement, Boolean>() {
-                @Override
-		        public Boolean apply(WebElement elem) {
-			        return elem.getText().contains("alert(");
-		        }
-            },
+        getAuraUITestingUtil().waitForElementFunction(By.tagName("body"), elem -> elem.getText().contains("alert("),
             "XSS may have injected a bad <script> tag");
         assertEquals("", getAuraUITestingUtil().getAuraErrorMessage());
     }

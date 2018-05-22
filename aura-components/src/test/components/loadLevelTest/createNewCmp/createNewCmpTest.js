@@ -14,6 +14,14 @@
  * limitations under the License.
  */
 ({
+    // These tests fake offline usubg http://offline which causes CSP errors with uri defs
+    setUp: function() {
+        this.currentURIDefsState = $A.test.setURIDefsState(null);
+    },
+    tearDown: function() {
+        $A.test.setURIDefsState(this.currentURIDefsState);
+    },
+    
     /**
      * Verify creation of a component whose definition is available at the client.
      */
@@ -82,8 +90,6 @@
 
             $A.test.addWaitFor(true, function(){ return actionComplete; }, function(){
                 var textCmp = cmp.get('v.body')[0];
-                //Since this is created under root component and this is the first component from the server
-                $A.test.assertEquals("1:2;a", textCmp.getGlobalId(), "Expected global id to be 1:2;a");
                 $A.test.assertEquals(99, textCmp.get('v.number'), "Failed to pass attribute values to created component");
                 $A.test.assertEquals("99", $A.test.getTextByComponent(textCmp), "Failed to pass attribute values to created component");
             });
@@ -255,7 +261,7 @@
 
     testPassesINCOMPLETEIfOneComponentTimesoutWhenCreatingMultipleComponents: {
         // TODO(W-2537764): IE < 10 gives Access Denied error when trying to send XHRs after setServerReachable(false)
-        browsers: ["-IE7", "-IE8", "-IE9"],
+        browsers: ["-IE8", "-IE9"],
         test: function(cmp) {
             var expected="INCOMPLETE";
             var expectedList="SUCCESS,SUCCESS,INCOMPLETE,";

@@ -23,6 +23,7 @@ import org.auraframework.integration.test.util.WebDriverTestCase.TargetBrowsers;
 import org.auraframework.test.util.WebDriverUtil.BrowserType;
 import org.auraframework.util.test.annotation.PerfTest;
 import org.auraframework.util.test.annotation.UnAdaptableTest;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.openqa.selenium.By;
 import org.openqa.selenium.Keys;
@@ -36,7 +37,7 @@ import org.openqa.selenium.WebElement;
  * UnAdaptable because issue with sfdc environments with sendkeys in iframes see W-1985839 and W-2009411
  */
 @UnAdaptableTest
-@TargetBrowsers({ BrowserType.GOOGLECHROME, BrowserType.FIREFOX, BrowserType.IE7, BrowserType.SAFARI })
+@TargetBrowsers({ BrowserType.GOOGLECHROME, BrowserType.FIREFOX, BrowserType.SAFARI })
 public class ListSorterUITest extends WebDriverTestCase {
 
     public static final String APP = "/uitest/listSorter_Test.cmp";
@@ -52,7 +53,7 @@ public class ListSorterUITest extends WebDriverTestCase {
      */
     @PerfTest
     @Test
-    public void testTabOutOfListSorter() throws MalformedURLException, URISyntaxException {
+    public void testTabOutOfListSorter() throws Exception {
         verifyTabOutAndEscBehaviour(Keys.TAB, true);
     }
 
@@ -62,7 +63,8 @@ public class ListSorterUITest extends WebDriverTestCase {
      * @throws MalformedURLException
      * @throws URISyntaxException
      */
-    public void _testEscOfListSorter() throws MalformedURLException, URISyntaxException {
+    @Ignore
+    public void _testEscOfListSorter() throws Exception {
         verifyTabOutAndEscBehaviour(Keys.ESCAPE, false);
     }
 
@@ -75,8 +77,7 @@ public class ListSorterUITest extends WebDriverTestCase {
      * @throws URISyntaxException
      * @throws MalformedURLException
      */
-    private void verifyTabOutAndEscBehaviour(Keys keysToSend, boolean isOpen) throws MalformedURLException,
-            URISyntaxException {
+    private void verifyTabOutAndEscBehaviour(Keys keysToSend, boolean isOpen) throws Exception {
         open(APP);
         WebDriver driver = this.getDriver();
         WebElement listSorter = driver.findElement(By.className(SORTER));

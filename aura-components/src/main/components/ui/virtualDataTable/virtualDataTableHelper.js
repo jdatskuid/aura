@@ -28,7 +28,7 @@
     
     initialize: function (cmp) {
         // Internal variables we use
-        cmp._templates        = [];
+        this.destroyTemplates(cmp);
         cmp._virtualItems     = [];
         cmp._ptv              = null;
         cmp._dirtyFlag        = 0;
@@ -330,7 +330,9 @@
             clonedRow;
 
         // Change the PTV -> dirty whatever is needed
-        ptv.set(itemVar, item);
+        if ($A.util.isString(itemVar)) {
+            ptv.set(itemVar, item);
+        }
 
         cmp.markClean('v.items'); // Mark ourselves clean before rerender (avoid calling rerender on ourselves)
         $A.renderingService.rerenderDirty('virtualRendering');
@@ -631,15 +633,18 @@
      */
     hasResizerHandles : function(cmp) {
         // TODO: Use getHandles from the resizer instead of grabbing the elements ourselves
-        var handles = cmp.getElement().querySelectorAll(".slds-resizable").length;
+        var handles = cmp.getElement().querySelectorAll("thead .slds-resizable").length;
         var headers = cmp.get("v.headerColumns").length;
         return handles === headers;
     },
     
     destroyTemplates: function (cmp) {
-        var tmpls = cmp._templates;
-        for (var i = 0; i < tmpls.length; ++i) {
-            tmpls[i].destroy();
+        if (cmp && cmp._templates) {
+            var tmpls = cmp._templates;
+            for (var i = 0; i < tmpls.length; ++i) {
+                tmpls[i].destroy();
+            }
         }
+        cmp._templates = [];
     }
 })// eslint-disable-line semi

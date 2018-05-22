@@ -276,6 +276,11 @@
             onFinish: function() {
                 if(cmp.isValid()) {
                     if(cmp.positioned) {
+                        // IE11, after set display to none, focus return to body
+                        // To allow stackUtil can check whether panel has focus.
+                        if ($A.get("$Browser.isIE11")) {
+                            cmp.lastActive = document.activeElement;
+                        }
                         panelEl.style.display = 'none';
                     }
                     var keyHandler = self._getKeyHandler(cmp);
@@ -301,10 +306,7 @@
         if (!cmp.isValid()) {
             return;
         }
-        // shouldReturnFocus defaults to true if it is not explicitly passed in.
-        if ($A.util.isUndefinedOrNull(shouldReturnFocus) || shouldReturnFocus) {
-            this.focusLib.stackUtil.unstackFocus(cmp);
-        }
+
 
         var self = this;
 
@@ -315,6 +317,10 @@
 
             self.cleanPositioning(cmp);
 
+            // PANEL should not handle return focus.
+            // ui:destroyPanel event handling in panelManager2 will return the focus
+            // after activateNextPanel which could cause focus move to next panel.
+            // so to return focus correctly, must return it after activateNextPanel.
             cmp.getEvent('notify').setParams({
                 action: 'destroyPanel',
                 typeOf: 'ui:destroyPanel',
@@ -581,7 +587,7 @@
         // Check all parent elements for scrollability
         while (el !== document.body) {
             // Get some style properties
-            var style = window.getComputedStyle(el);
+            var style = window.getComputedStyle(el) || el.style;
 
             if (!style) {
                 // If we've encountered an element we can't compute the style for, get out
@@ -629,7 +635,8 @@
 
         document.documentElement.appendChild(testDiv);
         testDiv.style.WebkitOverflowScrolling = 'touch';
-        scrollSupport = 'getComputedStyle' in window && window.getComputedStyle(testDiv)['-webkit-overflow-scrolling'] === 'touch';
+        var computedStyle = window.getComputedStyle(testDiv) || testDiv.style;
+        scrollSupport = computedStyle['-webkit-overflow-scrolling'] === 'touch';
         document.documentElement.removeChild(testDiv);
         return scrollSupport;
     }

@@ -72,8 +72,7 @@
         });
         abortEvent.fire();
     },
-
-
+    
     getEventSourceOptionComponent: function (component, event) {
         //option could be a compound component so look for the right option
         var element = event.target || event.srcElement;
@@ -161,7 +160,9 @@
         var concreteCmp = component.getConcreteComponent();
         var newItems = event.getParam("data");
         // Users of the component that implement their own v.matchFunc rely on this being set.
-        concreteCmp.set("v.items", newItems);
+        // The last arguments indicates that this shouldn't lead to a re-render, causing
+        // performance issues.
+        concreteCmp.set("v.items", newItems, true);
         if (concreteCmp.get("v.disableMatch") === true) {
             for (var j = 0; j < newItems.length; j++) {
                 newItems[j].visible = true;
@@ -207,7 +208,7 @@
             return null;
         }
         itemsSection.iters = iterCmp.get("v.body");
-
+        
         // original index points to the currently highlighted item or -1 if we're not in item list
         // highlightedIndex is used to determine the next item to highlight during traversal
         itemsSection.originalIndex = itemsSection.highlightedIndex = this.findHighlightedOptionIndex(itemsSection.iters);
@@ -327,7 +328,11 @@
                     } else if (!itemList[this.highlightedIndex].get("v.visible")) {
                         resultSection = this.incrementedTo();
                     }
+                // no visible items found, so the count is off, in this case we skip to the footer if present
+                } else if (itemList[this.highlightedIndex] && !itemList[this.highlightedIndex].get("v.visible") && this.traversalCount === itemList.length) {
+                    return this.next.incrementedTo();
                 }
+                
                 return resultSection;
             },
 
@@ -532,7 +537,7 @@
         }
         this.showLoading(component, false);
 
-        component.set("v.privateItems", items);
+        component.set("v.items", items);
 
         this.fireMatchDoneEvent(component, items);
     },
@@ -545,8 +550,6 @@
                 // - it should not be an action but js function
                 // - it should not have the responsability to set the items directly
                 // - we should not fire yet another stupid event since we are in the callback
-
-                //this.matchFunc(component, items);
                 this.matchFuncDone(component, items);
             });
             action.setParams({items: items});
@@ -665,7 +668,7 @@
                 $A.util.on(document.body, this.getOnClickEventProp("onClickStartEvent"), this.getOnClickStartFunction(component));
                 $A.util.on(document.body, this.getOnClickEventProp("onClickEndEvent"), this.getOnClickEndFunction(component));
 
-                if (onVisibleChange) {
+                if (onVisibleChange || component._onVisibleChangeRequested) {
 	                //push this even to the end of the queue to ensure that the interation in the component body is complete
 	                window.setTimeout($A.getCallback(function () {
 	                    if (component.isValid()) {
@@ -676,6 +679,9 @@
 
             }
 
+            // we have now handled any onVisibleChanges that were requested while the component was not displayed yet.
+            component._onVisibleChangeRequested = false;
+
 
             // Update accessibility attributes
             var updateAriaEvt = component.get("e.updateAriaAttributes");
@@ -685,6 +691,10 @@
                 });
                 updateAriaEvt.fire();
             }
+        } else if (onVisibleChange) {
+            // Due to the lazy loading of the list component with usePanel the component may not be displayed yet when the visibility is
+            // changed to display the drop down, causing the list to never show. Save the fact we requested the panel to open for later.
+            component._onVisibleChangeRequested = true;
         }
     },
 

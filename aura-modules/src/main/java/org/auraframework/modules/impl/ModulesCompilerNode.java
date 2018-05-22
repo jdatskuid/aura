@@ -15,69 +15,69 @@
  */
 package org.auraframework.modules.impl;
 
-import java.io.File;
-import java.io.InputStreamReader;
-import java.nio.file.Files;
-import java.util.ArrayList;
-import java.util.EnumMap;
-import java.util.List;
 import java.util.Map;
-
-import org.auraframework.def.module.ModuleDef.CodeType;
-import org.auraframework.modules.ModulesCompiler;
 import org.auraframework.modules.ModulesCompilerData;
-import org.auraframework.util.AuraFiles;
-
-import com.google.common.base.Charsets;
-import com.google.common.io.CharStreams;
+import org.auraframework.service.LoggingService;
+import org.auraframework.tools.node.api.Lambda;
+import org.auraframework.tools.node.api.NodeLambdaFactory;
+import org.json.JSONObject;
 
 /**
  * ModulesCompiler implementation that spawns a process to invoke node
  */
-public final class ModulesCompilerNode implements ModulesCompiler {
+public class ModulesCompilerNode implements ModulesCompiler {
 
-    private static final String PATH_TO_NODE = AuraFiles.Core.getPath() + "/node/node";
+    protected Lambda compileLambda;
+    private final LoggingService loggingService;
+    protected final NodeLambdaFactory factory;
 
-    public ModulesCompilerData compile(File file) throws Exception {
-        // executes: node .../compiler-cli.js .../compiler.js input.js output.js
-        String filePath = file.getAbsolutePath();
-        File output = ModulesCompilerUtil.createTempFile("out");
-        List<String> command = new ArrayList<>();
-        command.add(PATH_TO_NODE);
-        command.add(ModulesCompilerUtil.COMPILER_CLI_JS_PATH);
-        command.add(ModulesCompilerUtil.COMPILER_JS_PATH);
-        command.add(filePath);
-        command.add(output.getAbsolutePath());
-
-        Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
-
-        // can exec in current thread as stderr is redirected to stdout
-        String stdout = CharStreams.toString(new InputStreamReader(process.getInputStream(), Charsets.UTF_8));
-
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            throw new RuntimeException(
-                    "ModulesCompilerNode failed for: " + filePath + "\n    exit code: " + exitCode + '\n' + stdout);
-        }
-
-        String result = new String(Files.readAllBytes(output.toPath()), Charsets.UTF_8);
-        output.delete();
-        // TODO update for new compiler output with all modes
-        Map<CodeType, String> codeMap = new EnumMap<>(CodeType.class);
-        codeMap.put(CodeType.DEV, result);
-        codeMap.put(CodeType.PROD, result);
-        codeMap.put(CodeType.COMPAT, result);
-        // TODO: compiler metadata
-        return new ModulesCompilerData(codeMap, null);
-    }
-
-    @Override
-    public ModulesCompilerData compile(String componentPath, String sourceTemplate, String sourceClass) {
-        throw new Error("NYI");
+    protected ModulesCompilerNode(NodeLambdaFactory factory, LoggingService loggingService) throws Exception {
+        this.factory = factory;
+        this.loggingService = loggingService;
     }
 
     @Override
     public ModulesCompilerData compile(String entry, Map<String, String> sources) throws Exception {
-        throw new Error("NYI");
+        JSONObject input = generateCompilerInput(entry, sources);
+        JSONObject output;
+
+        compileLambda = getCompileLambda();
+
+        try {
+            output = compileLambda.invoke(input);
+        } catch (Exception x) {
+            // an error at this level may be due to env (i.e. node process died), retry once
+            loggingService.error("ModulesCompilerNode: exception compiling (will retry once) " + entry + ": " + x, x);
+            try {
+                output = compileLambda.invoke(input);
+            } catch (Exception xr) {
+                loggingService.error("ModulesCompilerNode: exception compiling (retry failed) " + entry + ": " + xr,
+                        xr);
+                throw xr;
+            }
+        }
+
+        if (output.has("compilerError")) {
+            String error = output.getString("compilerError");
+            loggingService.warn("ModulesCompilerNode: compiler error " + entry + ": " + error);
+            throw new RuntimeException(error);
+        }
+        return parseCompilerOutput(output);
+    }
+
+    protected JSONObject generateCompilerInput(String entry, Map<String, String> sources) {
+        return ModulesCompilerUtil.generateCompilerInput(entry, sources);
+    }
+
+    protected Lambda getCompileLambda() throws Exception {
+        if (compileLambda == null) {
+            compileLambda = this.factory.get(ModulesCompilerUtil.getCompilerBundle(factory), ModulesCompilerUtil.COMPILER_HANDLER);
+        }
+
+        return compileLambda;
+    }
+
+    protected ModulesCompilerData parseCompilerOutput(JSONObject output) {
+        return ModulesCompilerUtil.parseCompilerOutput(output);
     }
 }

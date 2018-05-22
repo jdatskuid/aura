@@ -22,6 +22,15 @@
  */
 function AuraComponentService() {
     // Def registries
+    this.moduleEngine           = Aura["Engine"];
+    this.wireService            = Aura["WireService"];
+
+    // remove globals
+    delete Aura["Engine"];
+    delete Aura["WireService"];
+
+    // Will hold a reference to a wrapped engine, will be used for custom modules(LockerService)
+    this.wrappedEngine          = undefined;
     this.moduleDefRegistry      = {};
     this.moduleRegistry         = {};
     this.componentDefRegistry   = {};
@@ -31,7 +40,11 @@ function AuraComponentService() {
     this.libraryRegistry        = new Aura.Library.LibraryRegistry();
     this.libraryIncludeRegistry = new Aura.Library.LibraryIncludeRegistry();
     this.componentClassRegistry = new Aura.Component.ComponentClassRegistry();
+    this.componentDefLoader     = new Aura.Component.ComponentDefLoader();
     this.componentDefStorage    = new Aura.Component.ComponentDefStorage();
+    this.actionStorage          = new Aura.Controller.ActionStorage();
+    this.moduleNameToDescriptorLookup = {};
+    this.descriptorCasingMap    = {};
 
     // holds ComponentDef configs to be created
     this.savedComponentConfigs = {};
@@ -54,7 +67,7 @@ function AuraComponentService() {
 
     // Initialize core modules
     this.initCoreModules();
-    
+
     // Instrumentation tracking
     this.trackingCreate = false;
 }
@@ -68,12 +81,49 @@ function AuraComponentService() {
  * @export
  */
 AuraComponentService.prototype.get = function(globalId) {
+    // $A.deprecated("AuraComponentService.get is no longer supported.","Use '$A.getComponent();'.", "AuraComponentService.get");
     return this.indexes.globalId[globalId];
 };
 
 AuraComponentService.prototype.initCoreModules = function () {
-    this.addModule("markup://engine", "engine", [], null, window["Engine"]);
+    var compat = window["Aura"] && window["Aura"]["compat"];
+    var babelHelpers = compat && compat["babelHelpers"];
+    var ProxyObject = window["Proxy"] || {};
+
+    this.addModule("markup://engine", "engine", [], null, this.moduleEngine);
+    this.addModule("markup://wire-service", "wire-service", [], null, this.wireService);
+    this.addModule("markup://assert", "assert", [], null, Aura.ExportsAssert);
+    this.addModule("markup://logger", "logger", [], null, Aura.ExportsLogger);
     this.addModule("markup://aura", "aura", [], null, Aura.ExportsModule);
+    this.addModule("markup://aura-storage", "aura-storage", [], null, Aura.ExportsStorage);
+    this.addModule("markup://aura-instrumentation", "aura-instrumentation", [], null, Aura.ExportsMetricsService);
+
+    // Register proxy-compat helpers
+    var proxyPrefix = "proxy-compat/";
+    Object.keys(ProxyObject).forEach(function (helper) {
+        var moduleName = proxyPrefix + helper;
+        this.addModule("markup://" + moduleName, moduleName, [], null, ProxyObject[helper]);
+    }.bind(this));
+
+    // Register compat modules
+    if (babelHelpers) {
+        var babelHelpersPrefix = "babel-compat/helpers/";
+        Object.keys(babelHelpers).forEach(function (helper) {
+            var moduleName = babelHelpersPrefix + helper;
+            this.addModule("markup://" + moduleName, moduleName, [], null, babelHelpers[helper]);
+        }.bind(this));
+
+        // Regenerator (for transpiling async stuff)
+        this.addModule("markup://babel-compat/regeneratorRuntime", "babel-compat/regenerator", [], null, compat["regenerator"]);
+    }
+};
+
+/**
+ * Adds to the mapping of case mismatched descriptors
+ * @export
+ */
+AuraComponentService.prototype.addDescriptorCaseMapping = function(descriptorFrom, descriptorTo) {
+    this.descriptorCasingMap[descriptorFrom] = descriptorTo;
 };
 
 /**
@@ -89,14 +139,46 @@ AuraComponentService.prototype.getComponent = function(identifier) {
 };
 
 /**
+ *  Validates as best it can that the config bag you specified is a ComponentDefRef that
+ *  we can use to create instances of components from.
+ */
+AuraComponentService.prototype.isComponentDefRef = function(config) {
+    if(!$A.util.isObject(config)) {
+        return false;
+    }
+
+    var descriptor = config[Json.ApplicationKey.DESCRIPTOR] || config["descriptor"] || (config["componentDef"] && config["componentDef"]["descriptor"]);
+
+    return descriptor !== null && descriptor !== undefined;
+};
+
+/**
  * Gets descriptor from the config object (for normalization)
  * @param {Object} Controller descriptor config
  * @returns {String} Descriptor
  * @private
  */
 AuraComponentService.prototype.getDescriptorFromConfig = function(descriptorConfig) {
-    var descriptor = descriptorConfig && descriptorConfig["descriptor"];
+    var descriptor = descriptorConfig;
+
+    // if string value was provided, try to extract from object
+    if (descriptorConfig && typeof descriptorConfig !== 'string') {
+        if (descriptorConfig.hasOwnProperty(Json.ApplicationKey.DESCRIPTOR)) {
+            descriptor = descriptorConfig[Json.ApplicationKey.DESCRIPTOR];
+        }
+        else {
+            // fallback
+            descriptor = descriptorConfig["descriptor"];
+        }
+    }
+
     $A.assert(descriptor, "Descriptor for Config required for registration");
+    if (this.descriptorCasingMap[descriptor]) {
+        $A.deprecated("Descriptor case sensitivity mismatch, descriptors are case sensitive.",
+            "Please find the reference to: " + descriptor + " and change it to: " + this.descriptorCasingMap[descriptor],
+            "getDescriptorFromConfig.descriptorCasingMap");
+        return this.descriptorCasingMap[descriptor];
+    }
     return descriptor;
 };
 
@@ -106,8 +188,20 @@ AuraComponentService.prototype.getDescriptorFromConfig = function(descriptorConf
  * @returns {String} Descriptor
  * @private
  */
-AuraComponentService.prototype.createDescriptorConfig = function(descriptor) {
-    descriptor = typeof descriptor === 'string' ? descriptor : descriptor["descriptor"].toString();
+AuraComponentService.prototype.createDescriptorConfig = function(descriptorConfig) {
+    var descriptor = descriptorConfig;
+
+    // if string value was provided, try to extract from object
+    if (descriptorConfig && typeof descriptorConfig !== 'string') {
+        if (descriptorConfig.hasOwnProperty(Json.ApplicationKey.DESCRIPTOR)) {
+            descriptor = descriptorConfig[Json.ApplicationKey.DESCRIPTOR];
+        }
+        else {
+            // fallback
+            descriptor = descriptorConfig["descriptor"];
+        }
+    }
+
     descriptor = descriptor.indexOf("://") < 0 ? "markup://" + descriptor : descriptor;
     return { "descriptor" : descriptor };
 };
@@ -187,7 +281,7 @@ AuraComponentService.prototype.getAttributeProviderForElement = function(element
  * @return {Object}
  * @private
  */
-AuraComponentService.prototype.contains = (function() {
+AuraComponentService.prototype.containsComponent = (function() {
 
     function contains(container, cmp, visited, isOwner) {
         if(container === cmp) {
@@ -284,12 +378,12 @@ AuraComponentService.prototype.createComponent = function(type, attributes, call
     $A.assert(!attributes || $A.util.isObject(attributes), "ComponentService.createComponent(): 'attributes' must be a valid Object.");
     $A.assert($A.util.isFunction(callback), "ComponentService.createComponent(): 'callback' must be a Function pointer.");
 
-    if(type.indexOf(':')<0){
-        attributes={
+    if (type.indexOf(':') < 0){
+        attributes = {
             "tag":type,
             "HTMLAttributes":attributes
         };
-        type="aura:html";
+        type = "aura:html";
     }
 
     var config = {
@@ -319,10 +413,11 @@ AuraComponentService.prototype.createInternalConfig = function (config) {
     $A.assert(descriptor.indexOf("markup://") === 0, "Descriptor needs to be of the format markup://ns:name");
 
     return {
-        "componentDef" : this.createDescriptorConfig(config["descriptor"]),
-        "localId"      : config["localId"] || config["aura:id"],
-        "flavor"       : config["flavor"],
-        "attributes"   : {
+        "componentDef"     : this.createDescriptorConfig(config["descriptor"]),
+        "localId"          : config["localId"] || config["aura:id"],
+        "flavor"           : config["flavor"],
+        "skipCreationPath" : config["skipCreationPath"],
+        "attributes"       : {
             "values"        : config["attributes"],
             "valueProvider" : config["valueProvider"]
         }
@@ -439,7 +534,8 @@ AuraComponentService.prototype.createComponents = function(components, callback)
  * @export
  */
 AuraComponentService.prototype.newComponent = function(config, attributeValueProvider, localCreation, doForce){
-    $A.deprecated("$A.newCmp and $A.componentService.newComponent are no longer supported.","Use '$A.createComponent();'.","2017/01/06","2017/02/17");
+    $A.deprecated("$A.newCmp and $A.componentService.newComponent are no longer supported.",
+            "Use '$A.createComponent();'.", "AuraComponentService.newComponent");
     return this.newComponentDeprecated(config, attributeValueProvider, localCreation, doForce);
 };
 
@@ -456,7 +552,8 @@ AuraComponentService.prototype.newComponent = function(config, attributeValuePro
  * @export
  */
 AuraComponentService.prototype.newComponentDeprecated = function(config, attributeValueProvider, localCreation, doForce){
-    $A.deprecated("$A.newCmpDeprecated and $A.componentService.newComponentDeprecated are not supported.","Use '$A.createComponent();'.","2017/01/06","2017/02/17");
+    $A.deprecated("$A.newCmpDeprecated and $A.componentService.newComponentDeprecated are not supported.",
+            "Use '$A.createComponent();'.", "AuraComponentService.newComponentDeprecated");
 
     $A.assert(config, "config is required in ComponentService.newComponentDeprecated(config)");
 
@@ -506,24 +603,18 @@ AuraComponentService.prototype.newComponentDeprecated = function(config, attribu
             }
         };
     } else {
-        // var currentAccess = $A.getContext().getCurrentAccess();
         // Server should handle the case of an unknown def fetched "lazily"
-        if(!$A.clientService.allowAccess(def) /* && currentAccess  */) {
-            var context=$A.getContext();
-            var contextCmp = context && context.getCurrentAccess();
+        if(!$A.clientService.allowAccess(def)) {
             var message="Access Check Failed! AuraComponentService.newComponentDeprecated(): '" +
                     (def && def.getDescriptor().getQualifiedName()) + "' is not visible to '" +
-                    contextCmp + "'.";
-            if(context.enableAccessChecks) {
-                if(context.logAccessFailures){
-                    var ae = new $A.auraError(message);
-                    ae["component"] = contextCmp && contextCmp.getDef().getDescriptor().getQualifiedName();
-                    ae["componentStack"] = context && context.getAccessStackHierarchy();
-                    $A.error(null, ae);
+                    $A.clientService.currentAccess + "'.";
+            if($A.clientService.enableAccessChecks) {
+                if($A.clientService.logAccessFailures){
+                    $A.error(null,new $A.auraError(message));
                 }
                 return null;
             }else{
-                if(context.logAccessFailures){
+                if($A.clientService.logAccessFailures){
                     $A.warning(message);
                 }
                 // Intentional fallthrough
@@ -531,7 +622,7 @@ AuraComponentService.prototype.newComponentDeprecated = function(config, attribu
         }
     }
 
-    return this.createComponentInstance(config, localCreation);
+    return this.createComponentInstance(config, localCreation, def);
 };
 
 /**
@@ -539,7 +630,7 @@ AuraComponentService.prototype.newComponentDeprecated = function(config, attribu
  * @param {Object} config Config is the same object you would pass to the constructor $A.Component to create a component. This method will use that information to further configure the component class that is created.
  * @param {Boolean} localCreation See documentation on Component.js constructor for documentation on the localCreation property.
  */
-AuraComponentService.prototype.createComponentInstance = function(config, localCreation) {
+AuraComponentService.prototype.createComponentInstance = function(config, localCreation, def) {
     if (!config["skipCreationPath"]) {
         var context = $A.getContext();
         var creationPath;
@@ -580,8 +671,8 @@ AuraComponentService.prototype.createComponentInstance = function(config, localC
     }
 
     // See if there is a component specific class
-    var def = config["componentDef"];
-    var desc = def["descriptor"] || def;
+    var componentDef = config["componentDef"];
+    var desc = componentDef[Json.ApplicationKey.DESCRIPTOR] || componentDef;
     // Not sure why you would pass in the ComponentDef as the descriptor, but it's being done.
     if(desc.getDescriptor) {
         desc = desc.getDescriptor().getQualifiedName();
@@ -595,9 +686,9 @@ AuraComponentService.prototype.createComponentInstance = function(config, localC
     // config["componentClass"] - Result of a getComponent() action
     // config["componentDef"]["componentClass"] - Result of sending component defs back from the server.
     // Always comes back as a function to execute, which defines the component classes.
-    var componentClassDef = config["componentClass"] || config["componentDef"]["componentClass"];
+    var componentClassDef = config["componentClass"] || config["componentDef"][Json.ApplicationKey.COMPONENTCLASS];
     if(componentClassDef && !this.hasComponentClass(desc)) {
-        componentClassDef = $A.util.json.decode(componentClassDef);
+        componentClassDef = $A.util.globalEval(componentClassDef, $A.clientService.getSourceMapsUrl(desc));
         componentClassDef();
     }
 
@@ -606,7 +697,7 @@ AuraComponentService.prototype.createComponentInstance = function(config, localC
         this.createFromSavedComponentConfigs(desc);
     }
 
-    var classConstructor = this.getComponentClass(desc);
+    var classConstructor = this.getComponentClass(desc, def);
     if (!classConstructor) {
         throw new $A.auraError("Component class not found: " + desc, null, $A.severity.QUIET);
     }
@@ -633,9 +724,19 @@ AuraComponentService.prototype.addComponentClass = function(descriptor, exporter
 AuraComponentService.prototype.initModuleDefs = function(modules) {
     var moduleDefRegistry = this.moduleDefRegistry;
 
+    var code = Json.ApplicationKey.CODE;
+    var minVersion = Json.ApplicationKey.MINVERSION;
+    var access = Json.ApplicationKey.ACCESS;
+    var requireLocker = Json.ApplicationKey.REQUIRELOCKER;
+    var attributeDefs = Json.ApplicationKey.ATTRIBUTEDEFS;
+
     modules.forEach(function (module) {
-        var exporter = { "exporter": module["code"] };
-        moduleDefRegistry[module["descriptor"]] = moduleDefRegistry[module["name"]] = exporter;
+        var exporter = { "exporter": module[code] };
+        exporter[minVersion] = module[minVersion];
+        exporter[access] = module[access];
+        exporter[requireLocker] = module[requireLocker];
+        exporter[attributeDefs] = module[attributeDefs];
+        moduleDefRegistry[module[Json.ApplicationKey.DESCRIPTOR]] = moduleDefRegistry[module[Json.ApplicationKey.NAME]] = exporter;
     });
 };
 
@@ -648,6 +749,7 @@ AuraComponentService.prototype.initModuleDefs = function(modules) {
  * @export
  */
 AuraComponentService.prototype.addModule = function(descriptor, name, dependencies, exporterClass, nsexports) {
+    this.moduleNameToDescriptorLookup[name] = descriptor;
     if (exporterClass === undefined) {
         // amd define does not include dependencies param if no dependencies.
         return this.addModule(descriptor, name, [], dependencies);
@@ -668,7 +770,7 @@ AuraComponentService.prototype.evaluateModuleDef = function (descriptor) {
     var exportns;
     var url;
 
-    $A.assert(entry, "We couldn't found the definition for dependency: " + descriptor);
+    $A.assert(entry, "Failed to find definition for dependency: " + descriptor);
 
     // If we have resolved already the exports (libraries case), return them
     if (entry.ns) {
@@ -677,9 +779,11 @@ AuraComponentService.prototype.evaluateModuleDef = function (descriptor) {
 
     if (!entry.dependencies) {
         url = $A.clientService.getSourceMapsUrl(descriptor);
-        factory = $A.util.globalEval(entry["exporter"], undefined, url);
+        factory = $A.util.globalEval(entry["exporter"], url);
         factory();
     }
+
+    var namespaceAliases = $A.getContext().moduleNamespaceAliases;
 
     var deps = entry.dependencies.map(function (name) {
         if (name === 'exports') {
@@ -687,21 +791,89 @@ AuraComponentService.prototype.evaluateModuleDef = function (descriptor) {
             return exportns;
         }
 
-        // processing library dependency
-        var desc = name.indexOf(":") !== -1 ? "markup://" + name : name;
-        var depEntry = this.moduleDefRegistry[desc];
+        var desc;
+        var depEntry;
+        var hasSchema = name[0] === '@';
+
+        if (hasSchema) {
+            var schemaParts = name.substr(1).split('/');
+            return $A.clientService.resolveSchemaDependency(schemaParts[0], schemaParts[1], name);
+        } else if (name.indexOf(":") !== -1) {
+            // If it only contains a colon, we assume is an aura library (legacy)
+            desc = "markup://" + name;
+        } else {
+            // module dependency
+            desc = name;
+            // process aliased ns
+            var names = name.split('-');
+            var ns = names.shift();
+            var aliased = namespaceAliases[ns];
+            if (aliased) {
+                // module name with aliased namespace
+                var aliasedDesc = aliased + "-" + names.join("-");
+                var aliasedDep = this.moduleDefRegistry[aliasedDesc];
+                if (aliasedDep) {
+                    // set references to aliased module if it exists
+                    depEntry = aliasedDep;
+                    desc = aliasedDesc;
+                }
+            }
+        }
+
+        if (!depEntry) {
+            depEntry = this.moduleDefRegistry[desc];
+        }
+
         if (depEntry && depEntry.dependencies) {
-            return this.moduleDefRegistry[desc].ns;
+            var dep = this.moduleDefRegistry[desc];
+            if (dep.ns) {
+                return dep.ns;
+            } else {
+                // recursive/circular references
+                var tmp = function tmp() {
+                    return dep.ns;
+                };
+                tmp["__circular__"] = true;
+                return tmp;
+            }
         }
 
         return this.evaluateModuleDef(desc);
     }, this);
 
-    var Ctor = entry.definition.apply(undefined, deps) || exportns;
+    var Ctor;
+    var defDescriptor;
+    if (descriptor.indexOf("markup://") !== -1) {
+        defDescriptor = new DefDescriptor(descriptor);
+    } else {
+        defDescriptor = new DefDescriptor(this.moduleNameToDescriptorLookup[descriptor]);
+    }
+    var namespace = defDescriptor.getNamespace();
+    var isInternalNamespace = $A.clientService.isInternalNamespace(namespace);
+    if (entry.definition && $A.util.isFunction(entry.definition)) {
+        // Decide whether the module should be lockerized or not
+        if ((!isInternalNamespace || (isInternalNamespace && entry[Json.ApplicationKey.REQUIRELOCKER]))) {
+            // Eval the definition in a restricted scope
+            entry.definition = $A.lockerService.createForModule(entry.definition.toString(), defDescriptor);
+
+            // Provide SecureEngine as a dependency if "engine" was imported by the module
+            var index = entry.dependencies.indexOf("engine");
+            if (index !== -1) {
+                deps.splice(
+                    index,
+                    1,
+                    this.wrappedEngine || (this.wrappedEngine = $A.lockerService.wrapEngine(deps[index])));
+            }
+        }
+        Ctor = entry.definition.apply(undefined, deps);
+    }
+
+    Ctor = Ctor || exportns;
     entry.ns = Ctor;
 
+    // Propagate the key from definition to Ctor, will be used to used by locker's piercing hook to look up keys on component instances
+    $A.lockerService.trust(entry.definition, Ctor);
     return Ctor;
-
 };
 
 AuraComponentService.prototype.createInteropComponentDef = function (descriptor) {
@@ -712,10 +884,14 @@ AuraComponentService.prototype.createInteropComponentDef = function (descriptor)
         definition   : module.definition,
         descriptor   : module.descriptor,
         moduleName   : module.moduleName,
+        access       : module[Json.ApplicationKey.ACCESS],
+        minVersion   : module[Json.ApplicationKey.MINVERSION],
+        attributeDefs: module[Json.ApplicationKey.ATTRIBUTEDEFS],
         interopClass : Ctor
     });
 
     this.componentDefRegistry[descriptor] = interOpCmpDef;
+
     return interOpCmpDef;
 };
 
@@ -787,7 +963,8 @@ AuraComponentService.prototype.hasComponentClass = function(descriptor) {
  * @export
  */
 AuraComponentService.prototype.newComponentAsync = function(callbackScope, callback, config, attributeValueProvider, localCreation, doForce, forceServer) {
-    $A.deprecated("$A.newCmpAsync and $A.componentService.newComponentAsync are not supported.","Use '$A.createComponent();'.","2017/01/06","2017/02/17");
+    $A.deprecated("$A.newCmpAsync and $A.componentService.newComponentAsync are not supported.",
+            "Use '$A.createComponent()'");
 
     $A.assert(config, "ComponentService.newComponentAsync(): 'config' must be a valid Object.");
     $A.assert($A.util.isFunction(callback),"ComponentService.newComponentAsync(): 'callback' must be a Function pointer.");
@@ -849,19 +1026,14 @@ AuraComponentService.prototype.newComponentAsync = function(callbackScope, callb
                 if($A.clientService.allowAccess(def)) {
                     collectComponent(this["newComponentDeprecated"](configItem, attributeValueProvider, localCreation, doForce),"SUCCESS","",i);
                 }else{
-                    var context=$A.getContext();
-                    var contextCmp = context && context.getCurrentAccess();
-                    var message="Access Check Failed! AuraComponentService.newComponentAsync(): '" + def.getDescriptor().getQualifiedName() + "' is not visible to '" + contextCmp + "'.";
-                    if(context.enableAccessChecks) {
-                        if(context.logAccessFailures){
-                            var ae = new $A.auraError(message);
-                            ae["component"] = contextCmp && contextCmp.getDef().getDescriptor().getQualifiedName();
-                            ae["componentStack"] = context && context.getAccessStackHierarchy();
-                            $A.error(null, ae);
+                    var message="Access Check Failed! AuraComponentService.newComponentAsync(): '" + def.getDescriptor().getQualifiedName() + "' is not visible to '" + $A.clientService.currentAccess + "'.";
+                    if($A.clientService.enableAccessChecks) {
+                        if($A.clientService.logAccessFailures){
+                            $A.error(null,new $A.auraError(message));
                         }
                         collectComponent(null, "ERROR", "Unknown component '" + desc + "'.", i);
                     }else{
-                        if(context.logAccessFailures){
+                        if($A.clientService.logAccessFailures){
                             $A.warning(message);
                         }
                         collectComponent(this["newComponentDeprecated"](configItem, attributeValueProvider, localCreation, doForce),"SUCCESS","",i);
@@ -871,6 +1043,34 @@ AuraComponentService.prototype.newComponentAsync = function(callbackScope, callb
         }
     }
  };
+
+AuraComponentService.prototype.hasCacheableDefinitionOfAnyType = function(descriptor) {
+    var desc = this.getDescriptorFromConfig(descriptor);
+    return  !!this.hasModuleDefinition(desc) ||
+            !!this.componentDefRegistry[desc] ||
+            (this.savedComponentConfigs[desc] && Object.keys(this.savedComponentConfigs[desc]).length > 1) ||
+            !!this.hasLibrary(desc) ||
+            !!$A.eventService.getEventDef(desc);
+};
+
+AuraComponentService.prototype.loadComponentDefs = function(descriptorMap, callback) {
+    for (var descriptor in descriptorMap) {
+        try {
+            if (this.hasCacheableDefinitionOfAnyType(descriptor)) {
+                delete descriptorMap[descriptor];
+            }
+        } catch (e) {
+           // ignore any exception raised
+        }
+    }
+
+    if (!$A.util.isObject(descriptorMap) || Object.keys(descriptorMap).length === 0) {
+        callback();
+        return;
+    }
+
+    this.componentDefLoader.loadComponentDefs(descriptorMap, callback);
+};
 
 /**
  * Request component from server.
@@ -911,8 +1111,7 @@ AuraComponentService.prototype.requestComponent = function(callback, config, avp
 
         // We won't be able to do an access check if the access is invalid, so
         // just skip trying to do anything.
-        var currentAccess = $A.getContext().getCurrentAccess();
-        if(currentAccess && !currentAccess.isValid()) {
+        if($A.clientService.currentAccess && !$A.clientService.currentAccess.isValid()) {
             return;
         }
 
@@ -985,7 +1184,7 @@ AuraComponentService.prototype.computeValue = function(value, valueProvider) {
         value = value.evaluate(valueProvider);
     }
 
-    // Don't serialize 
+    // Don't serialize
     if($A.util.isComponent(value)) {
         return null;
     }
@@ -1053,7 +1252,7 @@ AuraComponentService.prototype.getComponentConfigs = function(config, attributeV
     var componentDef = configuration["componentDef"];
     def = this.getDef(componentDef);
 
-    if (!def && componentDef["attributeDefs"]) {
+    if (!def && componentDef[Json.ApplicationKey.ATTRIBUTEDEFS]) {
         // create definition if it doesn't current exist and component definition config provided
         def = this.createComponentDef(componentDef);
     }
@@ -1061,7 +1260,7 @@ AuraComponentService.prototype.getComponentConfigs = function(config, attributeV
     if (def) {
         desc = def.getDescriptor().toString();
     } else {
-        desc = componentDef["descriptor"] ? componentDef["descriptor"] : componentDef;
+        desc = componentDef[Json.ApplicationKey.DESCRIPTOR] ? componentDef[Json.ApplicationKey.DESCRIPTOR] : componentDef;
     }
 
     return {
@@ -1073,9 +1272,9 @@ AuraComponentService.prototype.getComponentConfigs = function(config, attributeV
 
 /**
  * Indexes the component using its global Id, which is uniquely generated across pageloads.
- * @private
+ * @public
  */
-AuraComponentService.prototype.index = function(component){
+AuraComponentService.prototype.indexComponent = function(component){
     this.indexes.globalId[component.globalId] = component;
 };
 
@@ -1118,20 +1317,15 @@ AuraComponentService.prototype.getDefinition = function(descriptor, callback) {
 
     if (def) {
         if(!$A.clientService.allowAccess(def)) {
-            var context=$A.getContext();
-            var contextCmp = context&&context.getCurrentAccess();
-            var message="Access Check Failed! ComponentService.getDef():'" + def.getDescriptor().toString() + "' is not visible to '" + contextCmp + "'.";
-            if(context.enableAccessChecks) {
-                if(context.logAccessFailures){
-                    var ae = new $A.auraError(message);
-                    ae["component"] = contextCmp && contextCmp.getDef().getDescriptor().getQualifiedName();
-                    ae["componentStack"] = context && context.getAccessStackHierarchy();
-                    $A.error(null, ae);
+            var message="Access Check Failed! ComponentService.getDef():'" + def.getDescriptor().toString() + "' is not visible to '" + $A.clientService.currentAccess + "'.";
+            if($A.clientService.enableAccessChecks) {
+                if($A.clientService.logAccessFailures){
+                    $A.error(null,new $A.auraError(message));
                 }
                 callback(null);
                 return;
             }else{
-                if(context.logAccessFailures){
+                if($A.clientService.logAccessFailures){
                     $A.warning(message);
                 }
                 //Intentional fallthrough
@@ -1188,6 +1382,20 @@ AuraComponentService.prototype.hasDefinition = function(descriptor) {
 };
 
 /**
+ * Whether module definition exist in registry
+ *
+ * moduleName may be in module format ie custom-web-component or
+ * Aura descriptor format ie markup://custom:webComponent
+ *
+ * @param moduleName name in module format or Aura descriptor
+ * @returns {boolean} whether module definition exists
+ * @private
+ */
+AuraComponentService.prototype.hasModuleDefinition = function(moduleName) {
+    return !!this.moduleDefRegistry[moduleName];
+};
+
+/**
  * Gets the component definition from the registry.
  * Does not go to the server if the definition is not available.
  *
@@ -1203,19 +1411,14 @@ AuraComponentService.prototype.getDef = function(descriptor) {
     var def = this.getComponentDef(this.createDescriptorConfig(descriptor));
 
     if (def && !$A.clientService.allowAccess(def)) {
-        var context=$A.getContext();
-        var contextCmp = context&&context.getCurrentAccess();
-        var message="Access Check Failed! ComponentService.getDef():'" + def.getDescriptor().toString() + "' is not visible to '" + contextCmp + "'.";
-        if(context.enableAccessChecks){
-            if(context.logAccessFailures){
-                var ae = new $A.auraError(message);
-                ae["component"] = contextCmp && contextCmp.getDef().getDescriptor().getQualifiedName();
-                ae["componentStack"] = context && context.getAccessStackHierarchy();
-                $A.error(null, ae);
+        var message="Access Check Failed! ComponentService.getDef():'" + def.getDescriptor().toString() + "' is not visible to '" + $A.clientService.currentAccess + "'.";
+        if($A.clientService.enableAccessChecks){
+            if($A.clientService.logAccessFailures){
+                $A.error(null,new $A.auraError(message));
             }
             return null;
         }else{
-            if(context.logAccessFailures){
+            if($A.clientService.logAccessFailures){
                 $A.warning(message);
             }
             // Intentional fallthrough
@@ -1237,19 +1440,18 @@ AuraComponentService.prototype.addComponent = function(descriptor, exporter) {
 
 
 AuraComponentService.prototype.hydrateComponent = function(descriptor, exporter) {
-    var tmp = exporter.toString();
-    var pos = [tmp.indexOf('/*') + 2, tmp.indexOf('*/')];
-    tmp = tmp.substr(pos[0], pos[1] - pos[0]);
-    exporter = $A.util.globalEval("function () {" + tmp + " }", undefined, $A.clientService.getSourceMapsUrl(descriptor));
+
+    var script = $A.clientService.uncommentExporter(exporter);
+    exporter = $A.clientService.evalExporter(script, descriptor);
 
     if(!exporter) {
         var defDescriptor = new Aura.System.DefDescriptor(descriptor);
         var includeComponentSource = defDescriptor.getPrefix() === "layout" || $A.clientService.isInternalNamespace(defDescriptor.getNamespace());
-        var errorMessage = (!includeComponentSource) ? 
-            "Hydrating the component" + descriptor + " failed." : 
-            "Hydrating the component" + descriptor + " failed.\n Exporter code: " + tmp;
+        var errorMessage = (!includeComponentSource) ?
+            "Hydrating the component" + descriptor + " failed." :
+            "Hydrating the component" + descriptor + " failed.\n Exporter code: " + script;
         var auraError = new $A.auraError(errorMessage, null, $A.severity.QUIET);
-        auraError["component"] = descriptor;
+        auraError.setComponent(descriptor);
         throw auraError;
     }
 
@@ -1267,10 +1469,19 @@ AuraComponentService.prototype.createFromSavedComponentConfigs = function(config
     var descriptor = this.getDescriptorFromConfig(config);
     var cmpConfig = this.savedComponentConfigs[descriptor];
     var definition = typeof cmpConfig === 'function' ? this.hydrateComponent(descriptor, cmpConfig) : cmpConfig;
-    var def = new ComponentDef(definition);
-    this.componentDefRegistry[descriptor] = def;
-    delete this.savedComponentConfigs[descriptor];
-    return def;
+    // should only allow new ComponentDef when we are sure exporter or component class exists
+    var alreadyHasConstructor = this.componentClassRegistry.classConstructors[descriptor] || this.componentClassRegistry.classExporter[descriptor];
+
+    // Definitions that come back from the server in the context have their component class on the definition.
+    var hasBuiltInConstructor = cmpConfig && cmpConfig.hasOwnProperty(Json.ApplicationKey.COMPONENTCLASS);
+    if (alreadyHasConstructor || hasBuiltInConstructor) {
+        var def = new ComponentDef(definition);
+        this.componentDefRegistry[descriptor] = def;
+        delete this.savedComponentConfigs[descriptor];
+        return def;
+    }
+
+    return null;
 };
 
 /**
@@ -1287,8 +1498,12 @@ AuraComponentService.prototype.createComponentDef = function(config) {
         if (this.savedComponentConfigs[descriptor]) {
             definition = this.createFromSavedComponentConfigs(config);
         } else {
-            definition = new ComponentDef(config);
-            this.componentDefRegistry[descriptor] = definition;
+            // should only allow new ComponentDef when we are sure exporter or component class exists
+            if (!!this.componentClassRegistry.classConstructors[descriptor] ||
+                !!this.componentClassRegistry.classExporter[descriptor]) {
+                definition = new ComponentDef(config);
+                this.componentDefRegistry[descriptor] = definition;
+            }
         }
     }
 
@@ -1395,7 +1610,7 @@ AuraComponentService.prototype.saveLibraryConfig = function(config) {
 
     // Initialize the concrete include classes if provided
     if (config.hasOwnProperty("includeClasses")) {
-        var includeClasses = $A.util.json.decode(config["includeClasses"]);
+        var includeClasses = $A.util.globalEval(config["includeClasses"], $A.clientService.getSourceMapsUrl(config["descriptor"], 'lib'));
         includeClasses();
     }
 };
@@ -1558,23 +1773,23 @@ AuraComponentService.prototype.saveComponentConfig = function(config) {
 
     this.savedComponentConfigs[componentDescriptor] = config;
 
-    var controllerDef = config["controllerDef"];
+    var controllerDef = config[Json.ApplicationKey.CONTROLLERDEF];
     if (controllerDef) {
-        if (controllerDef["descriptor"]) {
+        if (controllerDef[Json.ApplicationKey.DESCRIPTOR]) {
             // save reference to component descriptor for ControllerDef
-            this.controllerDefRelationship[controllerDef["descriptor"]] = componentDescriptor;
+            this.controllerDefRelationship[controllerDef[Json.ApplicationKey.DESCRIPTOR]] = componentDescriptor;
         }
 
-        if (controllerDef["actionDefs"]) {
-            var actionDefs = controllerDef["actionDefs"],
+        if (controllerDef[Json.ApplicationKey.ACTIONDEFS]) {
+            var actionDefs = controllerDef[Json.ApplicationKey.ACTIONDEFS],
                 len = actionDefs.length,
                 i;
 
             for (i = 0; i < len; i++) {
                 // loop and save reference to ComponentDef descriptor for each ActionDef
                 var actionDef = actionDefs[i];
-                if (actionDef["descriptor"]) {
-                    this.actionDefRelationship[actionDef["descriptor"]] = componentDescriptor;
+                if (actionDef[Json.ApplicationKey.DESCRIPTOR]) {
+                    this.actionDefRelationship[actionDef[Json.ApplicationKey.DESCRIPTOR]] = componentDescriptor;
                 }
             }
         }
@@ -1605,7 +1820,9 @@ AuraComponentService.prototype.restoreDefsFromStorage = function (context) {
  * @return {Promise} Promise when storage is cleared
  */
 AuraComponentService.prototype.clearDefsFromStorage = function (metricsPayload) {
-    return this.componentDefStorage.clear(metricsPayload);
+    return this.componentDefStorage.clear(metricsPayload).then(function(){
+        return this.actionStorage.clear();
+    }.bind(this));
 };
 
 /**
@@ -1627,8 +1844,9 @@ AuraComponentService.prototype.saveDefsToStorage = function (config, context) {
     var cmpConfigs = config["componentDefs"] || [];
     var libConfigs = config["libraryDefs"] || [];
     var evtConfigs = config["eventDefs"] || [];
+    var moduleConfigs = config["moduleDefs"] || [];
 
-    if (cmpConfigs.length === 0 && libConfigs.length === 0 && evtConfigs.length === 0) {
+    if (cmpConfigs.length === 0 && libConfigs.length === 0 && evtConfigs.length === 0 && moduleConfigs.length === 0) {
         return Promise["resolve"]();
     }
 
@@ -1641,12 +1859,19 @@ AuraComponentService.prototype.saveDefsToStorage = function (config, context) {
     var defSizeKb = $A.util.estimateSize(cmpConfigs) / 1024;
     var libSizeKb = $A.util.estimateSize(libConfigs) / 1024;
     var evtSizeKb = $A.util.estimateSize(evtConfigs) / 1024;
+    var moduleSizeKb = $A.util.estimateSize(moduleConfigs) / 1024;
 
     // def AuraStorage mutual exclusion is not required to
-    return self.pruneDefsFromStorage(defSizeKb + libSizeKb + evtSizeKb)
+    return self.pruneDefsFromStorage(defSizeKb + libSizeKb + evtSizeKb + moduleSizeKb)
         .then(
-            function() {
-                return self.componentDefStorage.storeDefs(cmpConfigs, libConfigs, evtConfigs, context);
+            function(cleared) {
+                if (!cleared) {
+                    // nothing was cleared from storage, we should be safe to store
+                    return self.componentDefStorage.storeDefs(cmpConfigs, libConfigs, evtConfigs, moduleConfigs, context);
+                // } else {
+                    // storage was cleared. We can't be certain if the defs that were being requested to save contain all their required dependencies
+                    // so... we just won't store them to avoid an inconsistent storage.
+                }
             }
         )
         .then(
@@ -1666,20 +1891,46 @@ AuraComponentService.prototype.saveDefsToStorage = function (config, context) {
 };
 
 
-AuraComponentService.prototype.createComponentPrivAsync = function (config, callback) {
+AuraComponentService.prototype.createComponentPrivAsync = function (config, callback, infiniteLoopProtection) {
     var descriptor = this.getDescriptorFromConfig(config["componentDef"]);
     var def = this.getComponentDef({ "descriptor" : descriptor });
-    var action;
     $A.assert(callback && typeof callback === 'function' , 'Callback');
 
-    if (def && !def.hasRemoteDependencies()) {
-        this.createComponentPriv(config, callback);
-        return;
+    // If we have the definition already, go ahead
+    // If we don't have the def and uri-addressable defs is enabled and should use the action.
+    // Otherwise use component def loader to bypass the action call
+    if (def || $A.getContext().getURIDefsState() == null || !$A.getContext().getURIDefsState().createCmp) {
+        if (def && !def.hasRemoteDependencies()) {
+            this.createComponentPriv(config, callback);
+            return;
+        } else {
+            //TODO: TW: remove this code path (including requestComponent) once URI addressable defs is done
+            var action;
+            action = this.requestComponent(callback, config, null, null, true);
+            action.setAbortable();
+            $A.enqueueAction(action);
+        }
+    } else {
+        var self = this;
+        this.componentDefLoader.loadComponentDef(descriptor, null, $A.getCallback(function(err) {
+            if (infiniteLoopProtection) {
+                err = "infinite loop error on fetching component definition for: " + descriptor;
+                $A.deprecated(err,
+                    "New definition needs to be created on the server",
+                    "infiniteLoopProtection:" + descriptor);
+            }
+            if (err) {
+                callback(null, "ERROR", err.message?err.message:err);
+            } else {
+                // need to call recursively into this method just in case the new definition needs to be created on the server
+                try {
+                    self.createComponentPrivAsync(config, callback, true);
+                } catch (e) {
+                    callback(null, "ERROR", e);
+                }
+            }
+        }));
     }
-
-    action = this.requestComponent(callback, config, null, null, true);
-    action.setAbortable();
-    $A.enqueueAction(action);
 };
 
 AuraComponentService.prototype.createComponentPriv = function (config, callback) {
@@ -1687,6 +1938,8 @@ AuraComponentService.prototype.createComponentPriv = function (config, callback)
     var def = this.getComponentDef({ "descriptor" : descriptor });
     var cmp = null;
     var createMark;
+    var currentAccessCmp = $A.clientService.currentAccess;
+    var currentAccessCmpDef = currentAccessCmp && currentAccessCmp.getDef();
 
     if (!this.trackingCreate && descriptor.indexOf("markup://aura") < 0) {
         createMark = $A.metricsService.mark("component", "create", {"name" : descriptor});
@@ -1695,47 +1948,46 @@ AuraComponentService.prototype.createComponentPriv = function (config, callback)
 
     try {
         if($A.clientService.allowAccess(def)) {
+            // minVersion validation to check if calling component's API version is not less than minVersion requirement of component being created
+            var minVersion = def.getMinVersion();
+            var currAccessCmpApiVer = currentAccessCmpDef && currentAccessCmpDef.getApiVersion();
+            if (minVersion && currAccessCmpApiVer && (parseInt(minVersion) > parseInt(currAccessCmpApiVer))) {
+                var mveMessage = $A.util.format("Component API version is too old: '{0}' must be set to API version '{1}' or later to use component '{2}'",
+                    currentAccessCmpDef.getDescriptor().getQualifiedName(),
+                    minVersion,
+                    descriptor);
+                var minVersionValidationError = new $A.auraError(mveMessage);
+                minVersionValidationError.setComponent(currentAccessCmpDef.getDescriptor().getQualifiedName());
+                throw minVersionValidationError;
+            }
+
             var classConstructor = this.getComponentClass(descriptor, def);
 
             if (!classConstructor) {
-                var errorMessage = $A.util.format("Component class not found: {0}\n hasClassConstructor: {1}\n hasClassExporter: {2}\n hasSavedComponentConfigs: {3}\n hasComponentDefCreated: {4}", 
-                    descriptor, 
+                var errorMessage = $A.util.format("Component class not found: {0}\n hasClassConstructor: {1}\n hasClassExporter: {2}\n hasSavedComponentConfigs: {3}\n hasComponentDefCreated: {4}",
+                    descriptor,
                     !!$A.componentService.componentClassRegistry.classConstructors[descriptor],
                     !!$A.componentService.componentClassRegistry.classExporter[descriptor],
                     !!$A.componentService.savedComponentConfigs[descriptor],
                     !!$A.componentService.componentDefRegistry[descriptor]);
                 var auraError = new $A.auraError(errorMessage, null, $A.severity.QUIET);
-                auraError["component"] = descriptor;
+                auraError.setComponent(descriptor);
                 throw auraError;
             }
-            try {
-                cmp = new classConstructor(config);
-            } catch (e){
-                if (e instanceof $A.auraError) {
-                    throw e;
-                } else {
-                    var creationError = new $A.auraError("Component class instance initialization error", e);
-                    creationError["component"] = descriptor;
-                    throw creationError;
-                }
-            }
+
+            cmp = new classConstructor(config);
         }else{
-            var context=$A.getContext();
-            var contextCmp = context && context.getCurrentAccess();
-            var message="Access Check Failed! AuraComponentService.createComponentFromConfig(): '" + descriptor + "' is not visible to '" + contextCmp + "'.";
-            if(context.enableAccessChecks) {
-                if(context.logAccessFailures){
-                    var ae = new $A.auraError(message);
-                    ae["component"] = contextCmp && contextCmp.getDef().getDescriptor().getQualifiedName();
-                    ae["componentStack"] = context && context.getAccessStackHierarchy();
-                    $A.error(null, ae);
+            var message="Access Check Failed! AuraComponentService.createComponentFromConfig(): '" + descriptor + "' is not visible to '" + currentAccessCmp + "'.";
+            if($A.clientService.enableAccessChecks) {
+                if($A.clientService.logAccessFailures){
+                    $A.error(null,new $A.auraError(message));
                 }
             }else{
-                if(context.logAccessFailures){
+                if($A.clientService.logAccessFailures){
                     $A.warning(message);
                 }
                 if(def) {
-                    cmp = new (this.getComponentClass(descriptor))(config);
+                    cmp = new (this.getComponentClass(descriptor, def))(config);
                 }
             }
         }
@@ -1749,7 +2001,13 @@ AuraComponentService.prototype.createComponentPriv = function (config, callback)
         } else if (cmp !== null) {
             return cmp;
         }
-        throw new Error('Definition does not exist on the client for descriptor:'+descriptor);
+        // We are potentially in an inconsistent state. This occurs when a dependency definition is no longer in cache,
+        // yet the original parent definition does exist.
+        // clearing indexeddb
+        // component def storage clear will also clear actions
+        this.componentDefStorage.clear();
+        throw new Error('Definition does not exist on the client for descriptor:' + descriptor +
+            '. Client side caches have been cleared. Please reload the page.');
     } finally {
         if (createMark) {
             this.trackingCreate = false;
@@ -1829,12 +2087,10 @@ AuraComponentService.prototype.buildDependencyGraph = function() {
     var actionsBlackList = ["globalValueProviders",                                 /* GlobalValueProviders.js */
                             "aura://ComponentController/ACTION$getApplication"];    /* AuraClientService.js */
 
-
     var promises = [];
-    var actionStorage = Action.getStorage();
-    var actionsGetAll = actionStorage ? actionStorage.getAll([], true) : Promise["resolve"]([]);
-    promises.push(actionsGetAll);
-    promises.push(this.componentDefStorage.getAll([], true));
+    var actionStorage = $A.clientService.getActionStorage();
+    promises.push(actionStorage.getAll());
+    promises.push(this.componentDefStorage.getAll());
 
     // promise will reject if either getAll rejects
     return Promise.all(promises).then(function (results) {
@@ -1966,7 +2222,7 @@ AuraComponentService.prototype.splitComponentsAndActions = function(graph, keys,
  */
 AuraComponentService.prototype.evictDefsFromStorage = function(sortedKeys, graph, requiredSpaceKb) {
     var defStorage    = this.componentDefStorage.getStorage();
-    var actionStorage = Action.getStorage();
+    var actionStorage = $A.clientService.getActionStorage();
     var self          = this;
 
     return defStorage.getSize().then(function(startingSize) {
@@ -1993,8 +2249,8 @@ AuraComponentService.prototype.evictDefsFromStorage = function(sortedKeys, graph
              * @return {Promise} a promise that resolves when the actions are removed.
              */
             function removeActions(actions) {
-                if (!actionStorage || !actions.length) {
-                    $A.assert(actions.length === 0 || actionStorage, "Actions store doesn't exist but requested removal of " + actions.length + " actions");
+                if (!actionStorage.isStorageEnabled() || !actions.length) {
+                    $A.assert(actions.length === 0 || actionStorage.isStorageEnabled(), "Actions store doesn't exist but requested removal of " + actions.length + " actions");
                     return Promise["resolve"]();
                 }
 
@@ -2097,7 +2353,7 @@ AuraComponentService.prototype.pruneDefsFromStorage = function(requiredSpaceKb) 
                 var maxSize = defStorage.getMaxSize();
                 newSize = currentSize + requiredSpaceKb + maxSize * self.componentDefStorage.EVICTION_HEADROOM;
                 if (newSize < maxSize) {
-                    return undefined;
+                    return false;
                 }
 
                 // If we arrive here, some eviction is required...
@@ -2120,7 +2376,7 @@ AuraComponentService.prototype.pruneDefsFromStorage = function(requiredSpaceKb) 
                     "storageRequiredSize" : newSize
                 };
 
-                return self.clearDefsFromStorage(metricsPayload);
+                return self.clearDefsFromStorage(metricsPayload).then(function(){return true;});
 
 
                 /*
@@ -2149,6 +2405,16 @@ AuraComponentService.prototype.pruneDefsFromStorage = function(requiredSpaceKb) 
                 */
             }
         );
+};
+
+/**
+ * Returns the number of batches fetching components from the server
+ *
+ * @return {Number} Number of component batch loads in progress
+ * @export
+ */
+AuraComponentService.prototype.inFlightComponents = function() {
+    return this.componentDefLoader.loading;
 };
 
 Aura.Services.AuraComponentService = AuraComponentService;

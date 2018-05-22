@@ -35,7 +35,7 @@ import org.openqa.selenium.support.ui.ExpectedCondition;
  * Tests excluded on mobile browsers (Android, iOS) because WebDriver does not support advanced user interactions such
  * as Actions.moveToElement() yet. Excluded from IE7/8 because uses HTML5 features such as nav.
  */
-@ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
+@ExcludeBrowsers({ BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
         BrowserType.IPAD, BrowserType.IPHONE })
 public class CarouselUITest extends WebDriverTestCase {
 
@@ -51,7 +51,7 @@ public class CarouselUITest extends WebDriverTestCase {
      * Able to tab into a page on the carousel.
      */
     /* Excluding safari because safari driver has issues with element.sendkeys(Keys.TAB) */
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
+    @ExcludeBrowsers({ BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
             BrowserType.IPAD, BrowserType.IPHONE, BrowserType.SAFARI })
     @Test
     public void testTabIntoCarouselPage() throws Exception {
@@ -69,7 +69,7 @@ public class CarouselUITest extends WebDriverTestCase {
         waitForCarouselPageSelected(page);
 
         // tab into carousel page
-        getAuraUITestingUtil().pressTab(navElement);
+        navElement.sendKeys(Keys.TAB);
         WebElement element1 = getMDMPageElement(page, 1);
         assertEquals("Should be focused on the first element on the carousel page.",
                 element1.getAttribute(AURA_RENDERED_BY_ID), getAuraUITestingUtil().getUniqueIdOfFocusedElement());
@@ -90,7 +90,7 @@ public class CarouselUITest extends WebDriverTestCase {
         element1.click();
 
         // tab to next element
-        getAuraUITestingUtil().pressTab(element1);
+        element1.sendKeys(Keys.TAB);
         assertEquals("Should be focused on the second element on the carousel page.",
                 element2.getAttribute(AURA_RENDERED_BY_ID), getAuraUITestingUtil().getUniqueIdOfFocusedElement());
 
@@ -124,7 +124,7 @@ public class CarouselUITest extends WebDriverTestCase {
      * Tabing on the last element on a carousel page tabs you out of the carousel.
      */
     /* Excluding safari because safari driver has issues with element.sendkeys(Keys.TAB) */
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
+    @ExcludeBrowsers({ BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
             BrowserType.IPAD, BrowserType.IPHONE, BrowserType.SAFARI })
     @Test
     public void testTabOutOfCarousel() throws Exception {
@@ -139,7 +139,7 @@ public class CarouselUITest extends WebDriverTestCase {
         // actually tab out. Tabbing once, focus will go on nav bar of
         // the next carousel.
         navItem.click();
-        getAuraUITestingUtil().pressTab(navItem);
+        navItem.sendKeys(Keys.TAB);
         assertEquals("Should be focused on the next carousel page.",
                 expectedFocus.getAttribute(AURA_RENDERED_BY_ID), getAuraUITestingUtil().getUniqueIdOfFocusedElement());
 
@@ -149,7 +149,7 @@ public class CarouselUITest extends WebDriverTestCase {
      * Tabing out of carousel from the first element on carousel.
      */
     /* Excluding safari because safari driver has issues with element.sendkeys(Keys.TAB) */
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
+    @ExcludeBrowsers({ BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
             BrowserType.IPAD, BrowserType.IPHONE, BrowserType.SAFARI })
     @Test
     public void testShiftTabOutOfCarousel() throws Exception {

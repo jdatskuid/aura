@@ -70,7 +70,7 @@ public class ComponentTypeDef extends DefinitionImpl<TypeDef> implements TypeDef
 
         public Builder() {
             super(TypeDef.class);
-            setDescriptor(new DefDescriptorImpl<>("aura://Aura.Component", TypeDef.class, null));
+            setDescriptor(new DefDescriptorImpl<>("aura", "Aura", "Component", TypeDef.class, null));
             setLocation(getDescriptor().getQualifiedName(), -1);
             setAccess(new DefinitionAccessImpl(AuraContext.Access.GLOBAL));
         };
@@ -91,15 +91,4 @@ public class ComponentTypeDef extends DefinitionImpl<TypeDef> implements TypeDef
             throw new AuraRuntimeException(e);
         }
     }
-
-    /**
-     * Expects instance to be a ComponentDefRef
-     * 
-     * @throws QuickFixException
-     */
-    @Override
-    public void appendDependencies(Object instance, Set<DefDescriptor<?>> deps) {
-        ((ComponentDefRef) instance).appendDependencies(deps);
-    }
-
 }

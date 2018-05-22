@@ -15,21 +15,12 @@
  */
 package org.auraframework.builder;
 
-import java.util.Map;
-
-import org.auraframework.def.DefDescriptor;
-import org.auraframework.def.Definition;
 import org.auraframework.def.DocumentationDef;
 import org.auraframework.def.RootDefinition;
-import org.auraframework.def.RootDefinition.SupportLevel;
 
 /**
- * @since 0.0.196
+ * The builder for a root level (bundle) definition.
  */
-public interface RootDefinitionBuilder<T extends RootDefinition> extends DefBuilder<T, T> {
-    RootDefinitionBuilder<T> setSupport(SupportLevel support);
-
+public interface RootDefinitionBuilder<T extends RootDefinition> extends PlatformDefBuilder<T> {
     RootDefinitionBuilder<T> setDocumentationDef(DocumentationDef def);
-
-    RootDefinitionBuilder<T> setBundledDefs(Map<DefDescriptor<?>, Definition> bundledDefs);
 }

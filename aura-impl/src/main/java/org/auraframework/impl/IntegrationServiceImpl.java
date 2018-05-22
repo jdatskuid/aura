@@ -18,6 +18,8 @@ package org.auraframework.impl;
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.ServletUtilAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponent;
+import org.auraframework.clientlibrary.ClientLibraryService;
+import org.auraframework.http.BrowserCompatibilityService;
 import org.auraframework.impl.integration.IntegrationImpl;
 import org.auraframework.integration.Integration;
 import org.auraframework.service.ContextService;
@@ -25,7 +27,6 @@ import org.auraframework.service.DefinitionService;
 import org.auraframework.service.InstanceService;
 import org.auraframework.service.IntegrationService;
 import org.auraframework.service.RenderingService;
-import org.auraframework.service.SerializationService;
 import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.throwable.quickfix.QuickFixException;
 
@@ -38,18 +39,19 @@ public class IntegrationServiceImpl implements IntegrationService {
     // Needed to run action
     private InstanceService instanceService;
     private DefinitionService definitionService;
-    private SerializationService serializationService;
     private ContextService contextService;
     private RenderingService renderingService;
     private ConfigAdapter configAdapter;
     private ServletUtilAdapter servletUtilAdapter;
+    private ClientLibraryService clientLibraryService;
+    private BrowserCompatibilityService browserCompatibilityService;
  
     @Override
     public Integration createIntegration(String contextPath, Mode mode, boolean initializeAura, String userAgent,
                                          String application, Object dummy) throws QuickFixException {
         return new IntegrationImpl(contextPath, mode, initializeAura, userAgent, application, instanceService,
-                definitionService, serializationService, contextService, configAdapter,
-                renderingService, servletUtilAdapter);
+                definitionService, contextService, configAdapter,
+                renderingService, servletUtilAdapter, clientLibraryService, browserCompatibilityService);
     }
 
     @Inject
@@ -60,11 +62,6 @@ public class IntegrationServiceImpl implements IntegrationService {
     @Inject
     public void setDefinitionService(DefinitionService definitionService) {
         this.definitionService = definitionService;
-    }
-
-    @Inject
-    public void setSerializationService(SerializationService serializationService) {
-        this.serializationService = serializationService;
     }
 
     @Inject
@@ -85,5 +82,15 @@ public class IntegrationServiceImpl implements IntegrationService {
     @Inject
     public void setServletUtilAdapter(ServletUtilAdapter servletUtilAdapter) {
         this.servletUtilAdapter = servletUtilAdapter;
+    }
+
+    @Inject
+    public void setClientLibraryService(ClientLibraryService clientLibraryService) {
+        this.clientLibraryService = clientLibraryService;
+    }
+
+    @Inject
+    public void setBrowserCompatibilityService(BrowserCompatibilityService browserCompatibilityService) {
+        this.browserCompatibilityService = browserCompatibilityService;
     }
 }

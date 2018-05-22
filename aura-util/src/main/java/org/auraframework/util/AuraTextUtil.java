@@ -15,16 +15,21 @@
  */
 package org.auraframework.util;
 
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ObjectArrays;
+
+import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
-import com.google.common.collect.ObjectArrays;
 
 /**
  * Collection of utility methods for manipulating or testing strings.
@@ -37,11 +42,13 @@ public class AuraTextUtil {
             "\\u003E", "\\n", "\\u2029", "" };
     private static final TrieMatcher JS_SEARCH_REPLACE = TrieMatcher.compile(JS_IN, JS_OUT);
 
-    private static final String[] JSON_IN = new String[] { "\\", "\n", "\r", "\t", "\"", "!--", "<", ">", "\u2028",
-            "\u2029", "\u0000", "*/" };
-    private static final String[] JSON_OUT = new String[] { "\\\\", "\\n", "\\r", "\\t", "\\\"", "\\u0021--",
-            "\\u003C", "\\u003E", "\\n", "\\u2029", "", "\\u002A/" };
+    private static final String[] JSON_IN = new String[] { "\u2028", "\u0000" };
+    private static final String[] JSON_OUT = new String[] { "\n", "" };
     private static final TrieMatcher JSON_SEARCH_REPLACE = TrieMatcher.compile(JSON_IN, JSON_OUT);
+
+    private static final String[] JSON_FUNCTION_IN = new String[] { "\u2028", "\u0000", "*/" };
+    private static final String[] JSON_FUNCTION_OUT = new String[] { "\n", "", "\\u002A/" };
+    private static final TrieMatcher JSON_FUNCTION_HYDRATION_SEARCH_REPLACE = TrieMatcher.compile(JSON_FUNCTION_IN, JSON_FUNCTION_OUT);
 
     private static final String[] RESERVED_METHODS = new String[]{
             "auraType","getDef","getRendering",
@@ -93,6 +100,25 @@ public class AuraTextUtil {
 
     private static final String NCNAME_IDENTIFIER_REGEX = "^[_a-zA-Z][\\.\\-_a-zA-Z0-9]*$";
     private static final Pattern NCNAME_IDENTIFIER_PATTERN = Pattern.compile(NCNAME_IDENTIFIER_REGEX);
+
+    private static final Pattern ATTRIBUTE_NAME_PATTERN = Pattern.compile("^[a-zA-Z_].[-a-zA-Z0-9_]*$");
+
+    // these are expensive, worth keeping in an LRU cache to help with traffic spikes
+    private static final LoadingCache<String, String> ESCAPE_FOR_JAVASCRIPT_STRING_CACHE = CacheBuilder.newBuilder().maximumSize(32*1024).build(new CacheLoader<String, String>() {
+
+        @Override
+        public String load(String in) throws Exception {
+            return TrieMatcher.replaceMultiple(in, JS_SEARCH_REPLACE);
+        }});
+
+
+    private static final LoadingCache<String, String> ESCAPE_FOR_JSON_STRING_CACHE = CacheBuilder.newBuilder().maximumSize(32*1024).build(new CacheLoader<String, String>() {
+
+        @Override
+        public String load(String in) throws Exception {
+            return TrieMatcher.replaceMultiple(in, JSON_SEARCH_REPLACE);
+        }});
+
 
     /**
      * Makes the first letter of the input string lower case.
@@ -207,14 +233,22 @@ public class AuraTextUtil {
      * passing Javascript into elements, you should escape any potentially dangerous portions of the script.
      */
     public static String escapeForJavascriptString(String in) {
-        return TrieMatcher.replaceMultiple(in, JS_SEARCH_REPLACE);
+        try {
+            return ESCAPE_FOR_JAVASCRIPT_STRING_CACHE.get(in);
+        } catch (ExecutionException x) {
+            throw new RuntimeException(x);
+        }
     }
 
     /**
      * Properly escapes string for JSON.
      */
     public static String escapeForJSONString(String in) {
-        return TrieMatcher.replaceMultiple(in, JSON_SEARCH_REPLACE);
+        try {
+            return ESCAPE_FOR_JSON_STRING_CACHE.get(in);
+        } catch (ExecutionException x) {
+            throw new RuntimeException(x);
+        }
     }
 
     /**
@@ -635,13 +669,11 @@ public class AuraTextUtil {
      * well.
      *
      * @param attributeName is the attribute name which is being validated
-     * @return a : true if the name is valid and false if its invalid
+     * @return true if the name is valid and false if its invalid
      */
     public static boolean validateAttributeName(String attributeName) {
-        Pattern p = Pattern.compile("^[a-zA-Z_].[-a-zA-Z0-9_]*$");
-        Matcher m = p.matcher(attributeName);
-        boolean a = m.find();
-        return a;
+        Matcher m = ATTRIBUTE_NAME_PATTERN.matcher(attributeName);
+        return m.find();
     }
 
     /**
@@ -718,5 +750,46 @@ public class AuraTextUtil {
             return NCNAME_IDENTIFIER_PATTERN.matcher(input).matches();
         }
         return false;
+    }
+
+    public static class JSONEscapedFunctionStringBuilder implements Appendable {
+
+        private StringBuilder sb;
+
+        public JSONEscapedFunctionStringBuilder() {
+            sb = new StringBuilder();
+        }
+
+        public JSONEscapedFunctionStringBuilder(StringBuilder stringBuilder) {
+            sb = stringBuilder;
+        }
+
+        public StringBuilder getStringBuilder() {
+            return sb;
+        }
+
+        private String replace(String s) {
+            return TrieMatcher.replaceMultiple(s, JSON_FUNCTION_HYDRATION_SEARCH_REPLACE);
+        }
+
+        @Override
+        public Appendable append(CharSequence csq) throws IOException {
+            return sb.append(replace(csq.toString()));
+        }
+
+        @Override
+        public Appendable append(CharSequence csq, int start, int end) throws IOException {
+            return sb.append(replace(csq.toString()), start, end);
+        }
+
+        @Override
+        public Appendable append(char c) throws IOException {
+            return sb.append(replace(String.valueOf(c)));
+        }
+
+        @Override
+        public String toString() {
+            return sb.toString();
+        }
     }
 }

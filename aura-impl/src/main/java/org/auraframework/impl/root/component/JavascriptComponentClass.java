@@ -21,6 +21,7 @@ import java.util.Collection;
 
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.LibraryDefRef;
+import org.auraframework.def.module.ModuleDef;
 import org.auraframework.impl.javascript.BaseJavascriptClass;
 import org.auraframework.system.Location;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
@@ -153,9 +154,7 @@ public class JavascriptComponentClass extends BaseJavascriptClass {
 
             StringBuilder out = new StringBuilder();
 
-            out.append("$A.componentService.addComponentClass(");
-            out.append('"').append(jsDescriptor).append('"');
-            out.append(',');
+            out.append("$A.componentService.addComponentClass(\"" + descriptor.getQualifiedName() + "\",");
             writeExporter(out);
             out.append(");\n");
 
@@ -183,13 +182,9 @@ public class JavascriptComponentClass extends BaseJavascriptClass {
         }
 
         private void writeObjectVariable(StringBuilder out) throws IOException, QuickFixException {
-
-            String jsClassName = getClientClassName(descriptor);
-
-            out.append("var ").append(jsClassName).append(" = ");
+            out.append("return ");
             writeObjectLiteral(out);
             out.append(";\n");
-            out.append("return ").append(jsClassName).append(";\n");
         }
 
         private void writeObjectLiteral(StringBuilder out) throws IOException, QuickFixException {
@@ -219,7 +214,12 @@ public class JavascriptComponentClass extends BaseJavascriptClass {
                 json.writeMapKey("imports");
                 json.writeMapBegin();
                 for (LibraryDefRef ref : imports) {
-                    json.writeMapEntry(ref.getProperty(), ref.getReferenceDescriptor().getQualifiedName());
+                    DefDescriptor<ModuleDef> moduleDefDescriptor = ref.getModuleReferenceDescriptor();
+                    if (moduleDefDescriptor != null) {
+                        json.writeMapEntry(ref.getProperty(), ref.getModuleReferenceDescriptor().getQualifiedName());
+                    } else {
+                        json.writeMapEntry(ref.getProperty(), ref.getReferenceDescriptor().getQualifiedName());
+                    }
                 }
                 json.writeMapEnd();
             }

@@ -49,7 +49,8 @@ public class IfProvider implements ComponentConfigProvider {
         BaseComponent<?, ?> component = context.getCurrentComponent();
         InstanceStack iStack = context.getInstanceStack();
         ComponentConfig cc = new ComponentConfig();
-        List<Instance> components = new ArrayList<>();
+        @SuppressWarnings("rawtypes")
+		List<Instance> components = new ArrayList<>();
         Map<String, Object> m = Maps.newHashMapWithExpectedSize(1);
         m.put("body", components);
         cc.setAttributes(m);
@@ -81,7 +82,7 @@ public class IfProvider implements ComponentConfigProvider {
         
         // 0 is false, any other number true
         if(value instanceof Number) {
-            return new Double(((Number) value).doubleValue()) != 0;
+            return ((Number) value).intValue() != 0;
         }
         
         // Empty strings are false

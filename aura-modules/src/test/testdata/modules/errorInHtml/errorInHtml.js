@@ -1,3 +1,4 @@
-export default class Bar {
-    @prop min = D5;
+import { Element } from "engine";
+export default class Bar extends Element {
+    @api min = D5;
 }

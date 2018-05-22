@@ -24,28 +24,27 @@ import java.io.OutputStream;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Predicate;
 
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.auraframework.adapter.ComponentLocationAdapter;
 import org.auraframework.adapter.ConfigAdapter;
+import org.auraframework.def.BundleDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.Definition;
 import org.auraframework.def.DescriptorFilter;
-import org.auraframework.def.RootDefinition;
-import org.auraframework.impl.source.BundleSourceImpl;
 import org.auraframework.impl.system.StaticDefRegistryImpl;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.RegistryService;
-import org.auraframework.system.AuraContext;
+import org.auraframework.system.*;
 import org.auraframework.system.AuraContext.Authentication;
-import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.system.AuraContext.Format;
-import org.auraframework.system.DefRegistry;
-import org.auraframework.system.RegistrySet;
+import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.throwable.quickfix.QuickFixException;
 
 import com.google.common.collect.Lists;
@@ -295,10 +294,11 @@ public class RegistrySerializer {
         if (modulesEnabled) {
             root_nsf = new DescriptorFilter(namespace, Lists.newArrayList(DefType.MODULE));
         } else {
-            root_nsf = new DescriptorFilter(namespace, Lists.newArrayList(BundleSourceImpl.bundleDefTypes));
+            root_nsf = new DescriptorFilter(namespace, Lists.newArrayList(BundleSource.bundleDefTypes));
         }
         descriptors = master.find(root_nsf);
         for (DefDescriptor<?> desc : descriptors) {
+            logger.debug("ENTRY: " + desc + "@" + desc.getDefType().toString());
             try {
                 Definition def = master.getDef(desc);
                 if (def == null) {
@@ -308,10 +308,9 @@ public class RegistrySerializer {
                 }
                 types.add(desc.getDefType());
                 prefixes.add(desc.getPrefix());
-                logger.debug("ENTRY: " + desc + "@" + desc.getDefType().toString());
                 filtered.put(desc, def);
-                if (def instanceof RootDefinition) {
-                    RootDefinition rd = (RootDefinition) def;
+                if (def instanceof BundleDef) {
+                    BundleDef rd = (BundleDef) def;
                     Map<DefDescriptor<?>, Definition> bundled = rd.getBundledDefs();
                     if (bundled != null) {
                         for (Map.Entry<DefDescriptor<?>, Definition> entry : bundled.entrySet()) {
@@ -335,7 +334,7 @@ public class RegistrySerializer {
 
     public static final String ERR_ARGS_REQUIRED = "Component and Output Directory are both required";
 
-    public void execute() throws RegistrySerializerException {
+    public void execute() throws RegistrySerializerException, IOException {
         if (componentDirectory == null || outputDirectory == null) {
             throw new RegistrySerializerException(ERR_ARGS_REQUIRED);
         }
@@ -378,16 +377,41 @@ public class RegistrySerializer {
             DefRegistry master;
             RegistrySet registries;
             if (modulesEnabled) {
-                // must get all component locations within current maven module first to register namespaces.
-                registries = registryService.getDefaultRegistrySet(Mode.DEV, Authentication.AUTHENTICATED);
-                // modules will use existing component namespaces for conversion
+                String parentProjectPath = componentDirectory.getParentFile().getCanonicalPath();
+                // skip namespaces not in the current project (BUTC module-enforcer will fail otherwise)
+                Predicate<ComponentLocationAdapter> filterIn = new Predicate<ComponentLocationAdapter>() {
+                    @Override
+                    public boolean test(ComponentLocationAdapter adapter) {
+                        try {
+                            File componentSourceDir = adapter.getComponentSourceDir();
+                            if (componentSourceDir != null && !componentSourceDir.getCanonicalPath().startsWith(parentProjectPath)) {
+                                logger.info("skipping: " + componentSourceDir.getCanonicalPath());
+                                return false;
+                            }
+                            return true;
+                        } catch (IOException x) {
+                            logger.error(x);
+                            return false;
+                        }
+                    }
+                };
+                // must get all component locations within current maven module first to register namespaces
+                registries = registryService.buildRegistrySet(Mode.DEV, null, filterIn);
+                // need to add components namespaces to perform correct namespace case conversion for module namespaces
+                File auraComponentsDirectory = new File (componentDirectory.getParentFile(), "components");
+                if (auraComponentsDirectory.exists()) {
+                    for (String namespace: registryService.getRegistry(auraComponentsDirectory).getNamespaces()) {
+                        configAdapter.addInternalNamespace(namespace);
+                    }
+                }
+                // modules will use existing internal namespaces for conversion
                 master = registryService.getModulesRegistry(componentDirectory);
             } else {
                 master = registryService.getRegistry(componentDirectory);
                 registries = registryService.getRegistrySet(master);
             }
-            AuraContext context = contextService.startBasicContext(Mode.DEV, Format.JSON, Authentication.AUTHENTICATED, registries);
-            context.setModulesEnabled(modulesEnabled);
+
+            contextService.startBasicContext(Mode.DEV, Format.JSON, Authentication.AUTHENTICATED, registries);
 
             try {
                 write(out, master);

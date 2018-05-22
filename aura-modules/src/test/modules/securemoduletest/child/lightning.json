@@ -1,0 +1,5 @@
+{
+  "requireLocker": "true",
+  "description": "Module for performing DOM event tests",
+  "expose": true
+}

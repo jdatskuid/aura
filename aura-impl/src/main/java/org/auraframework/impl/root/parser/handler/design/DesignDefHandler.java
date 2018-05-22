@@ -16,7 +16,10 @@
 
 package org.auraframework.impl.root.parser.handler.design;
 
-import com.google.common.collect.ImmutableSet;
+import java.util.Set;
+
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
 
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.DefinitionParserAdapter;
@@ -24,24 +27,20 @@ import org.auraframework.builder.RootDefinitionBuilder;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.design.DesignAttributeDef;
 import org.auraframework.def.design.DesignDef;
-import org.auraframework.def.design.DesignLayoutDef;
 import org.auraframework.def.design.DesignTemplateDef;
 import org.auraframework.def.genericxml.GenericXmlElement;
 import org.auraframework.impl.design.DesignDefImpl;
 import org.auraframework.impl.root.GenericXmlElementImpl;
-import org.auraframework.impl.root.parser.handler.RootTagHandler;
+import org.auraframework.impl.root.parser.handler.FileTagHandler;
 import org.auraframework.impl.root.parser.handler.genericxml.GenericXmlElementHandlerProvider;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.TextSource;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.AuraTextUtil;
 
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
+import com.google.common.collect.ImmutableSet;
 
-import java.util.Set;
-
-public class DesignDefHandler extends RootTagHandler<DesignDef> {
+public class DesignDefHandler extends FileTagHandler<DesignDef> {
     public static final String TAG = "design:component";
     private static final String ATTRIBUTE_LABEL = "label";
 
@@ -114,9 +113,6 @@ public class DesignDefHandler extends RootTagHandler<DesignDef> {
             DesignTemplateDef template = new DesignTemplateDefHandler(this, xmlReader, source, isInInternalNamespace,
                     definitionService, configAdapter, definitionParserAdapter).getElement();
             builder.setDesignTemplateDef(template);
-        } else if (isInInternalNamespace && (DesignLayoutDefHandler.TAG.equalsIgnoreCase(tag))) {
-            DesignLayoutDef layoutDesign = new DesignLayoutDefHandler(xmlReader, source, isInInternalNamespace).createElement();
-            builder.addLayoutDesign(layoutDesign.getName(), layoutDesign);
         } else if (genericHandlerProvider.handlesTag(DesignDef.class, tag, isInInternalNamespace)) {
             GenericXmlElement xmlDef = genericHandlerProvider.getHandler(
                     xmlReader, source, DesignDef.class, tag, isInInternalNamespace).createElement();

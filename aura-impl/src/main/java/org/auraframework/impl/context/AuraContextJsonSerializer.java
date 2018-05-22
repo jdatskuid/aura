@@ -16,20 +16,22 @@
 package org.auraframework.impl.context;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
 import org.auraframework.adapter.ConfigAdapter;
+import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.Definition;
+import org.auraframework.def.InterfaceDef;
+import org.auraframework.def.module.ModuleDef;
+import org.auraframework.instance.AuraValueProviderType;
 import org.auraframework.instance.GlobalValueProvider;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.AuraContext;
@@ -41,16 +43,29 @@ import org.auraframework.util.json.Json;
 import org.auraframework.util.json.JsonSerializers.NoneSerializer;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 /**
  * AuraContext JSON Serializer
  */
 public class AuraContextJsonSerializer extends NoneSerializer<AuraContext> {
+
+    public static interface AuraContextJsonSerializerProvider {
+        AuraContextJsonSerializer createAuraContextJsonSerializer(ConfigAdapter configAdapter,
+                TestContextAdapter testContextAdapter, DefinitionService definitionService);
+    }
+
     public static final String DELETED = "deleted";
 
-    private final TestContextAdapter testContextAdapter;
-    private final ConfigAdapter configAdapter;
+    protected final TestContextAdapter testContextAdapter;
+    protected final ConfigAdapter configAdapter;
     private final DefinitionService definitionService;
+    private static final Set<DefType> SERIALIZEABLE_DEF_TYPES = Sets.immutableEnumSet(
+            DefType.COMPONENT,
+            DefType.APPLICATION,
+            DefType.EVENT,
+            DefType.LIBRARY,
+            DefType.MODULE);
 
     public AuraContextJsonSerializer(ConfigAdapter configAdapter, TestContextAdapter testContextAdapter,
             DefinitionService definitionService) {
@@ -66,32 +81,58 @@ public class AuraContextJsonSerializer extends NoneSerializer<AuraContext> {
     }
 
     @Override
-    public void serialize(Json json, AuraContext ctx) throws IOException {
+    public void serialize(Json json, AuraContext ctx) throws IOException {        
+        // pre-compute some things needed to determine the cache key
+        String fwuid = ctx.getFrameworkUID() != null ? ctx.getFrameworkUID() : configAdapter.getAuraFrameworkNonce();
+        Map<DefDescriptor<? extends Definition>, Definition> defMap = ctx.filterLocalDefs(ctx.getPreloadedDefinitions());
+        
+        serialize(json, ctx, fwuid, defMap);
+    }
+    
+    /**
+     * IMPORTANT: if this logic changes, cache key construction in ZeroAuraContextJsonSerializer may also need to change.
+     */
+    @SuppressWarnings("unchecked")
+    protected void serialize(Json json, AuraContext ctx, String fwuid, Map<DefDescriptor<? extends Definition>, Definition> defMap) throws IOException {
+        
+        Boolean uriEnabled = ctx.getUriDefsEnabled();
+        if (uriEnabled == null) {
+            uriEnabled = configAdapter.uriAddressableDefsEnabled();
+        }
 
         json.writeMapBegin();
         json.writeMapEntry("mode", ctx.getMode());
+        boolean isApplication = false;
 
         DefDescriptor<? extends BaseComponentDef> appDesc = ctx.getApplicationDescriptor();
         if (appDesc != null) {
             if (appDesc.getDefType().equals(DefType.APPLICATION)) {
                 json.writeMapEntry("app", String.format("%s:%s", appDesc.getNamespace(), appDesc.getName()));
+                isApplication = true;
             } else {
                 json.writeMapEntry("cmp", String.format("%s:%s", appDesc.getNamespace(), appDesc.getName()));
             }
+
+            if (uriEnabled) {
+                try {
+                    if (definitionService.hasInterface(appDesc, definitionService.getDefDescriptor("aura:uriDefinitionsDisabled", InterfaceDef.class))) {
+                        uriEnabled = false;
+                    }
+                } catch (QuickFixException qfe) {
+                    // ignore
+                }
+            }
         }
-                    
+
         String contextPath = ctx.getContextPath();
         if (!contextPath.isEmpty()) {
             // serialize servlet context path for html component to prepend for client created components
             json.writeMapEntry("contextPath", contextPath);
         }
 
-        if (ctx.getRequestedLocales() != null) {
-            List<String> locales = new ArrayList<>();
-            for (Locale locale : ctx.getRequestedLocales()) {
-                locales.add(locale.toString());
-            }
-            json.writeMapEntry("requestedLocales", locales);
+        String currentPathPrefix = ctx.getPathPrefix();
+        if (currentPathPrefix != null) {
+            json.writeMapEntry("pathPrefix", currentPathPrefix);
         }
 
         if (testContextAdapter != null) {
@@ -101,12 +142,12 @@ public class AuraContextJsonSerializer extends NoneSerializer<AuraContext> {
             }
         }
 
-        if (ctx.getFrameworkUID() != null) {
-            json.writeMapEntry("fwuid", ctx.getFrameworkUID());
-        } else {
-            json.writeMapEntry("fwuid", configAdapter.getAuraFrameworkNonce());
+        json.writeMapEntry("fwuid", fwuid);
+
+        if (uriEnabled) {
+            json.writeMapEntry(Json.ApplicationKey.URIADDRESSABLEDEFINITIONS, 1);
         }
-        
+
         //
         // Now comes the tricky part, we have to serialize all of the definitions that are
         // required on the client side, and, of all types. This way, we won't have to handle
@@ -114,45 +155,90 @@ public class AuraContextJsonSerializer extends NoneSerializer<AuraContext> {
         // all dependencies actually get sent to the client. Note that the 'loaded' set needs
         // to be updated as well, but that needs to happen prior to this.
         //
-        Map<DefDescriptor<? extends Definition>, Definition> defMap;
-
-        defMap = ctx.filterLocalDefs(ctx.getPreloadedDefinitions());
-
         if (defMap.size() > 0) {
-            List<Definition> componentDefs = Lists.newArrayList();
-            List<Definition> eventDefs = Lists.newArrayList();
-            List<Definition> libraryDefs = Lists.newArrayList();
-            List<Definition> moduleDefs = Lists.newArrayList();
 
-            for (Map.Entry<DefDescriptor<? extends Definition>, Definition> entry : defMap.entrySet()) {
-                DefDescriptor<? extends Definition> desc = entry.getKey();
-                DefType dt = desc.getDefType();
-                Definition d = entry.getValue();
-                //
-                // Ignore defs that ended up not being valid. This is arguably something
-                // that the MDR should have done when filtering.
-                //
-                if (d != null) {
-                    try {
-                        d.retrieveLabels();
-                    } catch (QuickFixException qfe) {
-                        // this should not throw a QFE
+            try {
+                definitionService.populateGlobalValues(AuraValueProviderType.LABEL.getPrefix(), defMap);
+            } catch (QuickFixException qfe) {
+                // this should not throw a QFE
+            }
+
+            List<Definition> componentDefs = Lists.newArrayList();
+            List<Definition> moduleDefs = Lists.newArrayList();
+            
+            if (uriEnabled && !ctx.isPreloading()) {
+                if (!defMap.isEmpty()) {
+                    json.writeMapKey("descriptorUids");
+                    json.writeMapBegin();
+
+                    for (Map.Entry<DefDescriptor<? extends Definition>, Definition> entry : defMap.entrySet()) {
+                        Definition def = entry.getValue();
+
+                        if (def != null && SERIALIZEABLE_DEF_TYPES.contains(entry.getKey().getDefType())) {
+                            if (def.isDynamicallyGenerated()) {
+                                DefType dt = entry.getKey().getDefType();
+                                if (DefType.COMPONENT.equals(dt) || DefType.APPLICATION.equals(dt)) {
+                                    componentDefs.add(def);
+                                } else if (DefType.MODULE.equals(dt)) {
+                                    moduleDefs.add(def);
+                                }
+                                continue;
+                            }
+                            try {
+                                json.writeMapEntry(def.getDescriptor(), definitionService.getUid(null, def.getDescriptor()));
+                            } catch (Exception ex) {
+                                //TODO: error handling, surface the exception
+                            }
+                        }
                     }
-                    if (DefType.COMPONENT.equals(dt) || DefType.APPLICATION.equals(dt)) {
-                        componentDefs.add(d);
-                    } else if (DefType.EVENT.equals(dt)) {
-                        eventDefs.add(d);
-                    } else if (DefType.LIBRARY.equals(dt)) {
-                        libraryDefs.add(d);
-                    } else if (DefType.MODULE.equals(dt)) {
-                        moduleDefs.add(d);
+                    json.writeMapEnd();
+                }
+                
+                if (componentDefs.size() > 0) {
+                    writeDefs(json, "componentDefs", componentDefs);
+                }
+                if (moduleDefs.size() > 0) {
+                    writeDefs(json, "moduleDefs", moduleDefs);
+                }
+
+            } else {
+
+                List<Definition> eventDefs = Lists.newArrayList();
+                List<Definition> libraryDefs = Lists.newArrayList();
+
+                for (Map.Entry<DefDescriptor<? extends Definition>, Definition> entry : defMap.entrySet()) {
+                    DefDescriptor<? extends Definition> desc = entry.getKey();
+                    DefType dt = desc.getDefType();
+                    Definition d = entry.getValue();
+                    //
+                    // Ignore defs that ended up not being valid. This is arguably something
+                    // that the MDR should have done when filtering.
+                    //
+                    if (d != null) {
+                        if (DefType.COMPONENT.equals(dt) || DefType.APPLICATION.equals(dt)) {
+                            componentDefs.add(d);
+                        } else if (DefType.EVENT.equals(dt)) {
+                            eventDefs.add(d);
+                        } else if (DefType.LIBRARY.equals(dt)) {
+                            libraryDefs.add(d);
+                        } else if (DefType.MODULE.equals(dt)) {
+                            moduleDefs.add(d);
+                        }
                     }
                 }
+                if (eventDefs.size() > 0) {
+                    writeDefs(json, "eventDefs", eventDefs);
+                }
+                if (libraryDefs.size() > 0) {
+                    writeDefs(json, "libraryDefs", libraryDefs);
+                }
+                if (componentDefs.size() > 0) {
+                    writeDefs(json, "componentDefs", componentDefs);
+                }
+                if (moduleDefs.size() > 0) {
+                    writeDefs(json, "moduleDefs", moduleDefs);
+                }
             }
-            writeDefs(json, "eventDefs", eventDefs);
-            writeDefs(json, "libraryDefs", libraryDefs);
-            writeDefs(json, "componentDefs", componentDefs);
-            writeDefs(json, "moduleDefs", moduleDefs);
         }
 
         try {
@@ -163,7 +249,7 @@ public class AuraContextJsonSerializer extends NoneSerializer<AuraContext> {
 
         // Create the new loaded array.
         // loaded = server + (client - server) @ DELETED.
-        
+
         // Step 1: Start with client defintion set
         Set<DefDescriptor<?>> currentLoaded = new HashSet<>();
         currentLoaded.addAll(ctx.getClientLoaded().keySet());
@@ -171,9 +257,14 @@ public class AuraContextJsonSerializer extends NoneSerializer<AuraContext> {
         // Step 2: serialize the server set and subtract the server set from the client set.
         Map<String, String> loadedStrings = new HashMap<>();
         for (Map.Entry<DefDescriptor<?>, String> entry : ctx.getLoaded().entrySet()) {
-            loadedStrings.put(String.format("%s@%s", entry.getKey().getDefType().toString(),
-                    entry.getKey().getQualifiedName()), entry.getValue());
+            if (!uriEnabled || appDesc.equals(entry.getKey())) {
+                // uri defs disabled or
+                // if uri defs enabled we want to send the application in loaded still
+                loadedStrings.put(String.format("%s@%s", entry.getKey().getDefType().toString(),
+                        entry.getKey().getQualifiedName()), entry.getValue());
+            }
             currentLoaded.remove(entry.getKey());
+
         }
 
         // Step 3: serialize remaining not found client definitions, now unused.
@@ -217,17 +308,56 @@ public class AuraContextJsonSerializer extends NoneSerializer<AuraContext> {
         // JBUCH: TEMPORARY CRUC FIX FOR 202. REMOVE IN 204
         json.writeMapEntry("enableAccessChecks",((AuraContextImpl)ctx).enableAccessChecks);
 
-
-        if (configAdapter.isLockerServiceEnabled()) {
-            json.writeMapEntry("lockerEnabled", true);
+        if (configAdapter.isActionPublicCachingEnabled()) {
+            json.writeMapEntry("apce", 1);
+            json.writeMapEntry("apck", ctx.getActionPublicCacheKey());
         }
 
-        if (ctx.isModulesEnabled()) {
-            json.writeMapEntry("m", 1);
+        if (configAdapter.isLockerServiceEnabled()) {
+            json.writeMapEntry("ls", 1);
+        }
+        
+        if (configAdapter.isStrictCSPEnforced()) {
+            json.writeMapEntry("csp", 1);
+        }
+
+        if (configAdapter.isFrozenRealmEnabled()) {
+            json.writeMapEntry("fr", 1);
+        }
+        
+        if (configAdapter.cdnEnabled()) {
+            json.writeMapEntry(Json.ApplicationKey.CDN_HOST, configAdapter.getCDNDomain());
+        }
+
+        Map<String, String> moduleNamespaceAliases = configAdapter.getModuleNamespaceAliases();
+        if (!moduleNamespaceAliases.isEmpty()) {
+            json.writeMapEntry("mna", moduleNamespaceAliases);
+        }
+
+        if (ctx.useCompatSource()) {
+            json.writeMapEntry("c", 1);
+        }
+
+        if (ctx.forceCompat()) {
+            json.writeMapEntry("fc", 1);
+        }
+
+        if (isApplication) {
+            try {
+                injectModuleServices(json, (DefDescriptor<ApplicationDef>) appDesc);
+            } catch (QuickFixException e) {}
         }
 
         json.writeMapEnd();
 
+    }
+
+    private void injectModuleServices (Json json, DefDescriptor<ApplicationDef> appDesc) throws QuickFixException, IOException {
+        ApplicationDef appDef = definitionService.getDefinition(appDesc);
+        Set<DefDescriptor<ModuleDef>> services = appDef.getModuleServices();
+        if (services != null && !services.isEmpty()) {
+            json.writeMapEntry("services", services);
+        }
     }
 
     private void addTrackedDefs(DefDescriptor<? extends BaseComponentDef> appDesc, 

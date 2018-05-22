@@ -15,14 +15,14 @@
  */
 ({
 	testOuterTrue: {
-        attributes : {outer : "true", inner: "false"},
+        attributes : {outer : true, inner: false},
         test: function(component){
             this.whatItIs(component, "Outer is True, inner false:", true, false);
         }
     },
 
     testOuterFalse: {
-        attributes : {outer : "false", inner : "true"},
+        attributes : {outer : false, inner : true},
         test: function(component){
             this.whatItIs(component, "Outer is false, inner true:", false, true);
         }
@@ -30,7 +30,7 @@
 
     // TODO(W-1419175): onchange events don't fire across function expressions
     _testRerender: {
-        attributes : {outer : "true", inner : "false"},
+        attributes : {outer : true, inner : false},
         test: function(component){
             this.whatItIs(component, "Testing rerender, outer is true, inner false:", true, false);
             component.set("v.outer", false);
@@ -39,6 +39,37 @@
             this.whatItIs(component, "Testing rerender, outer is false, inner true:", false, true);
         }
     },
+
+    // BUG: W-4039086
+    // The issue here is that if can not remove elements from the facetInfo collection, depending on the rendering cycle functions.
+    // When can we safely destroy the facetInfo collection after unrendering it?
+    // You can't do it if you're inside a renderIf, so need to figure some things out here.
+    _testRawNestedIfs: {
+        test: function(component) {
+            var container = component.find("container");
+            var containerElement = container.getElement();
+
+            component.edit();
+
+            // Break the thread
+            setTimeout(function(){
+                component.save();
+            }, 100);
+            
+            // Wait for the Edit button to be the only thing left.
+            $A.test.addWaitFor(true, function() {
+                var buttons = containerElement.querySelectorAll("button");
+                if(buttons.length !== 1) {
+                    return false;
+                }
+
+                var button = buttons[0];
+                return button != null && $A.util.hasClass(button, "edit");
+            });
+
+        }
+    },
+
 
     whatItIs : function(component, name, outervalue, innervalue){
         if (outervalue) {

@@ -207,10 +207,6 @@
 
         var fn = function (newCmp) {
             counter--;
-            newCmp.addHandler("onActivate", cmp, "c.onTabActivated");
-            newCmp.addHandler("onClose", cmp, "c.onTabClosed");
-            newCmp.addHandler("onTabHover", cmp, "c.onTabHover");
-            newCmp.addHandler("onTabUnhover", cmp, "c.onTabUnhover");
             items.push(newCmp);
             
             if(newCmp.get("v.active")) {
@@ -225,9 +221,17 @@
 
         for (var i = 0; i < len; i++) {
             var config = tabValues.get ? tabValues.get(i) : tabValues[i];
-            var newComponent = $A.createComponentFromConfig(config);
-            fn(newComponent);
 
+            var attributes = config.attributes.values || config.attributes;
+            attributes["onActivate"] = cmp.getReference("c.onTabActivated");
+            attributes["onClose"] = cmp.getReference("c.onTabClosed");
+            attributes["onTabHover"] = cmp.getReference("c.onTabHover");
+            attributes["onTabUnhover"] = cmp.getReference("c.onTabUnhover");
+
+            attributes["aura:id"] = config.localId;
+
+            var descriptor = config.descriptor || config.componentDef.descriptor;
+            $A.createComponent(descriptor, attributes, fn);
         }
         
     },
@@ -301,7 +305,8 @@
     },
 
     getActiveTabWidth: function(cmp) {
-        return cmp._activeTab && cmp._activeTab.isValid() ? this.getOuterWidth(cmp._activeTab.getElement()) : 0;
+        var tab = cmp._activeTab;
+        return tab && tab.isValid() && tab.isRendered() ? this.getOuterWidth(tab.getElement()) : 0;
     },
 
     getOverflowMenuWidth: function(cmp) {
@@ -324,15 +329,15 @@
     },
 
     getBarWidth: function(cmp) {
-        var container = cmp.find("tabItemsContainer");
-        return container.getElement().getBoundingClientRect().width || 0;
+        var element = cmp.find("tabItemsContainer").getElement();
+        return (element && element.getBoundingClientRect().width) || 0;
     },
 
     getOuterWidth: function(el) {
         var dataAttr = "original-width";
         var width = $A.util.getDataAttribute(el, dataAttr);
         if ($A.util.isUndefinedOrNull(width)) {
-            var style = window.getComputedStyle(el, '');
+            var style = window.getComputedStyle(el, '') || el.style;
             width = parseFloat(style["marginLeft"]) + parseFloat(style["marginRight"]) + el.offsetWidth;
             $A.util.setDataAttribute(el, "original-width", width);
         } else {
@@ -401,8 +406,10 @@
                 if (cmp.isValid()) {
                     helper.adjustOverflow(cmp);
                 }
-            })
-            );
+            }));
+        } else if (barWidth === 0 && overflowData.barWidth === 0) {
+            // Edge case, should hide the overflow menu when tabBar is reset.
+            this.toggleOverflowMenu(cmp, false);
         }
     },
 
@@ -505,7 +512,7 @@
     /**
      * Private helper methods
      */
-    toggleTab : function(tab, condition) {
+    toggleTab: function(tab, condition) {
         if (condition === undefined) {
             condition = !tab.get("v.hidden");
         }
@@ -514,7 +521,7 @@
         $A.util.toggleClass(tab, "hidden", condition);
     },
 
-    isInOverflow : function(cmp, key) {
+    isInOverflow: function(cmp, key) {
         var overflowData = this.getOverflowData(cmp);
         return overflowData.tabCache[key] >= 0;
     },

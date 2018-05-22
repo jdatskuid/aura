@@ -17,8 +17,6 @@ package org.auraframework.impl.root.component;
 
 
 import java.util.Collections;
-import java.util.Set;
-
 import org.auraframework.Aura;
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.def.ComponentDef;
@@ -37,10 +35,7 @@ import org.junit.runner.RunWith;
 import org.powermock.core.classloader.annotations.PrepareForTest;
 import org.powermock.modules.junit4.PowerMockRunner;
 
-import com.google.common.collect.Sets;
-
 import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.powermock.api.mockito.PowerMockito.mockStatic;
 import static org.powermock.api.mockito.PowerMockito.verifyZeroInteractions;
@@ -59,7 +54,6 @@ public class DefRefDelegateUnitTest {
     private ContextService mockContextService = mock(ContextService.class);
     private AuraContext mockContext = mock(AuraContext.class);
     private ConfigAdapter mockConfigAdapter = mock(ConfigAdapter.class);
-    private Set<String> moduleNamespaces = Sets.newHashSet();
 
     private DefDescriptor<ComponentDef> componentDefDescriptor = new DefDescriptorImpl<>("markup", "defref",
             "test", ComponentDef.class);
@@ -80,7 +74,6 @@ public class DefRefDelegateUnitTest {
         when(Aura.getContextService()).thenReturn(mockContextService);
         when(Aura.getConfigAdapter()).thenReturn(mockConfigAdapter);
         when(mockContextService.getCurrentContext()).thenReturn(mockContext);
-        when(mockConfigAdapter.getModuleNamespaces()).thenReturn(moduleNamespaces);
 
         when(mockComponentDefRef.getDescriptor()).thenReturn(componentDefDescriptor);
 
@@ -88,29 +81,18 @@ public class DefRefDelegateUnitTest {
                 .thenReturn(moduleDefDescriptor);
 
         // set up componentDefRef mocks for building ModuleDefRef
-        when(mockComponentDefRef.getAttributeValues()).thenReturn(Collections.EMPTY_MAP);
+        when(mockComponentDefRef.getAttributeValues()).thenReturn(Collections.emptyMap());
         when(mockComponentDefRef.getLocation()).thenReturn(new Location("file", 1234324));
-
-        moduleNamespaces.clear();
-
     }
 
     @Test
     public void testSwitchableReferences() throws Exception {
         when(mockDefinitionService.exists(moduleDefDescriptor)).thenReturn(true);
-        when(mockDefinitionService.exists(componentDefDescriptor)).thenReturn(true);
-
-        moduleNamespaces.add("defref");
 
         DefRefDelegate defRefDelegate = new DefRefDelegate(mockComponentDefRef);
 
-        when(mockContext.isModulesEnabled()).thenReturn(true);
         assertTrue("Should be ModuleDefRef with modules enabled",
                 defRefDelegate.get() instanceof ModuleDefRef);
-
-        when(mockContext.isModulesEnabled()).thenReturn(false);
-        assertEquals("Should be ComponentDefRef with modules disabled",
-                mockComponentDefRef, defRefDelegate.get());
     }
 
     @Test
@@ -118,15 +100,8 @@ public class DefRefDelegateUnitTest {
         when(mockDefinitionService.exists(moduleDefDescriptor)).thenReturn(false);
         when(mockDefinitionService.exists(componentDefDescriptor)).thenReturn(true);
 
-        moduleNamespaces.add("defref");
-
         DefRefDelegate defRefDelegate = new DefRefDelegate(mockComponentDefRef);
 
-        when(mockContext.isModulesEnabled()).thenReturn(true);
-        assertEquals("Should be ComponentDefRef with non existent module and modules enabled",
-                mockComponentDefRef, defRefDelegate.get());
-
-        when(mockContext.isModulesEnabled()).thenReturn(false);
         assertEquals("Should be ComponentDefRef with non existent module and modules disabled",
                 mockComponentDefRef, defRefDelegate.get());
     }
@@ -136,16 +111,9 @@ public class DefRefDelegateUnitTest {
         when(mockDefinitionService.exists(moduleDefDescriptor)).thenReturn(true);
         when(mockDefinitionService.exists(componentDefDescriptor)).thenReturn(false);
 
-        moduleNamespaces.add("defref");
-
         DefRefDelegate defRefDelegate = new DefRefDelegate(mockComponentDefRef);
 
-        when(mockContext.isModulesEnabled()).thenReturn(true);
         assertTrue("Should be ModuleDefRef with non existent component and modules enabled",
-                defRefDelegate.get() instanceof ModuleDefRef);
-
-        when(mockContext.isModulesEnabled()).thenReturn(false);
-        assertTrue("Should be ModuleDefRef with non existent component and modules disabled",
                 defRefDelegate.get() instanceof ModuleDefRef);
     }
 

@@ -18,11 +18,12 @@
 
     init: function (component) {
         if (component.get("v.disabled")) {
-            component.set("v.displayDatePicker", false);
+            if (component.get('v.displayDatePicker') && !component.get('v.useSingleInput')) {
+                this.updateTimeFormat(component);
+            }
             // don't bother with the rest if the input is disabled
             return;
         }
-        this.cacheDefaultValues(component);
         if (!component.get("v.useSingleInput")) {
             this.updateTimeFormat(component);
             this.setPlaceHolder(component);
@@ -33,19 +34,8 @@
         }
     },
 
-    cacheDefaultValues: function (component) {
-        // these attributes are defined in an interface, and we currently cannot have their default set to an expression
-        component._timezone = component.get("v.timezone") || $A.get("$Locale.timezone");
-        component._dateFormat = component.get("v.dateFormat") || $A.get("$Locale.dateFormat");
-        component._timeFormat = component.get("v.timeFormat") || $A.get("$Locale.timeFormat");
-        component._dateTimeFormat = component.get("v.format") || $A.get("$Locale.datetimeFormat");
-
-        // localizationService uses locale in $Locale.langLocale by default
-        component._locale = component.get("v.langLocale");
-    },
-
     displayDatePicker: function (component, focusDatePicker) {
-        if (component.get("v.useSingleInput") && !component.get("v.displayDatePicker")) {
+        if (!component.get("v.displayDatePicker")) {
             return;
         }
 
@@ -54,6 +44,10 @@
     },
 
     displayTimePicker: function (component, focusTimePicker) {
+        if (!component.get("v.displayDatePicker")) {
+            return;
+        }
+
         var inputTimeValue = this.getTimeString(component);
         var dateTimeString;
         var hours, minutes;
@@ -70,7 +64,7 @@
                 dateTimeString = formattedDate + " " + inputTimeValue;
             }
 
-            var currentDate = $A.localizationService.parseDateTime(dateTimeString, component._dateTimeFormat, component._locale);
+            var currentDate = $A.localizationService.parseDateTime(dateTimeString, this.getDateTimeFormat(component), this.getLocale(component));
 
             // if the dateTime is not null, this means that there's a date selected
             if (!$A.util.isUndefinedOrNull(currentDate)) {
@@ -113,22 +107,28 @@
                     return;
                 }
             }
-            this.setDateTimeValue(component, dateValue, timeValue);
+
+            var dateTimeParams = {
+                date: dateValue,
+                time: timeValue,
+                ignoreChange: true        // change event is fired through the input, no need to fire it again.
+            };
+            this.setDateTimeValue(component, dateTimeParams);
         }
     },
 
     displayValue: function (component) {
         var config = {
-            langLocale: component._locale,
-            timezone: component._timezone,
+            langLocale: this.getLocale(component),
+            timezone: this.getTimezone(component),
             validateString: false       // should we validate?
         };
 
         if (component.get("v.useSingleInput")) {
-            config.format = component._dateTimeFormat;
+            config.format = this.getDateTimeFormat(component);
         } else {
-            config.format = component._dateFormat;
-            config.timeFormat = component._timeFormat;
+            config.format = this.getDateFormat(component);
+            config.timeFormat = this.getTimeFormat(component);
         }
 
         var displayValue = function (returnValue) {
@@ -145,7 +145,24 @@
     },
 
     is24HourFormat: function (component) {
-        return !($A.localizationService.isPeriodTimeView(component._dateTimeFormat));
+        var format = this.getDateTimeFormat(component);
+        if (!format) {
+            return false;
+        }
+
+        var shouldEscape = false;
+        for (var i = 0; i < format.length; i++) {
+            var c = format.charAt(i);
+            if (c === 'h' && shouldEscape === false) {
+                return true;
+            }
+            if (c === '[') {
+                shouldEscape = true;
+            } else if (c === ']') {
+                shouldEscape = false;
+            }
+        }
+        return false;
     },
 
     popUpDatePicker: function (component, date, focusDatePicker) {
@@ -241,6 +258,14 @@
         });
     },
 
+    closeDatepickerWithManager: function(component) {
+        var useManager = component.get("v.useManager"),
+        managerExists = component.get("v.managerExists");
+        if (useManager && managerExists) {
+            $A.getEvt('markup://ui:hideDatePicker').fire();
+        }
+    },
+
     handleDateSelectionByManager: function (component, event) {
         var dateValue = event.getParam("arguments").value;
         if (dateValue) {
@@ -251,6 +276,8 @@
     togglePickerIcon: function (component) {
         var openIconCmp = component.find("datePickerOpener");
         var openIconElem = openIconCmp ? openIconCmp.getElement() : null;
+        var openTimeIconCmp = component.find("timePickerOpener");
+        var openTimeIconElem = openTimeIconCmp ? openTimeIconCmp.getElement() : null;
         var clearCmp = component.find("clear");
         var clearElem = clearCmp ? clearCmp.getElement() : null;
 
@@ -261,6 +288,20 @@
             } else {
                 $A.util.swapClass(clearElem, "hide", "display");
                 $A.util.swapClass(openIconElem, "display", "hide");
+            }
+        } else {
+            if (component.get('v.displayDatePicker')) {
+                if ($A.util.getBooleanValue(component.get('v.disabled'))) {
+                    $A.util.swapClass(openIconElem, "display", "hide");
+                    if (openTimeIconElem) {
+                        $A.util.swapClass(openTimeIconElem, "display", "hide");
+                    }
+                } else {
+                    $A.util.swapClass(openIconElem, "hide", "display");
+                    if (openTimeIconElem) {
+                        $A.util.swapClass(openTimeIconElem, "hide", "display");
+                    }
+                }
             }
         }
     },
@@ -283,14 +324,14 @@
             var config = {
                 hours: selectedHours,
                 minutes: selectedMinutes,
-                timezone: component._timezone
+                timezone: this.getTimezone(component)
             };
 
-            var date = $A.localizationService.parseDateTimeUTC(dateValue, this.DATE_FORMAT, component._locale);
+            var date = $A.localizationService.parseDateTimeUTC(dateValue, this.DATE_FORMAT, this.getLocale(component));
 
             var setValue = function (isoValue) {
-                component.set("v.value", isoValue);
-            };
+                this.setComponentValue(component, isoValue);
+            }.bind(this);
 
             this.dateTimeLib.dateTimeService.getISOValue(date, config, $A.getCallback(setValue));
         }
@@ -301,8 +342,12 @@
 
         this.displayDate(component, displayValue);
 
-        var currentTimeString = this.getTimeString(component);
-        this.setDateTimeValue(component, displayValue, currentTimeString);
+        var dateTimeParams = {
+            date: displayValue,
+            time: this.getTimeString(component),
+            ignoreChange: false
+        };
+        this.setDateTimeValue(component, dateTimeParams);
     },
 
     setTimeValue: function (component, selectedHours, selectedMinutes) {
@@ -312,17 +357,22 @@
 
         var currentDateString = this.getDateString(component);
         if (!$A.util.isEmpty(currentDateString)) {
-            this.setDateTimeValue(component, currentDateString, displayValue);
+            var dateTimeParams = {
+                date: currentDateString,
+                time: displayValue,
+                ignoreChange: false
+            };
+            this.setDateTimeValue(component, dateTimeParams);
         }
     },
 
-    setDateTimeValue: function (component, dateString, timeString) {
-        var hasTime = !$A.util.isEmpty(timeString);
+    setDateTimeValue: function (component, dateTimeParams) {
+        var hasTime = !$A.util.isEmpty(dateTimeParams.time);
 
-        var date = this.getDateTime(component, dateString, timeString);
+        var date = this.getDateTime(component, dateTimeParams.date, dateTimeParams.time);
         if (!$A.util.isUndefinedOrNull(date)) {
             var config = {
-                timezone: component._timezone
+                timezone: this.getTimezone(component)
             };
 
             if (!hasTime && !component.get("v.useSingleInput")) {
@@ -332,35 +382,34 @@
             }
 
             var setValue = function (isoValue) {
-                component.set("v.value", isoValue);
-            };
+                this.setComponentValue(component, isoValue, dateTimeParams.ignoreChange);
+            }.bind(this);
 
             this.dateTimeLib.dateTimeService.getISOValue(date, config, $A.getCallback(setValue));
         } else {
             // date time was invalid, let server do validation
-            var value = hasTime ? dateString + " " + timeString : dateString;
-            component.set("v.value", value);
+            var value = hasTime ? dateTimeParams.date + " " + dateTimeParams.time : dateTimeParams.date;
+            this.setComponentValue(component, value, dateTimeParams.ignoreChange);
         }
     },
 
     updateTimeFormat: function (component) {
         // removing 'seconds' from the time format
-        var timeFormat = component._timeFormat;
+        var timeFormat = this.getTimeFormat(component);
 
         var regexp = /(\W*(?=[sS])[^aAZ\s]*)/;
         var timeWithoutSecondsFormat = timeFormat.replace(regexp, '');
         component.set("v.timeFormat", timeWithoutSecondsFormat);
-        component._timeFormat = timeWithoutSecondsFormat;
     },
 
     setPlaceHolder: function (component) {
         // only add the placeholder when there is no date picker opener.
         if (!component.get("v.displayDatePicker")) {
             if ($A.util.isEmpty(component.get("v.placeholder"))) {
-                component.set("v.placeholder", component._dateFormat);
+                component.set("v.placeholder", this.getDateFormat(component));
             }
             if ($A.util.isEmpty(component.get("v.timePlaceholder"))) {
-                component.set("v.timePlaceholder", component._timeFormat);
+                component.set("v.timePlaceholder", this.getTimeFormat(component));
             }
         }
     },
@@ -425,14 +474,14 @@
         }
 
         utcDate = $A.localizationService.translateToOtherCalendar(utcDate);
-        var formattedDate = $A.localizationService.formatDateUTC(utcDate, component._dateFormat, component._locale);
+        var formattedDate = $A.localizationService.formatDateUTC(utcDate, this.getDateFormat(component), this.getLocale(component));
         return formattedDate;
     },
 
     formatTimeString: function (component, hours, minutes) {
         var date = new Date();
         date.setHours(hours, minutes);
-        var formattedTime = $A.localizationService.formatTime(date, component._timeFormat, component._locale);
+        var formattedTime = $A.localizationService.formatTime(date, this.getTimeFormat(component), this.getLocale(component));
 
         return formattedTime;
     },
@@ -458,21 +507,21 @@
         var isDesktop = !component.get("v.useSingleInput");
 
         if (isDesktop) {
-            var dateFormat = component._dateFormat;
-            var timeFormat = component._timeFormat;
+            var dateFormat = this.getDateFormat(component);
+            var timeFormat = this.getTimeFormat(component);
 
             var hasTime = !$A.util.isEmpty(timeValue);
             format = hasTime ? dateFormat + " " + timeFormat : dateFormat;
             value = hasTime ? dateValue + " " + timeValue : dateValue;
         } else {
-            format = component._dateTimeFormat;
+            format = this.getDateTimeFormat(component);
             value = dateValue;
         }
 
         if (isUTC) {
-            date = $A.localizationService.parseDateTimeUTC(value, format, component._locale, isDesktop);
+            date = $A.localizationService.parseDateTimeUTC(value, format, this.getLocale(component), isDesktop);
         } else {
-            date = $A.localizationService.parseDateTime(value, format, component._locale, isDesktop);
+            date = $A.localizationService.parseDateTime(value, format, this.getLocale(component), isDesktop);
         }
 
         return date;
@@ -492,6 +541,39 @@
                 }
             }
         }
+    },
+
+    setComponentValue: function (component, newValue, ignoreChange) {
+        if (component.get("v.value") !== newValue) {
+            component.set("v.value", newValue);
+            this.fireChangeEvent(component, ignoreChange);
+        }
+    },
+
+    fireChangeEvent: function (component, ignoreChange) {
+        if (!ignoreChange) {
+            component.getEvent("change").fire();
+        }
+    },
+
+    getDateFormat: function (component) {
+        return component.get("v.dateFormat") || $A.get("$Locale.dateFormat");
+    },
+
+    getTimeFormat: function (component) {
+        return component.get("v.timeFormat") || $A.get("$Locale.timeFormat");
+    },
+
+    getDateTimeFormat: function (component) {
+        return component.get("v.format") || $A.get("$Locale.datetimeFormat");
+    },
+
+    getTimezone: function (component) {
+        return component.get("v.timezone") || $A.get("$Locale.timezone");
+    },
+
+    getLocale: function (component) {
+        return component.get("v.langLocale");
     },
 
     /**

@@ -96,16 +96,16 @@
     /**
      * Verify customized destroy handler gets called when component gets destroyed.
      */
-    testCustomizedDestroyHanlder : {
+    testCustomizedDestroyHandler : {
         test : function(cmp) {
-                component = cmp.find("cmpWithDestroyHandlerWrapper");
-                component.destroy();
+            component = cmp.find("cmpWithDestroyHandlerWrapper");
+            component.destroy();
 
-                $A.test.assertTrue(cmp.get("v.cmpDestroyed"),
-                        "Destroy handler didn't get called when component gets destroyed");
-                $A.test.assertTrue(cmp.get("v.childCmpDestroyed"),
-                        "Child component's Destroy handler didn't get called when parent component gets destroyed");
-            }
+            $A.test.assertTrue(top["componentTest_cmpWithDestroyHandlerWrapper"],
+                    "Destroy handler didn't get called when component gets destroyed");
+            $A.test.assertTrue(top["componentTest_cmpWithDestroyHandlerWrapper"],
+                    "Child component's Destroy handler didn't get called when parent component gets destroyed");
+        }
      },
 
     /**
@@ -275,8 +275,7 @@
      * 3. Rerender the iteration explicitly.
      * 4. See that all the elements in the iteration have been destroyed.
      */
-    // KRIS: Commented out till we properly destroy the body of the if (W-3649297)
-    _testDestroyIterationWithIf: {
+    testDestroyIterationWithIf: {
         test: [
             function(component) {
                 var iteration = component.find("iteration");
@@ -294,6 +293,41 @@
                 }
             }
         ]
+    },
+
+    /**
+     * When you unrender an if, and then bring it back. Verify that the components it referenced all render fine.
+     * 1. Create a div and add it to v.component1 attribute
+     * 2. set showComponent1 to false, which will cause the aura:if to unrender its contents.
+     * 3. set showComponent1 to true, which brings back the expression and the contents of the expression.
+     * 4. See that the contents of v.component1 were not destroyed when we unrendered the if contents. 
+     */
+    testSharedComponentInExpressions: {
+        test: [
+            function(cmp) {
+                var div;
+                $A.createComponent("div", {}, function(newDiv) {
+                    div = newDiv;
+                });
+
+                cmp.set("v.component1", div);
+            },
+
+            function(cmp) {
+                cmp.set("v.showComponent1", false);
+            },
+
+            function(cmp) {
+                cmp.set("v.showComponent1", true);
+            },
+
+            function(cmp) {
+                var div = cmp.get("v.component1");
+
+                $A.test.assertTrue(div && div.isValid(), "Div we attempted to display after toggling the if off and back on was not valid. It was destroyed and the user didn't have a chance to bring it back.");
+            }
+        ]
+
     },
 
     getBodyComponentsRecursively: function(component) {

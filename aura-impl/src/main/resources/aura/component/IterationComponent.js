@@ -44,7 +44,7 @@ function IterationComponent(config, localCreation) {
     this.localIndex = {};
     this.destroyed=0;
     this.version = config["version"];
-    this.owner = context.getCurrentAccess();
+    this.owner = $A.clientService.getCurrentAccessGlobalId();
     this.name='';
     this.isRootComponent = true;
 
@@ -102,7 +102,7 @@ function IterationComponent(config, localCreation) {
     }
 
     // add this component to the global index
-    $A.componentService.index(this);
+    $A.componentService.indexComponent(this);
 
     // sets this components definition, preferring partialconfig if it exists
     this.setupComponentDef(this.partialConfig || config);
@@ -211,6 +211,12 @@ IterationComponent.prototype.isInstanceOf = function(type) {
     return type === "aura:iteration" || type === "aura:rootComponent";
 };
 
+// IterationComponent.ItemValueProvider=function(component){
+//     this.get=function(path){
+//         throw new Error("DIGGING IN THE RIGHT PLACE");
+//     }
+// };
+
 IterationComponent.prototype["controller"] = {
     "rangeChange": function(component, evt, helper) {
         helper.updateBody(component);
@@ -225,6 +231,7 @@ IterationComponent.prototype["controller"] = {
     },
 
     "init": function(component, evt, helper) {
+//        component.addValueProvider(component.get("v.var"),new IterationComponent.ItemValueProvider(component));
         var bodyTemplate = component.attributeSet.getBody(component.globalId);
         var template = component.attributeSet.getValue("template");
 
@@ -343,7 +350,6 @@ IterationComponent.prototype["helper"] = {
     },
 
     buildBody: function (component, itemHandler, completeHandler) {
-
         var items = component.attributeSet.getValue("items");
         var template = component.attributeSet.getValue("template");
         var startIndex = this.getStart(component);
@@ -448,6 +454,26 @@ IterationComponent.prototype["provider"] = {
     }
 };
 
-IterationComponent.prototype["renderer"] = Aura.Component.BaseComponent.prototype["renderer"];
+IterationComponent.prototype["renderer"] = {
+    "render": function(component){
+        var rendering = component.getRendering();
+        return rendering||$A.renderingService.renderFacet(component,component.get("v.body"));
+    },
+
+    "afterRender": function(component){
+        var body = component.get("v.body");
+        $A.afterRender(body);
+    },
+
+    "rerender": function(component){
+        var body = component.get("v.body");
+        return $A.renderingService.rerenderFacet(component,body);
+    },
+
+    "unrender" : function(component){
+        var body = component.get("v.body");
+        $A.renderingService.unrenderFacet(component,body);
+    }
+};
 
 Aura.Component.IterationComponent = IterationComponent;

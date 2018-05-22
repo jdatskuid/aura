@@ -5,8 +5,8 @@
      */
 
     // LockerService not supported on IE
-    // TODO(W-3674741,W-3674751): FF and iOS browser versions in autobuilds are too far behind
-    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPHONE", "-IPAD"],
+    // TODO(W-3674741, W-4446969): FF and LockerService disabled for iOS browser in 212
+    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-SAFARI", "-IPHONE", "-IPAD"],
 
     setUp: function(cmp) {
         cmp.set("v.testUtils", $A.test);
@@ -89,7 +89,7 @@
 
     testDefineGetterExploit: {
         // This exploit not covered in IE11
-        browsers: ["-IE8", "-IE9", "-IE10", "-IE11"],
+        browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-SAFARI", "-IPHONE", "-IPAD"],
         // Remove UnAdaptableTest label when unsafe-eval and unsafe-inline are added back to CSP
         labels: ["UnAdaptableTest"],
         test: function(cmp) {
@@ -123,11 +123,8 @@
 
     testAttemptToEvalToWindow: {
         // This exploit not covered in IE11
-        // TODO(W-3674741,W-3674751): FF and iOS browser versions in autobuilds are too far behind
-        browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPHONE", "-IPAD"],
         test: function(cmp) {
-            //Taking into account if its a manual run (which runs inside an iframe) or an auto run
-            cmp.testEvalBlocking(window !== window.parent);
+            cmp.testAttemptToEvalToWindow(window !== window.parent);
 
             // DCHASMAN TOOD Port these to cmp.testEvalBlocking()
 
@@ -182,7 +179,7 @@
             cmp.testAddExpandoToCachedItem();
         }
     },
-    
+
     testSecureElementPrototypeCounterMeasures: {
         test: function(cmp) {
             cmp.testSecureElementPrototypeCounterMeasures();
@@ -205,38 +202,68 @@
 
     testInstanceOf: {
         // TODO: Re-enable for Firefox and iOS when autobuilds use a version that supports all Proxy traps we implement
-        browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPAD", "-IPHONE"],
         test: function(cmp) {
             cmp.testInstanceOf(window);
         }
     },
-    
+
+    testInstanceOf_IdentityDiscontinuitySymptoms: {
+        // TODO: Re-enable for Firefox and iOS when autobuilds use a version that supports all Proxy traps we implement
+        // TODO: Re-enable when strict CSP is on by default in core autobuilds
+        labels: ["UnAdaptableTest"],
+        test: function(cmp) {
+            cmp.testInstanceOf_IdentityDiscontinuitySymptoms(window);
+        }
+    },
+
     testFilteringProxy: {
         test: function(cmp) {
             function TestPrototype() {
             	return this;
             };
-                        
+
             var o = Object.create(TestPrototype.prototype, {
             	someProperty: {
             		configurable: true,
+                // writable: false (default)
             		enumerable: true,
             		value: "somePropertyValue",
             	},
 
             	nonEnumerableProperty: {
             		configurable: true,
+                // writable: false (default)
             		value: "nonEnumerablePropertyValue",
             	},
-            	
+
             	foo: {
+                // configurable: false (default)
+                // writable: false (default)
             		enumerable: true,
             		value: function() {
             			return "fooValue";
             		}
-            	}
+            	},
+
+              configurableProperty: {
+                configurable: true,
+                // writable: false (default)
+                value: "configurableProperty",
+              },
+
+              writableProperty: {
+                // configurable: false (default)
+                writable: true,
+                value: "writablePropertyValue",
+              },
+
+              configurableWritableProperty: {
+                configurable: true,
+                writable: true,
+                value: "configurableWritablePropertyValue",
+              },
             });
-                                   
+
             var otherNamespace = cmp.find("otherNamespace");
             otherNamespace.set("v.obj", o);
             otherNamespace.setupTestFilteringProxy();
@@ -245,7 +272,7 @@
             helper._o = o;
             helper._TestPrototype = TestPrototype;
             helper._po = otherNamespace.getDef().getHelper()._po;
-            
+
             cmp.testFilteringProxy();
         }
     }

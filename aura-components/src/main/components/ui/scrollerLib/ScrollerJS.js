@@ -352,6 +352,21 @@ function lib(w) { //eslint-disable-line no-unused-vars
             }
         },
         /**
+        * Destroy each plugin.  Because we should not allow the individual plugin 
+        * to override the destroy() mothod of the scroller.
+        *
+        * @method _destroyPlugins
+        * @private
+        */
+        _destroyPlugins: function() {
+            var userPlugins = this.opts.plugins;
+            if (userPlugins) {
+                userPlugins.forEach(function (plugin) {
+                    this.unplug(plugin);
+                }, this);
+            }
+        },
+        /**
         * Returns wether or not to obserChanges on the DOM
         * By default `observeDomChanges` will be enabled 
         * unless `gpuOptimization` is set to true.
@@ -990,6 +1005,7 @@ function lib(w) { //eslint-disable-line no-unused-vars
                 this.x = x;
             }
         },
+
         /**
         * Handles move gesture event.
         *
@@ -998,6 +1014,12 @@ function lib(w) { //eslint-disable-line no-unused-vars
         * @private
         */
         _move: function (e) {
+            //if e is input type="range", should let itself handle it.
+            if (e.target.tagName === 'INPUT' && e.target.type === 'range') {
+                event.cancelScrolling = true;
+                event.preventBounce = false;
+                return;
+            }
             // If an element captures onTouchMove and sets "cancelScrolling" to true, Scroller will cancel scrolling.
             if (!this.enabled || (EVENT_TYPE[e.type] !== this._initiated) || e.cancelScrolling) {
                 e.scrollDirection = this.scrollDirection; // keep bubbling up the direction if is defined
@@ -1718,11 +1740,12 @@ function lib(w) { //eslint-disable-line no-unused-vars
          */
         _scrollIntoViewIfNeeded: function(elm) {
             if (this.opts.useCSSTransition) {
+                var elemBoundingRect = elm.getBoundingClientRect();
                 var x = this.x,
                     y = this.y,
                     topOffset = this.wrapper.getBoundingClientRect().top,
-                    elmBot = elm.getBoundingClientRect().bottom - topOffset,
-                    elmTop = elm.getBoundingClientRect().top - topOffset,
+                    elmBot = elemBoundingRect.bottom - topOffset,
+                    elmTop = elemBoundingRect.top - topOffset,
                     elmHeight = elmBot - elmTop,
                     pos;
 
@@ -1793,10 +1816,13 @@ function lib(w) { //eslint-disable-line no-unused-vars
         resize: function () {
             var self = this;
             RAF(function () {
-                // update size
-                self._setSize();
-                // position might be invalid after resizing, move it to the edge if so
-                self._resetPositionIfOutOfBound();
+                // don't resize if the scroller is hidden via a display:none declaration on an ancestor
+                if(self._isScrollerVisible()) {
+                    // update size
+                    self._setSize();
+                    // position might be invalid after resizing, move it to the edge if so
+                    self._resetPositionIfOutOfBound();
+                }
             });
         },
 
@@ -1855,7 +1881,7 @@ function lib(w) { //eslint-disable-line no-unused-vars
         plug: function (plugin) {
             var ScrollerPlugin  = typeof plugin === 'string' ? PLUGINS[plugin] : plugin,
                 PluginPrototype = (ScrollerPlugin && ScrollerPlugin.prototype) || ScrollerPlugin, // try to get the prototype if it has one
-                whiteList       = ['init'],
+                whiteList       = ['init', 'destroy'],
                 methodName;
 
             if (PluginPrototype) {
@@ -1870,6 +1896,28 @@ function lib(w) { //eslint-disable-line no-unused-vars
                 }
             } else {
                 console.log('Error adding plugin:', plugin); //eslint-disable-line no-console
+            }
+        },
+        /**
+        * Remove a plugin to the scroller.
+        *
+        * We need to make sure the individual plugin.destroy() method is not
+        * overrideing the destroy() method of the scroller
+        * @param plugin {Function | Object} Plugin to remove from the scroller
+        * @method unplug
+        * @public
+        *
+        **/
+        unplug: function (plugin) {
+            var ScrollerPlugin  = typeof plugin === 'string' ? PLUGINS[plugin] : plugin,
+                PluginPrototype = (ScrollerPlugin && ScrollerPlugin.prototype) || ScrollerPlugin; // try to get the prototype if it has one
+
+            if (PluginPrototype) {
+                if (PluginPrototype.destroy) {
+                    PluginPrototype.destroy.call(this);
+                }
+            } else {
+                console.log('Error removing plugin:', plugin); //eslint-disable-line no-console
             }
         },
 
@@ -1970,6 +2018,7 @@ function lib(w) { //eslint-disable-line no-unused-vars
         * @public
         */
         destroy: function () {
+            this._destroyPlugins();
             this._destroy();
             this._fire('destroy');
         }

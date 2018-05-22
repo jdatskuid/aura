@@ -15,10 +15,6 @@
  */
 package org.auraframework.integration.test.http;
 
-import static org.hamcrest.CoreMatchers.containsString;
-import static org.junit.Assert.assertNotEquals;
-import static org.junit.Assert.assertThat;
-
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.integration.test.util.WebDriverTestCase;
@@ -26,9 +22,13 @@ import org.auraframework.test.util.WebDriverUtil.BrowserType;
 import org.junit.Test;
 import org.openqa.selenium.By;
 
+import static org.hamcrest.CoreMatchers.containsString;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertThat;
+
 public class AppCacheUITest extends WebDriverTestCase {
 
-    @ExcludeBrowsers({ BrowserType.IPAD, BrowserType.IPHONE, BrowserType.IE7, BrowserType.IE8, BrowserType.IE9, BrowserType.IE10, BrowserType.IE11 })
+    @ExcludeBrowsers({ BrowserType.IPAD, BrowserType.IPHONE, BrowserType.IE8, BrowserType.IE9, BrowserType.IE10, BrowserType.IE11 })
     @Test
     public void testAppcacheIsEnabled() throws Exception {
         DefDescriptor<ApplicationDef> appDesc = addSourceAutoCleanup(ApplicationDef.class,
@@ -42,7 +42,7 @@ public class AppCacheUITest extends WebDriverTestCase {
         String manifestUrl = getAuraUITestingUtil().getEval(script).toString();
         assertNotEquals("Appcache is not enabled", "null", manifestUrl);
 
-        script = "return location.hostname + (location.port? ':' + location.port : '')";
+        script = "return location.protocol + '//' + location.hostname + (location.port? ':' + location.port : '')";
         String domain = getAuraUITestingUtil().getEval(script).toString();
         manifestUrl = domain + manifestUrl;
 

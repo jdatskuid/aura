@@ -26,9 +26,9 @@ import org.auraframework.builder.RootDefinitionBuilder;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.Definition;
 import org.auraframework.def.DocumentationDef;
+import org.auraframework.def.PlatformDef.SupportLevel;
 import org.auraframework.def.RequiredVersionDef;
 import org.auraframework.def.RootDefinition;
-import org.auraframework.def.RootDefinition.SupportLevel;
 import org.auraframework.impl.root.RequiredVersionDefImpl;
 import org.auraframework.impl.system.DefDescriptorImpl;
 import org.auraframework.service.DefinitionService;
@@ -97,16 +97,6 @@ public abstract class RootTagHandler<T extends RootDefinition> extends Container
     @Override
     public Set<String> getAllowedAttributes() {
         return isInInternalNamespace ? INTERNAL_ALLOWED_ATTRIBUTES : ALLOWED_ATTRIBUTES;
-    }
-
-    /**
-     * Determines whether HTML parsing will allow script tags to be embedded.
-     * False by default, so must be overridden to allow embedded script tag.
-     *
-     * @return - return true if your instance should allow embedded script tags in HTML
-     */
-    public boolean getAllowsScript() {
-        return false;
     }
 
     public abstract RootDefinitionBuilder<T> getBuilder();

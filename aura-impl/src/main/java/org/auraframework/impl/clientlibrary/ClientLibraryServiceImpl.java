@@ -27,6 +27,7 @@ import org.auraframework.clientlibrary.ClientLibraryResolver;
 import org.auraframework.clientlibrary.ClientLibraryResolverRegistry;
 import org.auraframework.clientlibrary.ClientLibraryService;
 import org.auraframework.def.ClientLibraryDef;
+import org.auraframework.def.ClientLibraryDef.Type;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.AuraContext;
 import org.auraframework.throwable.NoContextException;
@@ -43,9 +44,6 @@ public class ClientLibraryServiceImpl implements ClientLibraryService {
 
     @Inject
     DefinitionService definitionService;
-
-    public ClientLibraryServiceImpl() {
-    }
 
     /**
      * Gets resolver for resolution. Empty string if none
@@ -80,7 +78,6 @@ public class ClientLibraryServiceImpl implements ClientLibraryService {
      */
     @Override
     public Set<String> getUrls(AuraContext context, ClientLibraryDef.Type type) throws QuickFixException {
-
         if (context == null) {
             throw new NoContextException();
         }
@@ -91,20 +88,41 @@ public class ClientLibraryServiceImpl implements ClientLibraryService {
         }
 
         Set<String> urls = Sets.newLinkedHashSet();
-
         List<ClientLibraryDef> clientLibs = getClientLibraries(context, type);
-
-        String url = null;
-
         for (ClientLibraryDef clientLib : clientLibs) {
-
             // add url to list when client library is not combined
-            url = getResolvedUrl(clientLib);
+            String url = getResolvedUrl(clientLib);
             if (StringUtils.isNotBlank(url)) {
                 urls.add(url);
             }
-
         }
+
+        return urls;
+    }
+
+    @Override
+    public Set<String> getPrefetchUrls(AuraContext context, Type type) throws QuickFixException {
+        if (context == null) {
+            throw new NoContextException();
+        }
+
+        String uid = context.getUid(context.getApplicationDescriptor());
+        if (uid == null) {
+            return Collections.emptySet();
+        }
+
+        Set<String> urls = Sets.newLinkedHashSet();
+        List<ClientLibraryDef> clientLibs = getClientLibraries(context, type);
+        for (ClientLibraryDef clientLib : clientLibs) {
+            if(clientLib.shouldPrefetch()){
+                // add url to list when client library is not combined
+                String url = getResolvedUrl(clientLib);
+                if (StringUtils.isNotBlank(url)) {
+                    urls.add(url);
+                }
+            }
+        }
+
         return urls;
     }
 
@@ -135,15 +153,13 @@ public class ClientLibraryServiceImpl implements ClientLibraryService {
         if (clientLibs != null) {
             for (ClientLibraryDef clientLib : clientLibs) {
                 // check if client library should be added based on type and current mode
-                if (clientLib.shouldInclude(mode, type)) {
-                    // check for duplicate client library
-                    if (!ret.contains(clientLib)) {
-                        ret.add(clientLib);
-                    }
+                if (clientLib.shouldInclude(mode, type) && !ret.contains(clientLib)) {
+                    ret.add(clientLib);
                 }
             }
         }
 
         return ret;
     }
+
 }

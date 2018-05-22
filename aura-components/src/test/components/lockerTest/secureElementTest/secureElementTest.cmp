@@ -41,16 +41,23 @@
     <aura:method name="testInnerHTMLSupportsUseTagForSvgElement" action="{!c.testInnerHTMLSupportsUseTagForSvgElement}"/>
     <aura:method name="testTextContent" action="{!c.testTextContent}"/>
     <aura:method name="testInnerText" action="{!c.testInnerText}"/>
+    <aura:method name="testAddEventListenerFunctionListener" action="{!c.testAddEventListenerFunctionListener}"/>
+    <aura:method name="testAddEventListenerObjectListener" action="{!c.testAddEventListenerObjectListener}"/>
+    <aura:method name="testAddEventListenerStaticMethod" action="{!c.testAddEventListenerStaticMethod}"/>
+    <aura:method name="testAddEventListenerThrowsInvalidListener" action="{!c.testAddEventListenerThrowsInvalidListener}"/>
     <aura:method name="testAddEventListenerMultipleCalls" action="{!c.testAddEventListenerMultipleCalls}"/>
     <aura:method name="testSvgGetBBox" action="{!c.testSvgGetBBox}"/>r
     <aura:method name="testScalarExpression" action="{!c.testScalarExpression}"/>
     <aura:method name="testTableAPI" action="{!c.testTableAPI}"/>
- 
+
     <aura:method name="testElementCache" action="{!c.testElementCache}"/>
 
     <aura:method name="getDiv" action="{!c.getDiv}"/>
 
     <aura:method name="testInnerHTML" action="{!c.testInnerHTML}">
+        <aura:attribute name="targetElement" type="String"/>
+    </aura:method>
+    <aura:method name="testOuterHTML" action="{!c.testOuterHTML}">
         <aura:attribute name="targetElement" type="String"/>
     </aura:method>
     <aura:method name="testInsertAdjacentHTML" action="{!c.testInsertAdjacentHTML}">
@@ -70,8 +77,12 @@
     <aura:method name="testAriaAttributesAccessible" action="{!c.testAriaAttributesAccessible}"/>
     <aura:method name="testAttributesPropertyContainsData" action="{!c.testAttributesPropertyContainsData}"/>
     <aura:method name="testGetSetInvalidAttributes"/>
+    <aura:method name="testGetSetValueAttributeOnNonInputElement"/>
     <aura:method name="testLabelForInput"/>
     <aura:method name="testForAttributeAllowedOnLabelOnly"/>
+    <aura:method name="testPropertyMeta"/>
+    <aura:method name="testPropertyAttributeAllowedOnMetaOnly"/>
+    <aura:method name="testPropertyAttributeBlockedOnMeta"/>
     <aura:method name="testRecursiveTraversal"/>
     <aura:method name="testInnerHtmlFiltering"/>
     <aura:method name="testTextContentFiltering"/>
@@ -80,10 +91,18 @@
     <aura:method name="testElementAttributesRemove"/>
     <aura:method name="testElementGetAttribute"/>
     <aura:method name="testNodeApiParamUnfilter"/>
+    <aura:method name="testElementObjectProperties"/>
+    <aura:method name="testHasChildNodes"/>
+    <aura:method name="testSetAttributeXlinkHref"/>
+    <aura:method name="testSetAttributeNSXlinkHref"/>
+    <aura:method name="testSetAttributeNodeXlinkHref"/>
+    <aura:method name="testSetAttributeNodeNSXlinkHref"/>
 
     <lockerTest:facet/>
 
-    <div aura:id="title" class="title" id="title">SecureElement test</div>
+    <div class="titleWrapper">
+      <div aura:id="title" class="title" id="title">SecureElement test</div>
+    </div>
 
     <input type="text" aura:id="input" value="input" />
     <textarea aura:id="textarea" value="textarea" />
@@ -111,7 +130,7 @@
 
   	<div aura:id="cacheTestA" id="cacheTestA"></div>
   	<div aura:id="cacheTestB" id="cacheTestB"></div>
-    
+
     <ui:stamp aura:id="sentinel" severity="success">Sentinel For Rendering Tests</ui:stamp>
 
     <div id="outsideFacet">
@@ -138,4 +157,5 @@
         <p id="insideDiv"/>
     </div>
     <p id="outsideDiv"/>
+    <a value="Anchor with a value prop" id="anchorWithValue"></a>
 </aura:component>

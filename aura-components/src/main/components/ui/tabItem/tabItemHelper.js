@@ -95,8 +95,11 @@
 
     initWidth: function (cmp) {
         var el = cmp.getElement();
-        var style = window.getComputedStyle(el, '');
-        var width = parseFloat(style.marginLeft) + parseFloat(style.marginRight) + el.offsetWidth;
-        $A.util.setDataAttribute(el, "original-width", width);
+        // Firefox getComputedStyle could return null if element has display:none.
+        var style = (el instanceof Element) ? window.getComputedStyle(el, '') : null;
+        if (style) {
+            var width = parseFloat(style.marginLeft) + parseFloat(style.marginRight) + el.offsetWidth;
+            $A.util.setDataAttribute(el, "original-width", width);
+        }
     }
 })// eslint-disable-line semi

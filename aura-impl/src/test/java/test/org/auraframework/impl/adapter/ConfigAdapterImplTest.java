@@ -15,8 +15,24 @@
  */
 package test.org.auraframework.impl.adapter;
 
+import static org.mockito.Matchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Properties;
+import java.util.TimeZone;
+
+import javax.inject.Inject;
+
 import org.auraframework.adapter.ConfigAdapter;
-import org.auraframework.adapter.LocalizationAdapter;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.impl.context.AuraContextServiceImpl;
 import org.auraframework.impl.javascript.AuraJavascriptGroup;
@@ -33,25 +49,6 @@ import org.auraframework.util.test.util.UnitTestCase;
 import org.auraframework.util.text.Hash;
 import org.junit.Test;
 import org.mockito.Mockito;
-
-import test.org.auraframework.impl.adapter.ConfigAdapterImpl;
-
-import javax.inject.Inject;
-
-import java.io.IOException;
-import java.io.InputStream;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Properties;
-import java.util.TimeZone;
-
-import static org.mockito.Matchers.anyString;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.reset;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 /**
  * Tests for ConfigAdapterImpl.
@@ -71,9 +68,6 @@ public class ConfigAdapterImplTest extends UnitTestCase {
     
     @Inject
     InstanceService instanceService;
-    
-    @Inject
-    LocalizationAdapter localizationAdapter;
     
     // An exception thrown to test error handling.
     public static class MockException extends RuntimeException {
@@ -109,7 +103,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
         String version = configAdapter.getAuraVersion();
         if (!version.equals("development")) {
             assertTrue("Unexpected version format: " + version,
-                    version.matches("^\\d+\\.\\d+(\\.\\d+(\\.\\d+)?)?(-.*)?$"));
+                    version.matches("^\\d+(\\.\\d+)+(-SNAPSHOT)?$"));
         }
         assertTrue(configAdapter.getBuildTimestamp() > 0);
     }
@@ -127,7 +121,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
         // But an error case should fail, and not be swallowed.
         final AuraJavascriptGroup mockJsGroup = mock(AuraJavascriptGroup.class);
 
-        ConfigAdapterImpl mockAdapter = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor) {
+        ConfigAdapterImpl mockAdapter = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor) {
             @Override
             public AuraJavascriptGroup newAuraJavascriptGroup() throws IOException {
                 return mockJsGroup;
@@ -196,7 +190,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
         when(resourcesGroup.isStale()).thenReturn(false);
         when(resourcesGroup.getGroupHash()).thenReturn(resourcesHash);
 
-        ConfigAdapterImpl configAdapter = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor) {
+        ConfigAdapterImpl configAdapter = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor) {
             @Override
             protected AuraJavascriptGroup newAuraJavascriptGroup() throws IOException {
                 return jsGroup;
@@ -249,7 +243,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
 
     @Test
     public void testIsInternalNamespaceWithBadArguments() {
-        ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+        ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         assertFalse("null should not be an internal namespace", impl.isInternalNamespace(null));
         assertFalse("Empty string should not be an internal namespace", impl.isInternalNamespace(""));
         assertFalse("Wild characters should not be an internal namespace", impl.isInternalNamespace("*"));
@@ -259,7 +253,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
     @Test
     public void testIsInternalNamespaceAfterRegistering() {
         String namespace = this.getName() + System.currentTimeMillis();
-        ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+        ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         impl.addInternalNamespace(namespace);
         assertTrue("Failed to register an internal namespace.", impl.isInternalNamespace(namespace));
         assertTrue("Internal namespace checks are case sensitive.",
@@ -268,7 +262,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
 
     @Test
     public void testAddInternalNamespacesWithBadArguments() {
-        ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+        ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         impl.addInternalNamespace(null);
         assertFalse(impl.isInternalNamespace(null));
 
@@ -278,7 +272,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
 
     @Test
     public void testGetInternalNamespacesReturnsSortedNamespaces() {
-        ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+        ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         impl.getInternalNamespaces().clear();
         String[] namespaces = new String[] {"c", "a", "d", "b","e"};
         for(String namespace : namespaces) {
@@ -295,25 +289,14 @@ public class ConfigAdapterImplTest extends UnitTestCase {
     
     @Test
     public void testIsCacheableWithNullDescriptor() {//null descriptor
-    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         DefRegistry mockReg = mock(DefRegistry.class);
     	assertFalse(impl.isCacheable(mockReg, null));
     }
     
     @Test
-    public void testIsCacheableWithCacheDependencyExceptionsDescriptor() {//special rules for apex
-    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
-        DefRegistry mockRegistry = mock(DefRegistry.class);
-    	@SuppressWarnings("rawtypes")
-        DefDescriptor mockDescriptor = mock(DefDescriptor.class);
-    	when(mockDescriptor.getQualifiedName()).thenReturn("apex://applauncher.appmenu");
-    	
-    	assertTrue(impl.isCacheable(mockRegistry, mockDescriptor));
-    }
-    
-    @Test
     public void testIsCacheableWithNullNamespaceNullPrefix() {//when namespace is null, prefix is not null, not cacheable
-    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         DefRegistry mockRegistry = mock(DefRegistry.class);
     	@SuppressWarnings("rawtypes")
         DefDescriptor mockDescriptor = mock(DefDescriptor.class);
@@ -327,7 +310,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
     
     @Test
     public void testIsCacheableWithNullNamespaceValidPrefix() {//when namespace is null, prefix is not null, it's up to registry
-    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         DefRegistry mockRegistry = mock(DefRegistry.class);
     	@SuppressWarnings("rawtypes")
         DefDescriptor mockDescriptor = mock(DefDescriptor.class);
@@ -341,7 +324,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
     
     @Test
     public void testIsCacheableWithNullNamespaceCompoundPrefix() {//when namespace is null, prefix is compound, it's cachable
-    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         DefRegistry mockRegistry = mock(DefRegistry.class);
     	@SuppressWarnings("rawtypes")
         DefDescriptor mockDescriptor = mock(DefDescriptor.class);
@@ -355,7 +338,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
     
     @Test
     public void testIsCacheableWithNullPrefixInternalNamespace() {//when prefix is null, namespace is not, it's up to namespace
-    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         DefRegistry mockRegistry = mock(DefRegistry.class);
     	@SuppressWarnings("rawtypes")
         DefDescriptor mockDescriptor = mock(DefDescriptor.class);
@@ -370,7 +353,7 @@ public class ConfigAdapterImplTest extends UnitTestCase {
     
     @Test
     public void testIsCacheableWithInternalNamespaceValidPrefix() {//when both prefix and namespace are not null, either of them is cacheable
-    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), localizationAdapter, instanceService, contextService, fileMonitor);
+    	ConfigAdapterImpl impl = new ConfigAdapterImpl(IOUtil.newTempDir(getName()), instanceService, contextService, fileMonitor);
         DefRegistry mockRegistry = mock(DefRegistry.class);
     	@SuppressWarnings("rawtypes")
         DefDescriptor mockDescriptor = mock(DefDescriptor.class);

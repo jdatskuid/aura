@@ -31,7 +31,6 @@ import java.util.Set;
 
 import org.apache.log4j.Logger;
 import org.auraframework.adapter.ConfigAdapter;
-import org.auraframework.cache.Cache;
 import org.auraframework.css.StyleContext;
 import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.DefDescriptor;
@@ -40,7 +39,8 @@ import org.auraframework.def.Definition;
 import org.auraframework.def.DescriptorFilter;
 import org.auraframework.def.EventDef;
 import org.auraframework.def.EventType;
-import org.auraframework.impl.cache.CacheImpl;
+import org.auraframework.def.InterfaceDef;
+import org.auraframework.impl.ServerServiceImpl;
 import org.auraframework.impl.css.token.StyleContextImpl;
 import org.auraframework.impl.util.AuraUtil;
 import org.auraframework.instance.Action;
@@ -48,8 +48,10 @@ import org.auraframework.instance.BaseComponent;
 import org.auraframework.instance.Event;
 import org.auraframework.instance.GlobalValueProvider;
 import org.auraframework.instance.InstanceStack;
+import org.auraframework.service.CSPInliningService.InlineScriptMode;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.AuraContext;
+import org.auraframework.system.AuraLocalStore;
 import org.auraframework.system.Client;
 import org.auraframework.system.DependencyEntry;
 import org.auraframework.system.LoggingContext.KeyValueLogger;
@@ -66,6 +68,7 @@ import org.auraframework.util.json.JsonEncoder;
 import org.auraframework.util.json.JsonSerializationContext;
 
 import com.google.common.base.Optional;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -96,6 +99,8 @@ public class AuraContextImpl implements AuraContext {
     private final Set<String> dynamicNamespaces = Sets.newLinkedHashSet();
 
     private Set<DefDescriptor<?>> preloadedDefinitions = null;
+    private Set<DefDescriptor<?>> unmodifiablePreloadedDefinitions = null;
+    private int preloadedDefinitionsUnionCount = 0;
 
     private final Format format;
 
@@ -105,7 +110,7 @@ public class AuraContextImpl implements AuraContext {
     private final Map<DefDescriptor<?>, String> clientLoaded = Maps.newLinkedHashMap();
 
     private String contextPath = "";
-    
+
     private String pathPrefix = "";
 
     private boolean preloading = false;
@@ -140,56 +145,22 @@ public class AuraContextImpl implements AuraContext {
 
     private boolean isSystem = false;
 
-    private boolean isModulesEnabled = false;
     private boolean useCompatSource = false;
+    private boolean forceCompat = false;
+    private List<String> scriptHashes = new ArrayList<>();
+    private String nonce;
+    private String actionPublicCacheKey;
+    private Boolean uriDefsEnabled;
 
-    /**
-     * The set of defs that are thread local.
-     *
-     * We have two copies of this class, one for 'user' mode, and one for 'system' mode. The only difference
-     * is that system mode defs are not sent to the client.
-     */
-    private static class LocalDefs {
-        LocalDefs() {
-            this.defs = new HashMap<>();
-            this.dynamicDescs = new HashSet<>();
-            this.localDependencies = new HashMap<>();
-            this.defNotCacheable = new HashSet<>();
-        }
-
-        final Map<DefDescriptor<? extends Definition>, Optional<Definition>> defs;
-        final Set<DefDescriptor<? extends Definition>> dynamicDescs;
-        final Set<DefDescriptor<? extends Definition>> defNotCacheable;
-
-        /**
-         * A local dependencies cache.
-         *
-         * We store both by descriptor and by uid. The descriptor keys must include the type, as the qualified name
-         * is not sufficient to distinguish it. In the case of the UID, we presume that we are safe.
-         *
-         * The two keys stored in the local cache are:
-         * <ul>
-         * <li>The UID, which should be sufficiently unique for a single request.</li>
-         * <li>The type+qualified name of the descriptor. We store this to avoid construction in the case where we don't
-         * have a UID. This is presumed safe because we assume that a single session will have a consistent set of
-         * permissions</li>
-         * </ul>
-         */
-        private final Map<String, DependencyEntry> localDependencies;
-    }
-
-    private final LocalDefs userDefs;
-    private final LocalDefs systemDefs;
-    private LocalDefs currentDefs;
+    private AuraLocalStore localStore;
 
     private final Map<String, Boolean> clientClassesLoaded;
 
-    private final Cache<String, String> accessCheckCache;
+    private final Map<String, String> accessCheckCache;
 
     private final RegistrySet registries;
 
-    private final static int ACCESS_CHECK_CACHE_SIZE = 4096;
-
+    private final Set<String> restrictedNamespaces = new HashSet<>();
 
     public AuraContextImpl(Mode mode, RegistrySet registries, Map<DefType, String> defaultPrefixes,
             Format format, Authentication access, JsonSerializationContext jsonContext,
@@ -207,66 +178,42 @@ public class AuraContextImpl implements AuraContext {
         this.definitionService = definitionService;
         this.testContextAdapter = testContextAdapter;
         this.globalValues = new HashMap<>();
-        this.userDefs = new LocalDefs();
-        this.systemDefs = new LocalDefs();
-        this.currentDefs = userDefs;
+        this.localStore = new AuraLocalStoreImpl();
         this.clientClassesLoaded = new HashMap<>();
-        // Why is this a cache and not just a map?
-        this.accessCheckCache = new CacheImpl.Builder<String, String>()
-                .setInitialSize(ACCESS_CHECK_CACHE_SIZE)
-                .setMaximumSize(ACCESS_CHECK_CACHE_SIZE)
-                .setRecordStats(true)
-                .setSoftValues(true)
-                .build();
+        this.accessCheckCache = new HashMap<>();
     }
 
     @Override
     public void setSystemMode(boolean systemMode) {
         isSystem = systemMode;
-        if (isSystem) {
-            this.currentDefs = systemDefs;
-        } else {
-            this.currentDefs = userDefs;
-        }
+        localStore.setSystemMode(systemMode);
     }
-    
+
     @Override
     public boolean isSystemMode() {
-    	return this.isSystem;
+        return this.isSystem;
     }
 
     @Override
     public void setLocalDefNotCacheable(DefDescriptor<?> descriptor) {
-        currentDefs.defNotCacheable.add(descriptor);
+        localStore.setDefNotCacheable(descriptor);
     }
 
     @Override
     public boolean isLocalDefNotCacheable(DefDescriptor<?> descriptor) {
-        return userDefs.defNotCacheable.contains(descriptor)
-            || (isSystem && systemDefs.defNotCacheable.contains(descriptor));
+        return localStore.isDefNotCacheable(descriptor);
     }
 
     @Override
     public void addLocalDef(DefDescriptor<?> descriptor, Definition def) {
-        Optional<Definition> opt;
-        if (def == null) {
-            opt = Optional.absent();
-        } else {
-            opt = Optional.of(def);
-        }
-        currentDefs.defs.putIfAbsent(descriptor, opt);
+        localStore.addDefinition(descriptor, def);
     }
-    
-    @SuppressWarnings("unchecked")
+
     @Override
     public <D extends Definition> Optional<D> getLocalDef(DefDescriptor<D> descriptor) {
-        Optional<D> opt = (Optional<D>)userDefs.defs.get(descriptor);
-        if (opt == null && isSystem) {
-            opt = (Optional<D>)systemDefs.defs.get(descriptor);
-        }
-        return opt;
+        return localStore.getDefinition(descriptor);
     }
-    
+
     /**
      * Filter the entire set of current definitions by a set of preloads.
      *
@@ -275,14 +222,16 @@ public class AuraContextImpl implements AuraContext {
     @Override
     public Map<DefDescriptor<? extends Definition>, Definition> filterLocalDefs(Set<DefDescriptor<?>> preloads) {
         Map<DefDescriptor<? extends Definition>, Definition> filtered;
+        Map<DefDescriptor<? extends Definition>, Definition> unfiltered;
 
-        filtered = Maps.newHashMapWithExpectedSize(userDefs.defs.size());
+        unfiltered = localStore.getDefinitions();
         if (preloads == null) {
-            preloads = Sets.newHashSet();
+            return unfiltered;
         }
-        for (Map.Entry<DefDescriptor<? extends Definition>, Optional<Definition>> entry : userDefs.defs.entrySet()) {
-            if (entry.getValue().isPresent() && !preloads.contains(entry.getKey())) {
-                filtered.put(entry.getKey(), entry.getValue().get());
+        filtered = Maps.newHashMapWithExpectedSize(unfiltered.size());
+        for (Map.Entry<DefDescriptor<? extends Definition>, Definition> entry : unfiltered.entrySet()) {
+            if (!preloads.contains(entry.getKey())) {
+                filtered.put(entry.getKey(), entry.getValue());
             }
         }
         return filtered;
@@ -290,32 +239,13 @@ public class AuraContextImpl implements AuraContext {
 
     @Override
     public <D extends Definition> void addDynamicDef(D def) {
-        DefDescriptor<? extends Definition> desc = def.getDescriptor();
-
-        if (desc == null) {
-            throw new AuraRuntimeException("Invalid def has no descriptor");
-        }
-        currentDefs.defs.put(desc, Optional.of(def));
-        currentDefs.defNotCacheable.add(desc);
-        currentDefs.dynamicDescs.add(desc);
+        localStore.addDynamicDefinition(def);
     }
 
     @Override
     public void addDynamicMatches(Set<DefDescriptor<?>> matched, DescriptorFilter matcher) {
-        for (DefDescriptor<? extends Definition> desc : userDefs.dynamicDescs) {
-            if (matcher.matchDescriptor(desc)) {
-                matched.add(desc);
-            }
-        }
-        if (isSystem) {
-            for (DefDescriptor<? extends Definition> desc : systemDefs.dynamicDescs) {
-                if (matcher.matchDescriptor(desc)) {
-                    matched.add(desc);
-                }
-            }
-        }
+        localStore.addDynamicMatches(matched, matcher);
     }
-
 
     @Override
     public boolean isPreloaded(DefDescriptor<?> descriptor) {
@@ -355,7 +285,7 @@ public class AuraContextImpl implements AuraContext {
     public String getContextPath() {
         return contextPath;
     }
-    
+
     @Override
     public String getPathPrefix() {
         return pathPrefix;
@@ -394,12 +324,39 @@ public class AuraContextImpl implements AuraContext {
 
     @Override
     public Set<DefDescriptor<?>> getPreloadedDefinitions() {
-        return preloadedDefinitions;
+        return unmodifiablePreloadedDefinitions;
+    }
+
+    @Override
+    public void addPreloadedDefinitions(Set<DefDescriptor<?>> preloadedDefinitions) {
+        // the naive thing to do here would be to call addAll on the set, but that was a huge huge source of allocation in profiling (10% of all allocations!)
+        // so be a little more clever and use Sets.union unless we're making a ridiculous number of unions
+
+        if (this.preloadedDefinitions == null) {
+            setPreloadedDefinitions(preloadedDefinitions);   // do this even if it's empty to preserve old setPreloadedDefinitions behavior
+        } else if (preloadedDefinitions.isEmpty()) {
+            // nothing to do
+        } else if (this.preloadedDefinitions.isEmpty()) {
+            setPreloadedDefinitions(preloadedDefinitions);
+        } else if (++preloadedDefinitionsUnionCount < 4) {
+            this.preloadedDefinitions = Sets.union(preloadedDefinitions, this.preloadedDefinitions);
+            this.unmodifiablePreloadedDefinitions = Collections.unmodifiableSet(this.preloadedDefinitions);
+        } else if (preloadedDefinitionsUnionCount == 4) {
+            Set<DefDescriptor<?>> newPreloaded = Sets.newHashSetWithExpectedSize(this.preloadedDefinitions.size() + 2 * preloadedDefinitions.size());
+            newPreloaded.addAll(this.preloadedDefinitions);
+            newPreloaded.addAll(preloadedDefinitions);
+            this.preloadedDefinitions = newPreloaded;
+            this.unmodifiablePreloadedDefinitions = Collections.unmodifiableSet(this.preloadedDefinitions);
+        } else {
+            this.preloadedDefinitions.addAll(preloadedDefinitions);
+        }
     }
 
     @Override
     public void setPreloadedDefinitions(Set<DefDescriptor<?>> preloadedDefinitions) {
-        this.preloadedDefinitions = Collections.unmodifiableSet(preloadedDefinitions);
+        this.preloadedDefinitions = preloadedDefinitions;
+        this.unmodifiablePreloadedDefinitions = Collections.unmodifiableSet(preloadedDefinitions);
+        this.preloadedDefinitionsUnionCount = 0;
     }
 
     @Override
@@ -410,6 +367,26 @@ public class AuraContextImpl implements AuraContext {
     @Override
     public Map<String, GlobalValueProvider> getGlobalProviders() {
         return globalProviders;
+    }
+
+    @Override
+    public void addScriptHash(String hash) {
+        scriptHashes.add(hash);
+    }
+
+    @Override
+    public ImmutableList<String> getScriptHashes() {
+        return ImmutableList.copyOf(scriptHashes);
+    }
+
+    @Override
+    public String getScriptNonce() {
+        return nonce;
+    }
+
+    @Override
+    public void setScriptNonce(String nonce){
+        this.nonce = nonce;
     }
 
     @Override
@@ -522,6 +499,11 @@ public class AuraContextImpl implements AuraContext {
     @Override
     public void addDynamicNamespace(String namespace) {
         this.dynamicNamespaces.add(namespace);
+    }
+
+    @Override
+    public Set<String> getRestrictedNamespaces() {
+        return restrictedNamespaces;
     }
 
     @Override
@@ -656,9 +638,19 @@ public class AuraContextImpl implements AuraContext {
 
     @Override
     public void serializeAsPart(Json json) throws IOException {
+        // if this changes, getComponentsToSerialize() may also need to change
         if (fakeInstanceStack != null) {
             fakeInstanceStack.serializeAsPart(json);
         }
+    }
+
+    /**
+     * Used by {@link AuraContextJsonSerializer} to see which components are to be
+     * serialized and thus should be part of the cache key.
+     */
+    public Map<String, BaseComponent<?, ?>> getComponentsToSerialize() {
+        if (fakeInstanceStack == null) return Collections.emptyMap();
+        return fakeInstanceStack.getComponents();
     }
 
     @Override
@@ -813,10 +805,18 @@ public class AuraContextImpl implements AuraContext {
             }
             // UIDs in everything except Bare.
             if (style != EncodingStyle.Bare) {
-                if (getFrameworkUID() != null) {
-                    json.writeMapEntry("fwuid", getFrameworkUID());
+                // AppJs does not include fwuid
+                if (style == EncodingStyle.AppResource) {
+                    // AppJs does contain this serialization version as a cache busting key we can use when we change the format of the file.
+                    json.writeMapEntry("serializationVersion", ServerServiceImpl.AURA_SERIALIZATION_VERSION);
+                } else if (style == EncodingStyle.Css) {
+                    // don't include a serialized version nor fwuid
                 } else {
-                    json.writeMapEntry("fwuid", configAdapter.getAuraFrameworkNonce());
+                    if (getFrameworkUID() != null) {
+                        json.writeMapEntry("fwuid", getFrameworkUID());
+                    } else {
+                        json.writeMapEntry("fwuid", configAdapter.getAuraFrameworkNonce());
+                    }
                 }
 
                 Map<String, String> loadedStrings = Maps.newHashMap();
@@ -833,7 +833,7 @@ public class AuraContextImpl implements AuraContext {
                 }
             }
             
-            if (style == EncodingStyle.Css) {
+            if (style == EncodingStyle.Css){
                 // add contextual CSS information
                 if (styleContext == null) {
                     setStyleContext();
@@ -841,15 +841,10 @@ public class AuraContextImpl implements AuraContext {
                 json.writeMapEntry("styleContext", getStyleContext());
             }
 
-            // Normal and full get the locales, but not the css stuff
-            if (style == EncodingStyle.Normal || style == EncodingStyle.Full) {
-                if (getRequestedLocales() != null) {
-                    List<String> locales = new ArrayList<>();
-                    for (Locale locale : getRequestedLocales()) {
-                        locales.add(locale.toString());
-                    }
-                    json.writeMapEntry("requestedLocales", locales);
-                }
+            if (configAdapter.isActionPublicCachingEnabled() && 
+            		(style == EncodingStyle.Normal || style == EncodingStyle.Full)) {
+                json.writeMapEntry("apce", 1);
+                json.writeMapEntry("apck", getActionPublicCacheKey());
             }
             
             if (style == EncodingStyle.Full) {
@@ -858,7 +853,7 @@ public class AuraContextImpl implements AuraContext {
                     // serialize servlet context path for html component to prepend for client created components
                     json.writeMapEntry("contextPath", contextPath);
                 }
-            }
+            }           
             
             String currentPathPrefix = getPathPrefix();
 
@@ -872,13 +867,53 @@ public class AuraContextImpl implements AuraContext {
                     json.writeMapEntry("test", testContext.getName());
                 }
             }
-            
-            json.writeMapEntry("ls", configAdapter.getLockerServiceCacheBuster());
 
-            if (this.isModulesEnabled) {
-                json.writeMapEntry("m", 1);
+            if (configAdapter.isLockerServiceEnabled()) {
+                json.writeMapEntry("ls", 1);
             }
             
+            if (configAdapter.isStrictCSPEnforced()) {
+                json.writeMapEntry("csp", 1);
+            }
+
+            if (configAdapter.isFrozenRealmEnabled()) {
+                json.writeMapEntry("fr", 1);
+            }
+
+            if (nonce != null && style == EncodingStyle.Full){
+                json.writeMapEntry("scriptNonce", nonce);
+            }
+
+            if (style == EncodingStyle.Full) {
+                Map<String, String> moduleNamespaceAliases = configAdapter.getModuleNamespaceAliases();
+                if (!moduleNamespaceAliases.isEmpty()) {
+                    json.writeMapEntry("mna", moduleNamespaceAliases);
+                }	
+            }
+
+            if (this.useCompatSource()) {
+                json.writeMapEntry("c", 1);
+            }
+
+            if (this.forceCompat()) {
+                json.writeMapEntry("fc", 1);
+            }
+
+            boolean uriAddressableExplicitlyDisabled = false;
+            try {
+                uriAddressableExplicitlyDisabled = definitionService.hasInterface(appDesc, definitionService.getDefDescriptor("aura:uriDefinitionsDisabled", InterfaceDef.class));
+            } catch (QuickFixException qfe) {
+                // ignore
+            }
+
+            if (configAdapter.uriAddressableDefsEnabled() || uriAddressableExplicitlyDisabled) {
+                json.writeMapEntry(Json.ApplicationKey.URIADDRESSABLEDEFINITIONS, uriAddressableExplicitlyDisabled? 0: 1);
+            }
+            
+            if (configAdapter.cdnEnabled()) {
+                json.writeMapEntry(Json.ApplicationKey.CDN_HOST, configAdapter.getCDNDomain());
+            }
+
             json.writeMapEnd();
         } catch (IOException ioe) {
             // This can't possibly happen.
@@ -899,38 +934,17 @@ public class AuraContextImpl implements AuraContext {
 
     @Override
     public void addLocalDependencyEntry(String key, DependencyEntry de) {
-        if (de.uid != null) {
-            currentDefs.localDependencies.put(de.uid, de);
-        }
-        currentDefs.localDependencies.put(key, de);
+        localStore.addDependencyEntry(key, de);
     }
 
     @Override
     public DependencyEntry getLocalDependencyEntry(String key) {
-        DependencyEntry entry;
-
-        entry = userDefs.localDependencies.get(key);
-        if (entry == null && isSystem) {
-            entry = systemDefs.localDependencies.get(key);
-        }
-        return entry;
+        return localStore.getDependencyEntry(key);
     }
 
     @Override
     public DependencyEntry findLocalDependencyEntry(DefDescriptor<?> descriptor) {
-        for (DependencyEntry det : userDefs.localDependencies.values()) {
-            if (det.dependencies != null && det.dependencies.contains(descriptor)) {
-                return det;
-            }
-        }
-        if (isSystem) {
-            for (DependencyEntry det : systemDefs.localDependencies.values()) {
-                if (det.dependencies != null && det.dependencies.contains(descriptor)) {
-                    return det;
-                }
-            }
-        }
-        return null;
+        return localStore.findDependencyEntry(descriptor);
     }
 
     /**
@@ -953,7 +967,7 @@ public class AuraContextImpl implements AuraContext {
     }
 
     @Override
-    public Cache<String, String> getAccessCheckCache() {
+    public Map<String, String> getAccessCheckCache() {
         return accessCheckCache;
     }
 
@@ -963,22 +977,77 @@ public class AuraContextImpl implements AuraContext {
     }
 
     @Override
-    public void setModulesEnabled(boolean isModulesEnabled) {
-        this.isModulesEnabled = isModulesEnabled;
-    }
-
-    @Override
-    public boolean isModulesEnabled() {
-        return this.isModulesEnabled;
-    }
-
-    @Override
     public void setUseCompatSource(boolean useCompatSource) {
         this.useCompatSource = useCompatSource;
     }
 
     @Override
+    public void setForceCompat(boolean forceCompat) {
+        this.forceCompat = forceCompat;
+    }
+
+    @Override
+    public boolean forceCompat() {
+        return this.forceCompat;
+    }
+
+    @Override
     public boolean useCompatSource() {
         return this.useCompatSource;
+    }
+
+    @Override
+    public boolean isAppJsSplitEnabled() {
+        return true;
+    }
+    
+    @Override
+    public String getActionPublicCacheKey() {
+        return this.actionPublicCacheKey;
+    }
+
+    @Override
+    public void setActionPublicCacheKey(String actionPublicCacheKey) {
+        this.actionPublicCacheKey = actionPublicCacheKey;
+    }
+
+    @Override
+    public AuraLocalStore setAuraLocalStore(AuraLocalStore newStore) {
+        AuraLocalStore oldStore = localStore;
+        localStore = newStore;
+        return oldStore;
+    }
+
+    @Override
+    public AuraLocalStore getAuraLocalStore() {
+        return localStore;
+    }
+
+    @Override
+    public Boolean getUriDefsEnabled() {
+        return uriDefsEnabled;
+    }
+
+    @Override
+    public void setUriDefsEnabled(Boolean uriDefsEnabled) {
+        this.uriDefsEnabled = uriDefsEnabled;
+    }
+
+    private InlineScriptMode inlineScriptMode;
+
+    /**
+     * Set the current mode for inline scripts.
+     */
+    @Override
+    public void setInlineScriptMode(InlineScriptMode mode) {
+        this.inlineScriptMode = mode;
+    }
+
+    /**
+     * Get the current mode for inline scripts.
+     */
+    @Override
+    public InlineScriptMode getInlineScriptMode() {
+        return inlineScriptMode;
     }
 }

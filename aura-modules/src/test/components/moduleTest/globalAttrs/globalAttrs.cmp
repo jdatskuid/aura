@@ -1,0 +1,20 @@
+<aura:component render="client">
+
+    <!-- HTML Global Attributes -->
+    <aura:attribute name="class" type="String"/>
+    <aura:attribute name="title" type="String" default="title"/>
+    <aura:attribute name="accesskey" type="String" default="A"/>
+    <aura:attribute name="tabindex" type="Integer" default="1"/>
+    <aura:attribute name="contenteditable" type="boolean" default="false"/>
+    <aura:attribute name="role" type="String" default="navigation"/>
+    
+    <!-- Markup -->
+    <moduleTest:globalAttrsTests class="{! v.class }"
+                                 title="{! v.title }"
+                                 accesskey="{! v.accesskey }"
+                                 tabindex="{! v.tabindex }"
+                                 contenteditable="{! v.contenteditable }"
+                                 role="{! v.role }"
+                                 aura:id="lwc"
+    />
+</aura:component>

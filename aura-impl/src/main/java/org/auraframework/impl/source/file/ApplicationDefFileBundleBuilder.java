@@ -15,14 +15,13 @@
  */
 package org.auraframework.impl.source.file;
 
-import java.io.File;
-import java.util.Map;
-
+import com.google.common.collect.Maps;
 import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.ControllerDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DocumentationDef;
+import org.auraframework.def.FlavorBundleDef;
 import org.auraframework.def.FlavoredStyleDef;
 import org.auraframework.def.FlavorsDef;
 import org.auraframework.def.HelperDef;
@@ -40,24 +39,15 @@ import org.auraframework.system.FileBundleSourceBuilder;
 import org.auraframework.system.Parser.Format;
 import org.auraframework.system.Source;
 
-import com.google.common.collect.Maps;
+import java.io.File;
+import java.util.Map;
 
 @ServiceComponent
 public class ApplicationDefFileBundleBuilder implements FileBundleSourceBuilder {
 
     @Override
-    public boolean isBundleMatch(File base) {
-        if (new File(base, base.getName()+".app").exists()) {
-            return true;
-        }
-        String name = base.getName()+".app";
-        for (File content : base.listFiles()) {
-            if (name.equalsIgnoreCase(content.getName())) {
-                // ERROR!!!
-                return true;
-            }
-        }
-        return false;
+    public String getExtension() {
+        return ".app";
     }
 
     @Override
@@ -67,12 +57,13 @@ public class ApplicationDefFileBundleBuilder implements FileBundleSourceBuilder 
         int len = name.length();
         String namespace = base.getParentFile().getName();
         DefDescriptor<ApplicationDef> cmpDesc = new DefDescriptorImpl<>("markup", namespace, name, ApplicationDef.class);
+        DefDescriptor<FlavorBundleDef> flavorBundleDef = null;
 
         for (File file : base.listFiles()) {
             DefDescriptor<?> descriptor = null;
             Format format = null;
             String fname = file.getName();
-            if (fname.startsWith(name) || fname.toLowerCase().startsWith(name.toLowerCase())) {
+            if (fname.startsWith(name)) {
                 String postName = fname.substring(len);
                 switch (postName) {
                 case ".app":
@@ -80,7 +71,7 @@ public class ApplicationDefFileBundleBuilder implements FileBundleSourceBuilder 
                     format = Format.XML;
                     break;
                 case "Test.js":
-                    descriptor = new DefDescriptorImpl<>("js", namespace, name, TestSuiteDef.class);
+                    descriptor = new DefDescriptorImpl<>("js", namespace, name, TestSuiteDef.class, cmpDesc);
                     format = Format.JS;
                     break;
                 case "Controller.js":
@@ -130,9 +121,14 @@ public class ApplicationDefFileBundleBuilder implements FileBundleSourceBuilder 
                     break;
                 default:
                 }
+            } else if (fname.toLowerCase().startsWith(name.toLowerCase())) {
+                throw new RuntimeException("Files in bundle must case-sensitively match the folder they are in: " + name + "/" + fname);
             } else if (fname.endsWith("Flavors.css")) {
-                descriptor = new DefDescriptorImpl<>("css", namespace, fname.substring(0, fname.length()-4),
-                        FlavoredStyleDef.class, cmpDesc);
+                if (flavorBundleDef == null) {
+                    flavorBundleDef = new DefDescriptorImpl<>("markup", namespace, name, FlavorBundleDef.class);
+                }
+                descriptor = new DefDescriptorImpl<>("customCss", namespace, fname.substring(0, fname.length()-4),
+                        FlavoredStyleDef.class, flavorBundleDef);
                 format = Format.CSS;
             }
             if (descriptor != null) {
@@ -141,6 +137,6 @@ public class ApplicationDefFileBundleBuilder implements FileBundleSourceBuilder 
                 // error
             }
         }
-        return new BundleSourceImpl<ApplicationDef>(cmpDesc, sourceMap, true);
+        return new BundleSourceImpl<>(cmpDesc, sourceMap, true);
     }
 }

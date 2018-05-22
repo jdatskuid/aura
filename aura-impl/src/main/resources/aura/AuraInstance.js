@@ -21,7 +21,7 @@
  * @platform
  * @namespace
  * @alias $A
- * 
+ *
  * @borrows AuraClientService#enqueueAction as enqueueAction
  * @borrows AuraComponentService#createComponent as createComponent
  * @borrows AuraComponentService#createComponents as createComponents
@@ -29,7 +29,9 @@
  */
 function AuraInstance () {
     this.globalValueProviders = {};
+    this.deprecationUsages    = {};
     this.displayErrors        = true;
+    this.initializers         = {};
 
     this.logger               = new Aura.Utils.Logger();
 
@@ -76,7 +78,7 @@ function AuraInstance () {
      * @platform
      */
     this.localizationService  = new Aura.Services.AuraLocalizationService();
-    this.clientService        = new Aura.Services.AuraClientService();
+    this.clientService        = new Aura.Services.AuraClientService(this.util);
     this.componentService     = new Aura.Services.AuraComponentService();
     this.renderingService     = new Aura.Services.AuraRenderingService();
     this.expressionService    = new Aura.Services.AuraExpressionService();
@@ -141,15 +143,6 @@ function AuraInstance () {
         history : this.historyService,
 
         /**
-         * Localization Service
-         *
-         * @public
-         * @type AuraLocalizationService
-         * @memberOf AuraInstance.prototype
-         */
-        localization : this.localizationService,
-
-        /**
          * Storage Service
          *
          * @public
@@ -177,16 +170,6 @@ function AuraInstance () {
          * @see Aura#services.event
          */
         e : this.eventService,
-
-        /**
-         * Alias of Localization Service
-         *
-         * @public
-         * @type AuraLocalizationService
-         * @memberOf AuraInstance.prototype
-         * @see Aura#service.localization
-         */
-        l10n : this.localizationService,
 
         /**
          * Style Service
@@ -246,7 +229,6 @@ function AuraInstance () {
     this.getEvt                    = this.eventService.newEvent.bind(this.eventService);
 
     // DEPRECATED
-    this.deferAction               = this.clientService.deferAction.bind(this.clientService);
     this.newCmp                    = this.componentService["newComponentDeprecated"].bind(this.componentService);
     this.newCmpDeprecated          = this.componentService["newComponentDeprecated"].bind(this.componentService);
     this.newCmpAsync               = this.componentService["newComponentAsync"].bind(this.componentService);
@@ -360,7 +342,6 @@ function AuraInstance () {
     this["getDefinitions"] = this.getDefinitions;
 
     // DEPRECATED
-    this["deferAction"] = this.deferAction;
     this["newCmp"] = this.newCmp;
     this["newCmpDeprecated"] = this.newCmpDeprecated;
     this["newCmpAsync"] = this.newCmpAsync;
@@ -379,7 +360,6 @@ function AuraInstance () {
     services["component"] = services.component;
     services["client"] = services.client;
     services["history"] = services.history;
-    services["l10n"] = services.localization;
     services["storage"] = services.storage;
     services["metrics"] = services.metrics;
     services["cmp"] = services.cmp;
@@ -394,23 +374,6 @@ function AuraInstance () {
     };
 
 }
-
-/**
- * Does nothing.
- *
- * @public
- * @deprecated
- */
-AuraInstance.prototype.setCurrentTransactionId = function() { };
-
-/**
- * Does nothing.
- *
- * @returns undefined
- * @public
- * @deprecated
- */
-AuraInstance.prototype.getCurrentTransactionId = function() { return undefined; };
 
 /**
  * Initializes Aura with context info about the app that should be loaded.
@@ -457,6 +420,7 @@ AuraInstance.prototype.initAsync = function(config) {
     this.clientService.setNamespacePrivileges(config["ns"]);
     this.clientService.setQueueSize(config["MaxParallelXHRCount"]);
     this.clientService.setXHRExclusivity(config["XHRExclusivity"]);
+    this.initializers = config["initializers"];
 
     // Context is created async because of the GVPs go though async storage checks
     $A.context = new Aura.Context.AuraContext(config["context"], function(context) {
@@ -471,8 +435,8 @@ AuraInstance.prototype.initAsync = function(config) {
             return;
         }
 
-        if (Aura["initSafeEvalWorker"] && !window["$$safe-eval$$"] && !window["$$safe-eval-compat$$"]) {
-            throw new $A.auraError("Aura(): Failed to initialize safeEval workers.", null, $A.severity.QUIET);
+        if (context.uriAddressableDefsEnabled) {
+            Aura.Component.ComponentDefStorage.prototype.useDefStore = false;
         }
 
         $A.clientService.initHost(config["host"]);
@@ -491,29 +455,39 @@ AuraInstance.prototype.initAsync = function(config) {
             }, reportError);
         }
 
+        // before rendering the app, we need to ensure the app.css has been loaded
+        // many applications depend upon the css existing before initialization takes place.
+        function ensureCssLoaded(){
+            return new Promise(function(resolve) {
+                if (Aura["bootstrap"]["appCssLoading"]) {
+                    //record the callback for the css loaded event to handle
+                    Aura["bootstrap"]["appCssLoadedCallback"] = resolve;
+                } else {
+                    //immediately resolve since we are not currently loading css
+                    resolve();
+                }
+            });
+        }
+
         // Actions depend on defs depend on GVP (labels). so load them in dependency order and skip
         // loading depending items if anything fails to load.
-
-        // Start by enabling the actions filter if relevant. populatePersistedActionsFilter() populates it,
-        // called only if GVP + defs are loaded.
-        $A.clientService.setupPersistedActionsFilter();
 
         //  do not modify - used by bootstrapRobustness() and instrumentation
         $A.clientService.gvpsFromStorage = context.globalValueProviders.LOADED_FROM_PERSISTENT_STORAGE;
 
         if (!$A.clientService.gvpsFromStorage) {
             $A.log("Aura.initAsync: GVP not loaded from storage so not loading defs or actions either");
-            $A.clientService.loadTokenFromStorage().then(initializeApp).then(undefined, reportError);
+            ensureCssLoaded().then(initializeApp).then(undefined, reportError);
         } else {
             Promise["all"]([
-                $A.clientService.loadTokenFromStorage(),
                 $A.clientService.loadBootstrapFromStorage(),
                 $A.componentService.restoreDefsFromStorage(context),
-                $A.clientService.populatePersistedActionsFilter()
+                $A.clientService.populateActionsFilter(),
+                ensureCssLoaded
             ])
                 .then(initializeApp, function (err) {
                     $A.log("Aura.initAsync: failed to load defs, get bootstrap or actions from storage", err);
-                    $A.clientService.clearPersistedActionsFilter();
+                    $A.clientService.clearActionsFilter();
                     return initializeApp();
                 })
                 .then(undefined, reportError);
@@ -551,13 +525,19 @@ AuraInstance.prototype.initConfig = function(config, useExisting, doNotInitializ
     this.clientService.setNamespacePrivileges(config["ns"]);
     this.clientService.setQueueSize(config["MaxParallelXHRCount"]);
     this.clientService.setXHRExclusivity(config["XHRExclusivity"]);
+    this.initializers = config["initializers"];
     this.beforeInitHooks();
+
+    $A.executeExternalLibraries();
 
     if (!useExisting || $A.util.isUndefined($A.getContext())) {
         $A.clientService.initHost(config["host"], config["sid"]);
         // creating context.
         $A.context = new Aura.Context.AuraContext(config["context"], function(context) {
             $A.context = context;
+            if (context.uriAddressableDefsEnabled) {
+                Aura.Component.ComponentDefStorage.prototype.useDefStore = false;
+            }
             $A.clientService.initDefs();
             $A.metricsService.initialize();
             $A.initPriv(config["instance"], config["token"], null, doNotInitializeServices);
@@ -569,8 +549,6 @@ AuraInstance.prototype.initConfig = function(config, useExisting, doNotInitializ
         // FIXME: This is used by integration service, and will not work correctly with components.
         $A.getContext()['merge'](config["context"]);
     }
-
-    $A.executeExternalLibraries();
 };
 
 /**
@@ -585,9 +563,11 @@ AuraInstance.prototype.initConfig = function(config, useExisting, doNotInitializ
  * @private
  */
 AuraInstance.prototype.initPriv = function(config, token, container, doNotInitializeServices) {
+    Aura.bootstrapMark("AuraFrameworkEPT");
     if (!$A["hasErrors"]) {
         $A.addTearDownHandler();
         $A.clientService.initializeClientLibraries();
+        $A.clientService.initializeInjectedServices($A.context.moduleServices);
         $A.localizationService.init();
 
         var app = $A.clientService["init"](config, token, $A.util.getElement(container));
@@ -678,7 +658,7 @@ AuraInstance.prototype.finishInit = function(doNotInitializeServices) {
     }
 
     // Unless we are in IntegrationServices, dispatch location hash change.
-    if (!doNotInitializeServices) {
+    if (!doNotInitializeServices && !Aura["disableHistoryService"]) {
         $A.historyService.init();
     }
 
@@ -708,7 +688,7 @@ AuraInstance.prototype.finishInit = function(doNotInitializeServices) {
  * @deprecated throw new Error(msg) instead
  */
 AuraInstance.prototype.error = function(msg, e){
-    this.logger.error(msg, e);
+    this.logger.logError(msg, e);
 };
 
 /**
@@ -755,6 +735,8 @@ AuraInstance.prototype.handleError = function(message, e) {
         } else {
             // wrap the error with auraError so that systemError event handlers can get it
             e = new $A.auraError(null, e);
+            var component = e.findComponentFromStackTrace();
+            e.setComponent(component);
             evtArgs = {"message":dispMsg,"error":null,"auraError":e};
         }
     }
@@ -769,17 +751,6 @@ AuraInstance.prototype.handleError = function(message, e) {
                 $A.eventService.getNewEvent('markup://aura:systemError').fire(evtArgs);
             }
         }, 0);
-
-        $A.getCallback(function() {
-            if (e && message) {
-                // if there's extra info in the message that's not in error.message, include it for report.
-                if (message !== e.message && message.indexOf(e.message) > -1) {
-                    e.message = message;
-                }
-            }
-            $A.logger.reportError(e);
-        })();
-        $A.services.client.postProcess();
     } else {
         if ($A.showErrors()) {
             $A.message(dispMsg, e);
@@ -854,9 +825,8 @@ AuraInstance.prototype.isCustomerComponentStack = function(cmpStack) {
  * @platform
  */
 AuraInstance.prototype.reportError = function(message, error) {
-    // ignore if sourceURL is not supported
     // ignore external errors
-    if (!$A.util.hasSourceURL() || $A.logger.isExternalError(error)) {
+    if ($A.logger.isExternalError(error)) {
         return false;
     }
 
@@ -868,6 +838,22 @@ AuraInstance.prototype.reportError = function(message, error) {
         new $A.auraError("[NoErrorObjectAvailable] " + message);
 
     $A.handleError(message, error);
+
+    // only report the error to the server if sourceURL is supported
+    if ($A.initialized && $A.util.hasSourceURL()) {
+        $A.getCallback(function() {
+            if (error && message) {
+                // if there's extra info in the message that's not in error.message, include it for report.
+                if (message !== error.message && message.indexOf(error.message) > -1) {
+                    error.message = message + ". Caused by: " + error.message;
+                }
+            }
+            // if error is raised from external code, logging only
+            var reportingLevel = $A.logger.isExternalRaisedError(error) ? "WARNING" : "ERROR";
+            $A.logger.reportError(error, null, reportingLevel);
+        })();
+        $A.clientService.postProcess();
+    }
 
     this.lastKnownError = null;
     return true;
@@ -944,17 +930,9 @@ AuraInstance.prototype.message = function(msg, error, showReload) {
  */
 AuraInstance.prototype.getCallback = function(callback) {
     $A.assert($A.util.isFunction(callback),"$A.getCallback(): 'callback' must be a valid Function");
-    var context=$A.getContext().getCurrentAccess();
-    var contextComponentStack = $A.getContext().getAccessStackHierarchy();
-    var contextComponent = null;
-    if (context && context.getDef) {
-        var contextComponentDef = context.getDef();
-        if (contextComponentDef) {
-            contextComponent = contextComponentDef.getDescriptor().toString();
-        }
-    }
+    var context=$A.clientService.currentAccess;
     function callbackWrapper(){
-        $A.getContext().setCurrentAccess(context);
+        $A.clientService.setCurrentAccess(context);
         $A.clientService.pushStack("$A.getCallback()");
         try {
             return callback.apply(this,Array.prototype.slice.call(arguments));
@@ -962,9 +940,6 @@ AuraInstance.prototype.getCallback = function(callback) {
             // no need to wrap AFE with auraError as
             // customers who throw AFE would want to handle it with their own custom experience.
             if (e instanceof $A.auraError) {
-                e["component"] = e["component"] || contextComponent;
-                e["componentStack"] = e["componentStack"] || contextComponentStack;
-                $A.lastKnownError = e;
                 throw e;
             } else {
                 // create a synthetic stack frame for errors from callback wrapped in $A.getCallback called by Action.finishAction
@@ -993,8 +968,6 @@ AuraInstance.prototype.getCallback = function(callback) {
                 }
 
                 var errorWrapper = new $A.auraError("Error in $A.getCallback()", e);
-                errorWrapper["component"] = contextComponent;
-                errorWrapper["componentStack"] = contextComponentStack;
                 if (syntheticStackFrame) {
                     errorWrapper.setStackTrace(syntheticStackFrame + errorWrapper.stackTrace);
                 }
@@ -1003,7 +976,7 @@ AuraInstance.prototype.getCallback = function(callback) {
             }
         } finally {
             $A.clientService.popStack("$A.getCallback()");
-            $A.getContext().releaseCurrentAccess();
+            $A.clientService.releaseCurrentAccess();
         }
     }
     if(callback.reference&&callback.toString()===callbackWrapper.toString()){ // don't double-wrap
@@ -1259,7 +1232,7 @@ AuraInstance.prototype.run = function(func, name) {
  * @param {String} assertMessage A message to be displayed when condition is false
  */
 AuraInstance.prototype.assert = function(condition, assertMessage) {
-    this.logger.assert(condition, assertMessage);
+    this.logger.logAssert(condition, assertMessage);
 };
 
 /**
@@ -1305,84 +1278,89 @@ AuraInstance.prototype.trace = function() {
  * Called from methods that have entered or are entering the deprecation pipeline. Provides first warnings, then errors to developers.
  * When possible, includes a workaround for the behavior or method being deprecated.
  *
- * @param {String} message The message to provide the developer indicating the method or behavior which has been or is being deprecated.
- * @param {String} workaround Any known or suggested workaround to accomplish the behavior being deprecated.
- * @param {Date} sinceDate The date since when the calling method has entered the deprecation pipeline. If omitted, deprecation is considered immediate.
- * @param {Date} dueDate The date at which the calling method is considered deprecated, and becomes an error. If omitted, deprecation is considered due upon the elapse of a default time period after 'sinceDate'.
+ * It reports the deprecation usages to server if reportSignature is provided.
+ *
+ * @param {String} message - The message to provide the developer indicating the method or behavior which has been or is being deprecated.
+ * @param {String} workaround - Any known or suggested workaround to accomplish the behavior being deprecated.
+ * @param {String} reportSignature - The deprecated function name if deprecating an API, or function signature if deprecating a function signature.
+ *
  * @private
  * */
-AuraInstance.prototype.deprecated = function(message,workaround,sinceDate,dueDate){
-    //#if {"excludeModes" : ["PRODUCTION"]}
-    // This should be moved out to a constant, once we decide on the actual value.
-    var DEFAULT_DEPRECATION=1000*60*60*24*28; // Four weeks
-    var TEST_BUFFER=1000*60*60*24*14; // Two weeks
-    var testDueDate;
-    if(!dueDate){
-        if(!sinceDate){
-            dueDate=testDueDate=new Date();
-        }else {
-            sinceDate=new Date(sinceDate);
-            dueDate=new Date(sinceDate);
-            dueDate.setTime(dueDate.getTime() + DEFAULT_DEPRECATION);
-            testDueDate=new Date(dueDate.getTime() - TEST_BUFFER);
-        }
-    }else{
-        dueDate=new Date(dueDate);
-        testDueDate=new Date(dueDate);
-        testDueDate.setTime(testDueDate.getTime() - TEST_BUFFER);
-        if(!sinceDate) {
-            sinceDate = new Date(dueDate);
-            sinceDate.setTime(sinceDate.getTime() - DEFAULT_DEPRECATION);
-        }else{
-            sinceDate=new Date(sinceDate);
-        }
-    }
-    var caller=new Error();
-    if(!caller.stack){
-        try{
-            throw caller;
-        }catch(e){
-            caller=e;
-        }
-    }
-    caller=(caller.stack||'').split('\n')[3]||'at unknown location';
-    message=$A.util.format("DEPRECATED (as of {0}, unusable on {1}): {2}\n\t{3}\n{4}",
-        $A.localizationService.formatDate(sinceDate),
-        $A.localizationService.formatDate(dueDate),
-        message,
-        $A.util.trim(caller),
-        workaround?"Workaround: "+workaround:"No known workaround."
-    );
-
-    // JBUCH: TEMPORARILY IGNORE CALLS BY FRAMEWORK.
-    // REMOVE WHEN ALL @public METHODS HAVE BEEN ADDRESSED.
-    if(caller.indexOf("/aura_")>-1) {
-        $A.log("Framework use of deprecated method: " + message);
-        return;
-    }
+AuraInstance.prototype.deprecated = function(message, workaround, reportSignature) {
 
     // JBUCH: TEMPORARILY IGNORE CALLS BY ui: and aura: NAMESPACES.
     // REMOVE WHEN VIEW LOGIC IS COMPILED WITH FRAMEWORK.
-    var context=$A.getContext();
-    context=context&&context.getCurrentAccess();
-    if(/^(ui|aura):\w+$/.test(context&&context.getType())){
-        $A.log("Framework component use of deprecated method: "+message);
+    var callingCmp = $A.clientService.getCurrentAccessName();
+    if (/^(ui|aura):\w+$/.test(callingCmp)) {
         return;
     }
-    if(Date.now()>=dueDate){
-        $A.warning(message);
-        // JBUCH: TODO: REACTIVATE ONCE CRUC IS IN PLACE
-        //throw new Error(message);
-    }else{
-        $A.warning(message);
+
+    // JBUCH: TEMPORARILY IGNORE CALLS BY FRAMEWORK.
+    // REMOVE WHEN ALL @public METHODS HAVE BEEN ADDRESSED.
+    var callStack = new Error().stack;
+    // skip if no stack info, due to perf. (IE)
+    if (!callStack) {
+        return;
     }
+
+    // TODO: This filter may have false positive when a function is installed a override
+    // In most cases, the stack strace is formatted as:
+    //      Error: error message
+    //          at AuraInstance.$deprecated$
+    //          at [The Deprecated API]
+    //          at [The Caller]
+    var frames = callStack.split('\n', 5);
+    var caller = frames[3];
+    if (!caller) {
+        return;
+    }
+    // if the caller is wrapped by locker
+    if (caller.indexOf("Proxy.SecureFunction") > -1) {
+        caller = frames[4];
+    }
+
+    if (caller.indexOf("/aura_") > -1) {
+        return;
+    }
+
+    //#if {"excludeModes" : ["PRODUCTION"]}
+    if (workaround) {
+        message += ". Workaround: " + workaround;
+    }
+    $A.warning("Deprecation warning: " + message);
     //#end
-    //#if {modes:["TESTING", "TESTINGDEBUG", "AUTOTESTING", "AUTOTESTINGDEBUG"]}
-    // BREAK EARLY IN TESTS
-    if(Date.now()>=testDueDate){
-        $A.warning(message);
-        // JBUCH: TODO: REACTIVATE ONCE CRUC IS IN PLACE
-        //throw new Error(message);
+
+
+    //#if {modes: ["PRODUCTION", "PRODUCTIONDEBUG"]}
+    // skip reporting, if there's no reporting signature.
+    if (reportSignature) {
+        var reporting = false;
+        var callers = this.deprecationUsages[reportSignature];
+        if (callers === undefined) {
+            callers = [];
+            this.deprecationUsages[reportSignature] = callers;
+            // reporting when the deprecated API gets called for the first time
+            reporting = true;
+        }
+
+        // caller component will be missing if the caller is not in Aura loop
+        callers.push(callingCmp || caller.trim() || "UNKNOWN");
+
+        // reporting when a deprecated API gets called 5 times
+        if (reporting || callers.length === 5) {
+            // Caboose action
+            var reportAction = $A.get("c.aura://ComponentController.reportDeprecationUsages");
+            reportAction.setParams({
+                "usages": $A.util.apply({}, this.deprecationUsages)
+            });
+            reportAction.setCaboose();
+
+            $A.clientService.enqueueAction(reportAction);
+
+            for (var api in this.deprecationUsages) {
+                this.deprecationUsages[api] = [];
+            }
+        }
     }
     //#end
 };

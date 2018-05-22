@@ -64,6 +64,22 @@ public class JsonStreamReaderTest extends UnitTestCase {
         super.tearDown();
     }
 
+    @Test(expected = org.auraframework.util.json.JsonStreamReader.JsonParseException.class)
+    public void testMaxLength() throws Exception {
+        // Specified in JsonStreamReader.java as a private constant. 
+        final int MAX_LENGTH = 4194304;
+        final int length = MAX_LENGTH + 1;
+        char[] characters = new char[length];
+        Arrays.fill(characters, ' ');
+        StringBuffer chars = new StringBuffer(length+4); 
+        chars.append("[\"");
+        chars.append(characters);
+        chars.append("\"]");
+
+        jsonStreamReader = new JsonStreamReader(chars.toString());
+        jsonStreamReader.next();
+    }
+    
     /**
      * Testing extreme cases for constructor
      */
@@ -136,12 +152,6 @@ public class JsonStreamReaderTest extends UnitTestCase {
         new ParseSuccess("float", "123.456", BigDecimal.valueOf(123.456)),
         new ParseSuccess("positive float", "+123.456", BigDecimal.valueOf(123.456)),
         new ParseSuccess("negative float", "-123.456", BigDecimal.valueOf(-123.456)),
-        // Ooh! Fun!
-        new ParseSuccess("negative infinity", "-Infinity", Double.NEGATIVE_INFINITY),
-        // Ooh! Fun!
-        new ParseSuccess("positive infinity", "Infinity", Double.POSITIVE_INFINITY),
-
-        new ParseSuccess("not-a-number", "NaN", Double.NaN),
     };
     @Test
     public void testNumber() throws Exception {
@@ -205,7 +215,6 @@ public class JsonStreamReaderTest extends UnitTestCase {
 
     };
 
-    @SuppressWarnings("unchecked")
     private static final ParseSuccess [] array_successes = {
         new ParseSuccess("empty array", "[]", Lists.newArrayList()),
         new ParseSuccess("one element array", "[\"test1\"]", Lists.newArrayList("test1")),
@@ -581,7 +590,9 @@ public class JsonStreamReaderTest extends UnitTestCase {
             assertEquals(12345.6, ((BigDecimal) outerMap.get("otherOtherNum")).doubleValue());
             assertTrue(outerMap.get("func") instanceof JsFunction);
             
-            assertEquals(AuraTextUtil.replaceSimple(func, "/*comment\n\n\n*/", "\n"), JsonEncoder.serialize(outerMap.get("func"), true));
+//            String expected="\""+AuraTextUtil.escapeForJSONString(AuraTextUtil.replaceSimple(func, "/*comment\n\n\n*/", "\n"))+"\"";
+            String expected=AuraTextUtil.replaceSimple(func, "/*comment\n\n\n*/", "\n");
+            assertEquals(expected, JsonEncoder.serialize(outerMap.get("func"), true));
             
             assertEquals("whose's son?", outerMap.get("jsean"));
             assertEquals("за", outerMap.get("Фокс"));

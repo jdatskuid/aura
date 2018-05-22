@@ -15,17 +15,18 @@
  */
 package org.auraframework.integration.test.http;
 
+import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
 import java.net.URLEncoder;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-
 import javax.inject.Inject;
 
 import org.apache.http.Header;
@@ -42,16 +43,19 @@ import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.http.AuraBaseServlet;
+import org.auraframework.impl.java.controller.PublicCachingTestController;
 import org.auraframework.integration.test.util.AuraHttpTestCase;
 import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.test.adapter.MockConfigAdapter;
 import org.auraframework.test.client.UserAgent;
-import org.auraframework.util.json.JsFunction;
+import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.JsonEncoder;
 import org.auraframework.util.json.JsonReader;
 import org.auraframework.util.test.annotation.ThreadHostileTest;
 import org.auraframework.util.test.annotation.UnAdaptableTest;
 import org.junit.Test;
+
+import com.google.common.collect.ImmutableMap;
 
 /**
  * Automation to verify the handling of AuraServlet requests.
@@ -140,6 +144,9 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         }
 
         @Override
+        public boolean isNonCspInlineEnabled() { return false; }
+
+        @Override
         public String getReportUrl() {
             return "http://doesnt.matter.com/";
         }
@@ -161,31 +168,6 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         Integer posActions = rawRes.indexOf("actions");
         Integer posContex = rawRes.indexOf("context");
         assertTrue(posActions < posContex);
-    }
-
-    /**
-     * When we request a component from the server we should get back it's component class, but only a single occurrence
-     * of it to minimize payload.
-     */
-    @Test
-    public void testGetComponentActionReturnsSingleComponentClass() throws Exception {
-        DefDescriptor<ComponentDef> cmpDesc = addSourceAutoCleanup(ComponentDef.class,
-                "<aura:component></aura:component>");
-
-        Map<String, Object> actionParams = new HashMap<>();
-        actionParams.put("name", cmpDesc.getQualifiedName());
-        ServerAction a = new ServerAction(
-                "java://org.auraframework.impl.controller.ComponentController/ACTION$getComponent",
-                actionParams);
-        a.run();
-        String rawRes = a.getRawResponse();
-
-        int firstOccurrence = rawRes.indexOf("componentClass");
-        int lastOccurrence = rawRes.lastIndexOf("componentClass");
-        assertTrue("Component class should be returned in server response when requesting component",
-                firstOccurrence != -1);
-        assertTrue("Server response should only return a single componentClass for a component, but got <" + rawRes
-                + ">", firstOccurrence == lastOccurrence);
     }
 
     @Test
@@ -250,6 +232,21 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         new JsonReader().read(response.substring(AuraBaseServlet.CSRF_PROTECT.length()));
     }
 
+    @Test
+    public void testPostEmptyBodyReturnsError() throws Exception {
+        HttpPost post = obtainPostMethod("/aura", null);
+        HttpResponse httpResponse = perform(post);
+        int statusCode = getStatusCode(httpResponse);
+        String response = getResponseBody(httpResponse);
+
+        if (HttpStatus.SC_OK != statusCode) {
+            fail(String.format("Unexpected status code <%s>, expected <%s>, response:%n%s", statusCode,
+                    HttpStatus.SC_OK, response));
+        }
+        assertTrue("response should have contained 'Invalid request, no message' but was: " + response,
+                response.contains("{\n  \"message\":\"Invalid request, no message\","));
+    }
+
     /**
      * This is actually an invalid test.
      *
@@ -295,9 +292,6 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         @SuppressWarnings("unchecked")
         Map<String, Object> eventJson = (Map<String, Object>) json.get("event");
         assertEquals("markup://aura:clientOutOfSync", eventJson.get("descriptor"));
-        Object f = json.get("defaultHandler");
-        assertEquals(JsFunction.class, f.getClass());
-        assertEquals("$A.clientService.setOutdated()", ((JsFunction) f).getBody());
     }
 
     private void assertNoCacheRequest(String inputUrl, String expectedRedirect) throws Exception {
@@ -316,8 +310,9 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
             index++;
         }
         assertEquals("Wrong URI path", expectedRedirect, location.substring(index));
-        assertEquals("no-cache, no-store", response.getFirstHeader(HttpHeaders.CACHE_CONTROL).getValue());
-        assertEquals("no-cache", response.getFirstHeader(HttpHeaders.PRAGMA).getValue());
+        final String cacheControl = response.getFirstHeader(HttpHeaders.CACHE_CONTROL).getValue();
+        assertTrue(cacheControl.contains("no-cache"));
+        assertTrue(cacheControl.contains("no-store"));
         assertDefaultAntiClickjacking(response, false, false); // Redirects don't have XFO/CSP guarding
     }
 
@@ -333,17 +328,7 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
 
     @Test
     public void testHTMLTemplateCaching() throws Exception {
-        // An application with isOnePageApp set to true
-        DefDescriptor<ApplicationDef> desc = addSourceAutoCleanup(ApplicationDef.class,
-                "<aura:application isOnePageApp='true'></aura:application>");
-
-        // Expect the get request to be set for long cache
-        assertResponseSetToLongCache(String.format("/%s/%s.app", desc.getNamespace(), desc.getName()));
-
-        // An application with isOnePageApp set to false
-        desc = addSourceAutoCleanup(ApplicationDef.class, "<aura:application isOnePageApp='false'></aura:application>");
-        // Expect the get request to be set for no caching
-        assertResponseSetToNoCache(String.format("/%s/%s.app", desc.getNamespace(), desc.getName()));
+        DefDescriptor<ApplicationDef> desc;
 
         // An application with no specification
         desc = addSourceAutoCleanup(ApplicationDef.class, "<aura:application></aura:application>");
@@ -356,7 +341,7 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         DefDescriptor<ComponentDef> cmpDesc = addSourceAutoCleanup(ComponentDef.class,
                 "<aura:component ></aura:component>");
         // Expect the get request to be set for long cache
-        assertResponseSetToLongCache(String.format("/%s/%s.cmp", cmpDesc.getNamespace(), cmpDesc.getName()));
+        assertResponseSetToNoCache(String.format("/%s/%s.cmp", cmpDesc.getNamespace(), cmpDesc.getName()));
     }
 
     // following 5 tests are mainly for mapping between custom CSP to X-FRAME-OPTIONS
@@ -429,18 +414,11 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
 
     @Test
     public void testHTMLTemplateCachingWhenAppCacheIsEnable() throws Exception {
+        DefDescriptor<ApplicationDef> desc;
+
         setHttpUserAgent(UserAgent.GOOGLE_CHROME.getUserAgentString());
 
-        // An application with isOnePageApp set to true and useAppcache set to
-        // true
-        // isOnePageApp overrides useAppCache specification
-        DefDescriptor<ApplicationDef> desc = addSourceAutoCleanup(ApplicationDef.class,
-                "<aura:application isOnePageApp='true' useAppcache='true'></aura:application>");
-        // Expect the get request to be set for long cache
-        assertResponseSetToLongCache(String.format("/%s/%s.app", desc.getNamespace(), desc.getName()));
-
-        // An application with useAppcache set to true and no specification for
-        // isOnePageApp
+        // An application with useAppcache set to true
         desc = addSourceAutoCleanup(ApplicationDef.class, "<aura:application useAppcache='true'></aura:application>");
         // Expect the get request to be set for no caching
         assertResponseSetToNoCache(String.format("/%s/%s.app", desc.getNamespace(), desc.getName()));
@@ -449,44 +427,38 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         DefDescriptor<ComponentDef> cmpDesc = addSourceAutoCleanup(ComponentDef.class,
                 "<aura:component ></aura:component>");
         // Expect the get request to be set for long cache
-        assertResponseSetToLongCache(String.format("/%s/%s.cmp", cmpDesc.getNamespace(), cmpDesc.getName()));
+        assertResponseSetToNoCache(String.format("/%s/%s.cmp", cmpDesc.getNamespace(), cmpDesc.getName()));
     }
 
     /**
-     * Wiggle factor.
-     *
-     * This is intended to allow for variance between the local date and the server date, along with any latency that
-     * might occur. Currently it is set to 1 hour, which should be more than enough to account for offsets, but short
-     * enough so that we don't really care.
-     */
-    private final static long WIGGLE_FACTOR = (1000L * 60 * 60 * 1);
-
-    /**
-     * Submit a request and check that the 'long cache' is set correctly.
-     *
-     * See documentation for {@link #WIGGLE_FACTOR}.
+     * Submit a request and check that the specified cache expiration is set correctly.
      *
      * @param url the url
+     * @param expiration the expiration expected to be set in the response headers (in milliseconds)
+     * @param immutable flag indicating if the immutable header should be expected
      */
-    private void assertResponseSetToLongCache(String url) throws Exception {
-        Date expected = new Date(System.currentTimeMillis() + AuraBaseServlet.LONG_EXPIRE - WIGGLE_FACTOR);
+    private void assertResponseSetToSpecifiedCacheExpiration(String url, long expiration, boolean immutable) throws Exception {
+        // a buffer to account for differences in system time at header generation and now in test execution
+        // 10 minutes should be more than adequate...
+        long BUFFER = (1000L * 60 * 10);
+        Date expected = new Date(System.currentTimeMillis() + expiration - BUFFER);
 
         HttpGet get = obtainGetMethod(url);
         HttpResponse response = perform(get);
 
         assertEquals("Failed to execute request successfully.", HttpStatus.SC_OK, getStatusCode(response));
 
-        assertEquals("Expected response to be marked for long cache",
-                String.format("max-age=%s, public", AuraBaseServlet.LONG_EXPIRE / 1000),
-                response.getFirstHeader(HttpHeaders.CACHE_CONTROL).getValue());
+        String cacheHeader = response.getFirstHeader(HttpHeaders.CACHE_CONTROL).getValue().replace(" ", "");
+        String expectedCacheHeader = String.format("max-age=%s,public" + (immutable ? ",immutable" : ""), expiration / 1000);
+        assertEquals("Expected response to have long cache headers", expectedCacheHeader, cacheHeader);
+
         assertDefaultAntiClickjacking(response, true, false);
         String expiresHdr = response.getFirstHeader(HttpHeaders.EXPIRES).getValue();
         Date expires = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH).parse(expiresHdr);
-        //
-        // We show all of the related dates/strings to help with debugging.
-        //
+
+        // show all of the related dates/strings to help with debugging.
         assertTrue(String.format("Expires header is earlier than expected. Expected !before %s, got %s (%s).",
-                expected, expires, expiresHdr), !expires.before(expected));
+                                 expected, expires, expiresHdr), !expires.before(expected));
 
         get.releaseConnection();
     }
@@ -504,9 +476,9 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         HttpResponse response = perform(get);
         assertEquals("Failed to execute request successfully.", HttpStatus.SC_OK, getStatusCode(response));
 
-        assertEquals("Expected response to be marked for no-cache", "no-cache, no-store",
-                response.getFirstHeader(HttpHeaders.CACHE_CONTROL).getValue());
-        assertEquals("no-cache", response.getFirstHeader(HttpHeaders.PRAGMA).getValue());
+        final String cacheControl = response.getFirstHeader(HttpHeaders.CACHE_CONTROL).getValue();
+        assertTrue("Expected response to be marked for no-cache", cacheControl.contains("no-cache"));
+        assertTrue("Expected response to be marked for no-store", cacheControl.contains("no-store"));
         assertDefaultAntiClickjacking(response, true, false);
 
         String expiresHdr = response.getFirstHeader(HttpHeaders.EXPIRES).getValue();
@@ -530,9 +502,8 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         try {
             mci.setContentSecurityPolicy(mockCsp);
 
-            // An application with isOnePageApp set to true
             DefDescriptor<ApplicationDef> desc = addSourceAutoCleanup(ApplicationDef.class,
-                    "<aura:application isOnePageApp='true'></aura:application>");
+                    "<aura:application></aura:application>");
 
             HttpGet get = obtainGetMethod(String.format("/%s/%s.app", desc.getNamespace(), desc.getName()));
             HttpResponse response = perform(get);
@@ -575,7 +546,7 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         HttpResponse response = perform(get);
         assertEquals(HttpStatus.SC_OK, getStatusCode(response));
         // Fetch the latest timestamp of the JS group and construct URL for DEV mode.
-        String expectedFWUrl = String.format("/auraFW/javascript/%s/aura_dev.js",
+        String expectedFWUrl = String.format("/auraFW/javascript/%s/aura_dev_compat.js",
                 configAdapter.getAuraFrameworkNonce());
         String scriptTag = String.format("<script src=\"%s\"", expectedFWUrl);
         assertTrue("Expected Aura FW Script tag not found. Expected to see: " + scriptTag,
@@ -616,8 +587,8 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
         HttpResponse httpResponse = perform(get);
 
 
-        assertEquals(HttpStatus.SC_OK, getStatusCode(httpResponse));
         String response = getResponseBody(httpResponse);
+        assertEquals("Unexpected return code with body: "+response, HttpStatus.SC_OK, getStatusCode(httpResponse));
         assertTrue(
                 "Expected 'Invalid Descriptor Format' but got: " + response,
                 response.contains("Invalid Descriptor Format: any:thing&lt;svg&gt;&lt;script&gt;"));
@@ -645,5 +616,110 @@ public class AuraServletHttpTest extends AuraHttpTestCase {
                         + response,
                 response.contains("AuraUnhandledException: Unable to process your request"));
         get.releaseConnection();
+    }
+
+    /**
+     * Test GET of publicly cacheable action returns caching headers
+     */
+    @ThreadHostileTest("Tests modify if public action caching enabled")
+    @Test
+    public void testGetPubliclyCacheableActionHasCachingHeaders() throws Exception {
+        MockConfigAdapter mca = getMockConfigAdapter();
+        mca.setActionPublicCachingEnabled(true);
+
+        // Send the default actionPublicCacheKey value. Tried setting a value on MockConfigAdapter and sending the same 
+        // value in the XHR, but found that it doesn't work because MockConfigAdapterImpl is a singleton and it causes 
+        // problems with tests run in parallel.
+        String url = getPubliclyCacheableActionUrl(PublicCachingTestController.class, "executeWithPublicCaching", null, 
+                mca.getActionPublicCacheKey());
+
+        // multiply expiration by 1000 since milliseconds are expected
+        assertResponseSetToSpecifiedCacheExpiration(url, 10 * 1000, false);
+    }
+
+    /**
+     * Test GET of publicly cacheable action returns expected return value
+     */
+    @ThreadHostileTest("Tests modify if public action caching enabled")
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testGetPubliclyCacheableActionReturnValue() throws Exception {
+        MockConfigAdapter mca = getMockConfigAdapter();
+        mca.setActionPublicCachingEnabled(true);
+        
+        String url = getPubliclyCacheableActionUrl(
+                PublicCachingTestController.class, 
+                "executeWithPublicCachingWithReturn", 
+                ImmutableMap.<String, Object>builder().put("i", 10).build(),
+                mca.getActionPublicCacheKey());
+        
+        HttpGet get = obtainGetMethod(url);
+        HttpResponse response = perform(get);
+
+        assertEquals("Failed to execute request successfully.", HttpStatus.SC_OK, getStatusCode(response));
+        
+        String body = getResponseBody(response);
+        assertTrue("Cannot find CSRF token in response body", body.startsWith(AuraBaseServlet.CSRF_PROTECT));
+        
+        Map<String, Object> json = (Map<String, Object>) new JsonReader().read(body.substring(
+                AuraBaseServlet.CSRF_PROTECT.length()));
+        List<Map<String, Object>> actions = (List<Map<String, Object>>) json.get("actions");
+        assertEquals("Unexpected number of actions in response", 1, actions.size());
+        assertEquals("Unexpected action state", "SUCCESS", actions.get(0).get("state"));
+        
+        Map<String, Object> returnValue = (Map<String, Object>) actions.get(0).get("returnValue");
+        assertEquals("Unexpected return value", 10, Number.class.cast(returnValue.get("id")).intValue());
+    }
+
+    /**
+     * Test GET of publicly cacheable action with an error is returned with no-cache headers
+     */
+    @ThreadHostileTest("Tests modify if public action caching enabled")
+    @Test
+    public void testGetPubliclyCacheableActionWithExceptionSendsNoCacheHeaders() throws Exception {
+        MockConfigAdapter mca = getMockConfigAdapter();
+        mca.setActionPublicCachingEnabled(true);
+        
+        String url = getPubliclyCacheableActionUrl(PublicCachingTestController.class, 
+                "executeWithPublicCachingWithException", null, mca.getActionPublicCacheKey());
+        
+        assertResponseSetToNoCache(url);
+    }
+
+    /**
+     * Test GET of publicly cacheable action with different cache key from server is returned with no-cache headers
+     */
+    @ThreadHostileTest("Tests modify if public action caching enabled")
+    @Test
+    public void testGetPubliclyCacheableActionWithNewCacheKeySendsNoCache() throws Exception {
+        MockConfigAdapter mca = getMockConfigAdapter();
+        mca.setActionPublicCachingEnabled(true);
+
+        String url = getPubliclyCacheableActionUrl(PublicCachingTestController.class, "executeWithPublicCaching", null, 
+                "someKey");
+
+        assertResponseSetToNoCache(url);
+    }
+    
+    private String getPubliclyCacheableActionUrl(Class<?> controllerClass, String methodName, Map<String, Object> params,
+                String actionPublicCacheKey) throws UnsupportedEncodingException, QuickFixException {
+        DefDescriptor<ApplicationDef> app = definitionService.getDefDescriptor("aura:application", ApplicationDef.class);
+        String contextUrl = getAuraTestingUtil().buildContextForPublicCacheableXHR(Mode.DEV, app, actionPublicCacheKey);
+
+        Map<String, Object> action = ImmutableMap.<String, Object>builder()
+                .put("descriptor", String.format("java://%s/ACTION$%s", controllerClass.getName(), methodName))
+                .put("callingDescriptor", "UNKNOWN")
+                .put("params", params != null ? params : new HashMap<>())
+                .build();
+        
+        Map<String, Object> message = ImmutableMap.<String, Object>builder()
+                .put("actions", Arrays.asList(action))
+                .build();
+        
+        return String.format("/aura?%s.%s=1&message=%s&aura.token=token&aura.isAction=true&aura.context=%s",
+                controllerClass.getSimpleName(), 
+                methodName, 
+                URLEncoder.encode(JsonEncoder.serialize(message), "UTF-8"), 
+                URLEncoder.encode(contextUrl, "UTF-8"));
     }
 }

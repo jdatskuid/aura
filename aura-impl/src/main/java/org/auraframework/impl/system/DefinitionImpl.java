@@ -15,7 +15,9 @@
  */
 package org.auraframework.impl.system;
 
-import com.google.common.collect.Maps;
+import java.io.Serializable;
+import java.util.Map;
+
 import org.auraframework.Aura;
 import org.auraframework.builder.DefBuilder;
 import org.auraframework.def.DefDescriptor;
@@ -28,9 +30,9 @@ import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Serialization;
 import org.auraframework.util.json.Serialization.ReferenceScope;
 import org.auraframework.util.json.Serialization.ReferenceType;
+import org.auraframework.validation.ReferenceValidationContext;
 
-import java.io.Serializable;
-import java.util.Map;
+import com.google.common.collect.Maps;
 
 /**
  * The implementation for a definition.
@@ -42,6 +44,7 @@ public abstract class DefinitionImpl<T extends Definition> extends BaseXmlElemen
 
     protected final DefDescriptor<T> descriptor;
     protected final Map<SubDefDescriptor<?, T>, Definition> subDefs;
+    private boolean dynamicallyGenerated = false;
 
     protected DefinitionImpl(DefDescriptor<T> descriptor, Location location, DefinitionAccess access) {
         this(descriptor, location, null, null, null, access, null, null);
@@ -50,6 +53,7 @@ public abstract class DefinitionImpl<T extends Definition> extends BaseXmlElemen
     protected DefinitionImpl(RefBuilderImpl<T, ?> builder) {
         this(builder.getDescriptor(), builder.getLocation(), builder.subDefs, builder.apiVersion, builder.description,
                 builder.getAccess(), builder.getOwnHash(), builder.getParseError());
+        dynamicallyGenerated = builder.dynamicallyGenerated;
     }
 
     DefinitionImpl(DefDescriptor<T> descriptor, Location location, Map<SubDefDescriptor<?, T>, Definition> subDefs,
@@ -98,15 +102,19 @@ public abstract class DefinitionImpl<T extends Definition> extends BaseXmlElemen
 
     /**
      * @throws QuickFixException
-     * @see Definition#validateReferences()
+     * @see Definition#validateReferences(ReferenceValidationContext)
      */
     @Override
-    public void validateReferences() throws QuickFixException {
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
         if (access != null) {
             access.validateReferences();
         }
     }
 
+    @Override
+    public boolean isDynamicallyGenerated() {
+        return dynamicallyGenerated;
+    }
 
 
     @Override
@@ -142,6 +150,7 @@ public abstract class DefinitionImpl<T extends Definition> extends BaseXmlElemen
         public DefDescriptor<T> descriptor;
         public Map<SubDefDescriptor<?, T>, Definition> subDefs;;
         private boolean descriptorLocked;
+        public boolean dynamicallyGenerated = false;
 
         protected RefBuilderImpl(Class<T> defClass) {
             super(defClass);
@@ -183,6 +192,11 @@ public abstract class DefinitionImpl<T extends Definition> extends BaseXmlElemen
                 this.descriptor = desc;
             }
             return this;
+        }
+        
+        @Override
+        public void setIsDynamicallyGenerated() {
+            dynamicallyGenerated = true;
         }
     }
 }

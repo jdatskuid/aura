@@ -18,8 +18,9 @@
 <aura:component implements="aura:requireLocker">
     <aura:attribute name="testUtils" type="Object" description="Test utility with assert methods defined" />
     <aura:attribute name="testComplete" type="Boolean" default="false" description="Flag to set to signal async operations are complete and test can complete"/>
+    <aura:attribute name="expectedPath" type="String" default="/auratest/test.app" description="Current url path for the running test suite. Used for window.location tests"/>
 
-    <aura:method name="test$AExposedOnWindow" action="{!c.test$AExposedOnWindow}"/>
+    <aura:method name="testDollarAExposedOnWindow"/>
     <aura:method name="testDocumentExposedOnWindow" action="{!c.testDocumentExposedOnWindow}"/>
     <aura:method name="testCircularReferenceIsSecureWindow" action="{!c.testCircularReferenceIsSecureWindow}"/>
     <aura:method name="testNoAccessToWindowViaSetTimeout" action="{!c.testNoAccessToWindowViaSetTimeout}"/>
@@ -32,15 +33,19 @@
     <aura:method name="testTimerReturns" action="{!c.testTimerReturns}"/>
     <aura:method name="testCreateImageElement" action="{!c.testCreateImageElement}"/>
 
+    <aura:method name="testArbitrarySchemes" action="{!c.testArbitrarySchemes}"/>
     <aura:method name="testOpen_HttpsUrl" action="{!c.testOpen_HttpsUrl}"/>
     <aura:method name="testOpen_HttpUrl" action="{!c.testOpen_HttpUrl}"/>
     <aura:method name="testOpen_RelativeUrl" action="{!c.testOpen_RelativeUrl}"/>
     <aura:method name="testOpen_JavascriptIsBlocked" action="{!c.testOpen_JavascriptIsBlocked}"/>
+    <aura:method name="testOpen_UrlRestrictionByPass" action="{!c.testOpen_UrlRestrictionByPass}"/>
     <aura:method name="testBlob" action="{!c.testBlob}"/>
-    <aura:method name="testBlob_WithScriptTagsBlocked" action="{!c.testBlob_WithScriptTagsBlocked}"/>
     <aura:method name="testFile" action="{!c.testFile}"/>
     <aura:method name="testFile_WithScriptTagsBlocked" action="{!c.testFile_WithScriptTagsBlocked}"/>
     <aura:method name="testModifyWindowLocation"/>
+    <aura:method name="testMediaStreamBlocked"/>
+    <aura:method name="testJavascriptPseudoScheme"/>
+    <aura:method name="testLocationAssign"/>
 
     <ui:button label="Modify Window Location" press="{!c.testModifyWindowLocation}"/>
 

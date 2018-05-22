@@ -66,9 +66,8 @@ Logger.prototype.warning = function(warning, error) {
  *
  * @param {Boolean} condition check
  * @param {String} assertMessage message when assertion fails
- * @export
  */
-Logger.prototype.assert = function(condition, assertMessage) {
+Logger.prototype.logAssert = function(condition, assertMessage) {
     if (!condition) {
         var message = "Assertion Failed!: " + assertMessage + " : " + condition;
         this.log(this.ASSERT, message);
@@ -80,10 +79,8 @@ Logger.prototype.assert = function(condition, assertMessage) {
  *
  * @param {String} msg error message
  * @param {Error} [e] error
- * @deprecated
- * @export
  */
-Logger.prototype.error = function(msg, e){
+Logger.prototype.logError = function(msg, e) {
     var logMsg = msg || "";
 
     if (!e) {
@@ -132,21 +129,37 @@ Logger.prototype.error = function(msg, e){
  *
  * @param {AuraError} e exception to report upon.
  * @param {Action} [action] the action being performed when the exception occurred.
+ * @param {string} [level] error reporting level. The default value is "ERROR". Options: ["INFO", "WARNING", "ERROR"]
  * @param {boolean} [foreground] don't set the report action as a caboose, should only be used for catastrophic failures where no futher actions will be called.
  * @private
  */
-Logger.prototype.reportError = function(e, action, foreground){
+Logger.prototype.reportError = function(e, action, level, foreground) {
     if (!e || e["reported"]) {
         return;
     }
 
+    if (!level || !this.isValidLevel(level)) {
+        level = this.ERROR;
+    }
+
     // get action from AuraError
     var errorAction = action || e.action;
-    var actionName = undefined;
-    if (errorAction) {
-        if (errorAction.getDef && errorAction.getDef()) {
-            actionName = errorAction.getDef().getDescriptor();
+    var actionDescriptor = undefined;
+    if (errorAction && errorAction.getDef) {
+        var actionDef = errorAction.getDef();
+        if (actionDef) {
+            actionDescriptor = actionDef.getDescriptor();
         }
+    }
+
+    // wrapping non aura error, so that required info can be set to the error
+    if (!(e instanceof $A.auraError)) {
+        e = new $A.auraError(null, e);
+    }
+
+    if (!e["component"] || !e["stacktraceIdGen"]) {
+        var component = e["component"] || e.findComponentFromStackTrace();
+        e.setComponent(component);
     }
 
     // Post the action failure to the server, where we can keep track of it for bad client code.
@@ -157,15 +170,17 @@ Logger.prototype.reportError = function(e, action, foreground){
         reportAction.setCaboose();
     }
     reportAction.setParams({
-        "failedAction": action || actionName || e["component"],
+        "failedAction": actionDescriptor || e["component"],
         "failedId": e.id && e.id.toString(),
         "clientError": e.toString(),
         // Note that stack is non-standard, and even if present, may be obfuscated
         // Also we only take the first 25k characters because stacks can get very large
-        // and our parser on the server will gack on more than a million characters 
+        // and our parser on the server will gack on more than a million characters
         // for the entire json package.
         "clientStack": (e.stackTrace || e.stack || "").toString().substr(0, Aura.Utils.Logger.MAX_STACKTRACE_SIZE),
-        "componentStack": e["componentStack"] || ""
+        "componentStack": e["componentStack"] || "",
+        "stacktraceIdGen": e["stacktraceIdGen"],
+        "level": level
     });
     reportAction.setCallback(this, function() { /* do nothing */ });
     $A.clientService.enqueueAction(reportAction);
@@ -173,36 +188,83 @@ Logger.prototype.reportError = function(e, action, foreground){
 };
 
 /**
- * @private
+ * Check if an error is external. 'external' means every stackframe isn't from framework nor framework consumers.
+ *
+ * @param {Error} e - The error object to check
  */
 Logger.prototype.isExternalError = function(e) {
     if (!e) {
         return false;
     }
 
-    var errorframes;
-    var count = 0;
-    if (e instanceof $A.auraError) {
-        errorframes = e.stackFrames;
-    } else {
-        errorframes = Aura.Errors.StackParser.parse(e);
+    var errorframes = this.generateStackFrames(e);
+    for (var i = 0; i < errorframes.length; i++) {
+        var fileName = errorframes[i].fileName;
+        if (!fileName) {
+            continue;
+        }
+
+        // if the caller is from chrome extension code
+        if (fileName.indexOf("chrome-extension://") > -1) {
+            return true;
+        }
+
+        if (this.isAuraFile(fileName)) {
+            return false;
+        }
     }
 
-    errorframes.forEach(function(errorframe) {
-        var fileName = errorframe.fileName;
-        if (fileName &&
-            fileName.match(/aura_[^\.]+\.js$/gi) === null && // not from aura
-            fileName.match("engine.js") === null &&          // not from module engine
-            fileName.match("engine.min.js") === null &&      // not from module engine PROD
-            fileName.indexOf('/components/') === -1 &&       // not from components
-            fileName.indexOf('/libraries/') === -1 &&        // not from libraries
-            fileName.match("app.js") === null) {             // not from app.js
-            count += 1;
-        }
-    });
+    return true;
+};
 
-    // external means every stackframe isn't from framework nor framework consumers
-    return errorframes.length === count;
+/**
+ * Check if an error is raised from external code
+ *
+ * @param {Error} e - The error object to check
+ */
+Logger.prototype.isExternalRaisedError = function(e) {
+    if (!e) {
+        return false;
+    }
+
+    var errorframes = this.generateStackFrames(e);
+    var fileName = errorframes[0] && errorframes[0].fileName;
+
+    return !this.isAuraFile(fileName);
+};
+
+/**
+ * Generate stack frames from an error.
+ *
+ * @private
+ */
+Logger.prototype.generateStackFrames = function(e) {
+    if (e instanceof $A.auraError) {
+        return e.stackFrames;
+    }
+
+    return Aura.Errors.StackParser.parse(e);
+};
+
+/**
+ * Check if a file belongs to Aura file. The file name string needs to be full path.
+ *
+ * @private
+ */
+Logger.prototype.isAuraFile = function(fileName) {
+    if (!fileName) {
+        return false;
+    }
+
+    return fileName.match(/aura_[^\.]+\.js$/gi) ||         // includes aura
+           fileName.match("engine.js") ||                  // includes module engine
+           fileName.match("engine.min.js") ||              // includes module engine PROD
+           fileName.indexOf('/components/') > -1  ||       // includes components
+           fileName.indexOf('/libraries/') > -1 ||         // includes libraries
+           fileName.indexOf('/jslibrary/') > -1 ||         // includes client libraries
+           fileName.indexOf('/auraFW/resources/') > -1 ||  // includes client libraries
+           fileName.match("appcore.js") ||                 // includes appcore.js
+           fileName.match("app.js");
 };
 
 /**
@@ -242,7 +304,6 @@ Logger.prototype.notify = function(level, msg, error) {
  * @param {Error} e error
  * @param {Number} [remove]
  * @returns {String|null} stack
- * @export
  */
 Logger.prototype.getStackTrace = function(e, remove) {
     // instances of $A.auraError keep stack in stackTrace property.
@@ -291,7 +352,6 @@ Logger.prototype.getStackTrace = function(e, remove) {
  * @param {Error} error
  * @param {Array} trace
  * @returns {String} string log
- * @export
  */
 Logger.prototype.stringVersion = function(logMsg, error, trace) {
     var stringVersion = !$A.util.isUndefinedOrNull(logMsg) ? logMsg : "" ;
@@ -314,13 +374,13 @@ Logger.prototype.stringVersion = function(logMsg, error, trace) {
  */
 Logger.prototype.subscribe = function(level, callback) {
     level = level.toUpperCase();
-    if (this.isValidSubscriber(level, callback)) {
-        this.subscribers.push({
-            level: level,
-            fn: callback
-        });
-        this.adjustSubscriptions(level, 1);
-    }
+    this.validateSubscriber(level, callback);
+
+    this.subscribers.push({
+        level: level,
+        fn: callback
+    });
+    this.subscriptions[level] += 1;
 };
 
 /**
@@ -332,40 +392,16 @@ Logger.prototype.subscribe = function(level, callback) {
  */
 Logger.prototype.unsubscribe = function(level, callback) {
     level = level.toUpperCase();
-    if (this.isValidSubscriber(level, callback)) {
-        var subsLength = this.subscribers.length;
-        for (var i = subsLength - 1; i >= 0; i--) {
-            var sub = this.subscribers[i];
-            if (sub.level === level && sub.fn === callback) {
-                this.subscribers.splice(i, 1);
-                this.adjustSubscriptions(level, -1);
-            }
+    this.validateSubscriber(level, callback);
+
+    var subsLength = this.subscribers.length;
+    for (var i = subsLength - 1; i >= 0; i--) {
+        var sub = this.subscribers[i];
+        if (sub.level === level && sub.fn === callback) {
+            this.subscribers.splice(i, 1);
+            this.subscriptions[level] -= 1;
         }
     }
-};
-
-/**
- * Adjust log level subscription numbers
- *
- * @param {String} level level to adjust
- * @param {Number} adjustment Number to adjust subscription
- */
-Logger.prototype.adjustSubscriptions = function(level, adjustment) {
-    this.subscriptions[level] += adjustment;
-};
-
-/**
- * Checks and throws Error if not valid subscriber
- *
- * @param {String} level log level
- * @param {Function} callback function
- * @returns {boolean} Valid subscriber
- */
-Logger.prototype.isValidSubscriber = function(level, callback) {
-    if (this.isValidLevel(level) && typeof callback === "function") {
-        return true;
-    }
-    throw new Error("Logging callback must be a function");
 };
 
 /**
@@ -374,13 +410,27 @@ Logger.prototype.isValidSubscriber = function(level, callback) {
  * @returns {boolean}
  */
 Logger.prototype.isValidLevel = function(level) {
-    if (level === this.INFO ||
-        level === this.WARNING ||
-        level === this.ASSERT ||
-        level === this.ERROR) {
-        return true;
+    return level === this.INFO ||
+           level === this.WARNING ||
+           level === this.ASSERT ||
+           level === this.ERROR;
+};
+
+/**
+ * Checks and throws Error if not valid subscriber
+ *
+ * @param {String} level log level
+ * @param {Function} callback function
+ * @throws Throws an error if the level is not valid or callback is not a function.
+ */
+Logger.prototype.validateSubscriber = function(level, callback) {
+    if (!this.isValidLevel(level)) {
+        throw new Error("Please specify valid log level: 'INFO', 'WARNING', 'ASSERT', 'ERROR'");
     }
-    throw new Error("Please specify valid log level: 'INFO', 'WARNING', 'ASSERT', 'ERROR'");
+
+    if (typeof callback !== "function") {
+        throw new Error("Logging callback must be a function");
+    }
 };
 
 /**
@@ -388,13 +438,10 @@ Logger.prototype.isValidLevel = function(level) {
  *
  * @param {String} level
  * @returns {boolean} Whether there are subscriptions to given level
- * @export
  */
 Logger.prototype.hasSubscriptions = function(level) {
     level = level.toUpperCase();
-    if (this.isValidLevel(level)) {
-        return this.subscriptions[level] > 0;
-    }
+    return this.isValidLevel(level) && this.subscriptions[level] > 0;
 };
 
 //#if {"excludeModes" : ["PRODUCTION", "PRODUCTIONDEBUG"]}
@@ -450,7 +497,7 @@ Logger.prototype.devDebugConsoleLog = function(level, message, error) {
             }
             if (trace) {
                 console["group"]("stack");
-                for ( var i = 0; i < trace.length; i++) {
+                for (var i = 0; i < trace.length; i++) {
                     console["debug"](trace[i]);
                 }
                 console["groupEnd"]();

@@ -1,5 +1,5 @@
 ({
-    testFilteringOfArrayOfObjects: function(component, event, helper) {
+    testFilteringOfArrayOfObjects: function (component, event, helper) {
         var testUtils = component.get("v.testUtils");
         var obj1 = {
             arr: [{
@@ -17,7 +17,7 @@
         testUtils.assertEquals("jkl", obj2.arr[0].prop, "Object property assignment: properties should be same");
 
         var obj4 = {
-            arr: [{ team: 'Giants'}, { team: 'Raiders'}, { team: 'Warriors'}]
+            arr: [{team: 'Giants'}, {team: 'Raiders'}, {team: 'Warriors'}]
         }
         component.set("v.wrapUnwrapTestObj", obj4);
         var obj2 = component.get("v.wrapUnwrapTestObj");
@@ -38,6 +38,7 @@
         obj2.arr[5] = 5; // assign the newly created index
         helper.verifyArrayElements(testUtils, [0, 2, 3, undefined, undefined, 5, 6], obj2.arr);
     },
+
     testArrayProperties: function (component, event, helper) {
         var testUtils = component.get("v.testUtils");
         var obj1 = {
@@ -45,18 +46,24 @@
         };
         component.set("v.wrapUnwrapTestObj", obj1);
         var testObj = component.get("v.wrapUnwrapTestObj");
-        testUtils.assertTrue(Array.isArray(testObj.arr));
-        testUtils.assertEquals(0, testObj.arr.length);
+        testUtils.assertTrue(Array.isArray(testObj.arr), "Proxy failed to pass Array.isArray() test");
+        testUtils.assertEquals(0, testObj.arr.length, "Array length should be 0");
 
         var obj2 = {
             arr: [11, 12, 13]
         };
         component.set("v.wrapUnwrapTestObj", obj2);
         testObj = component.get("v.wrapUnwrapTestObj");
-        testUtils.assertEquals(3, testObj.arr.length);
+        testUtils.assertEquals(3, testObj.arr.length, "Array length should be 3");
 
         testObj.arr = [1, 2, 3];
-        helper.verifyArrayElements(testUtils, [1,2,3], testObj.arr);
+        helper.verifyArrayElements(testUtils, [1, 2, 3], testObj.arr);
+
+        var properties = [];
+        for (var prop in testObj.arr) {
+            properties.push(prop);
+        }
+        helper.verifyArrayElements(testUtils, ["0", "1", "2"], properties);
     },
 
     testArrayPop: function (component, event, helper) {
@@ -106,7 +113,7 @@
         helper.verifyArrayElements(testUtils, [1, 2, 3, 4, 41, 42, 43, 44, 45], testArr);
     },
 
-    testArrayReverse: function (component, event, helper){
+    testArrayReverse: function (component, event, helper) {
         var testUtils = component.get("v.testUtils");
         var obj1 = {
             arr: []
@@ -158,7 +165,7 @@
         helper.verifyArrayElements(testUtils, [-2, -1, 0, 1, 2, 3, 4], testObj.arr);
     },
 
-    testArraySort: function(component, event, helper) {
+    testArraySort: function (component, event, helper) {
         var testUtils = component.get("v.testUtils");
         var expected = [1, 3, 2, 4];
         var obj1 = {
@@ -170,21 +177,24 @@
         helper.verifyArrayElements(testUtils, [1, 2, 3, 4], testObj.arr.sort());
         helper.verifyArrayElements(testUtils, [1, 2, 3, 4], testObj.arr);
         function descendingSort(a, b) {
-            return  b - a;
+            return b - a;
         }
+
         helper.verifyArrayElements(testUtils, [4, 3, 2, 1], testObj.arr.sort(descendingSort));
         helper.verifyArrayElements(testUtils, [4, 3, 2, 1], testObj.arr);
     },
 
-    testArraySplice: function(component, event, helper) {
+    testArraySplice: function (component, event, helper) {
         var testUtils = component.get("v.testUtils");
         var expected = ['a', 'b', 'c', 'd'];
         var obj1 = {
             arr: expected
         };
+
         function resetArray() {
             testObj.arr = ['a', 'b', 'c', 'd'];
         }
+
         component.set("v.wrapUnwrapTestObj", obj1);
 
         var testObj = component.get("v.wrapUnwrapTestObj");
@@ -192,7 +202,7 @@
         helper.verifyArrayElements(testUtils, [], testObj.arr.splice(2, 0, 'z'));
         helper.verifyArrayElements(testUtils, ['a', 'b', 'z', 'c', 'd'], testObj.arr);
 
-        resetArray()
+        resetArray();
         helper.verifyArrayElements(testUtils, [], testObj.arr.splice(0, 0, 'y'));
         helper.verifyArrayElements(testUtils, ['y', 'a', 'b', 'c', 'd'], testObj.arr);
 
@@ -217,7 +227,7 @@
         helper.verifyArrayElements(testUtils, ['c'], testObj.arr.splice(2, 1));
         helper.verifyArrayElements(testUtils, ['a', 'b', 'd'], testObj.arr);
 
-        resetArray()
+        resetArray();
         helper.verifyArrayElements(testUtils, ['a'], testObj.arr.splice(0, 1));
         helper.verifyArrayElements(testUtils, ['b', 'c', 'd'], testObj.arr);
 
@@ -246,7 +256,7 @@
         helper.verifyArrayElements(testUtils, ['c'], testObj.arr.splice(2, 1, 'z'));
         helper.verifyArrayElements(testUtils, ['a', 'b', 'z', 'd'], testObj.arr);
 
-        resetArray()
+        resetArray();
         helper.verifyArrayElements(testUtils, ['a'], testObj.arr.splice(0, 1, 'y'));
         helper.verifyArrayElements(testUtils, ['y', 'b', 'c', 'd'], testObj.arr);
 
@@ -275,7 +285,57 @@
         helper.verifyArrayElements(testUtils, ['x', 'y'], testObj.arr);
     },
 
-    testArrayAccessorMethods : function(component, event, helper) {
+    testArrayConcat: function (component, event, helper) {
+        var testUtils = component.get("v.testUtils");
+
+
+        component.set("v.wrapUnwrapTestObj", { a: [], b: [1], c: ['x', 'y'] });
+        var o = component.get("v.wrapUnwrapTestObj");
+        var a = o.a;
+        var b = o.b;
+        var c = o.c;
+
+        helper.verifyArrayElements(testUtils, [], a);
+        helper.verifyArrayElements(testUtils, [1], b);
+        helper.verifyArrayElements(testUtils, ['x', 'y'], c);
+
+
+        helper.verifyArrayElements(testUtils, [], a.concat([]));
+        helper.verifyArrayElements(testUtils, [], a.concat(a));
+
+        helper.verifyArrayElements(testUtils, [1], a.concat([1]));
+        helper.verifyArrayElements(testUtils, [1], a.concat(b));
+
+        helper.verifyArrayElements(testUtils, ['x', 'y'], a.concat(['x', 'y']));
+        helper.verifyArrayElements(testUtils, ['x', 'y'], a.concat(c));
+
+
+        helper.verifyArrayElements(testUtils, [1], b.concat([]));
+        helper.verifyArrayElements(testUtils, [1], b.concat(a));
+
+        helper.verifyArrayElements(testUtils, [1, 1], b.concat([1]));
+        helper.verifyArrayElements(testUtils, [1, 1], b.concat(b));
+
+        helper.verifyArrayElements(testUtils, [1, 'x', 'y'], b.concat(['x', 'y']));
+        helper.verifyArrayElements(testUtils, [1, 'x', 'y'], b.concat(c));
+
+
+        helper.verifyArrayElements(testUtils, ['x', 'y'], c.concat([]));
+        helper.verifyArrayElements(testUtils, ['x', 'y'], c.concat(a));
+
+        helper.verifyArrayElements(testUtils, ['x', 'y', 1], c.concat([1]));
+        helper.verifyArrayElements(testUtils, ['x', 'y', 1], c.concat(b));
+
+        helper.verifyArrayElements(testUtils, ['x', 'y', 'x', 'y'], c.concat(['x', 'y']));
+        helper.verifyArrayElements(testUtils, ['x', 'y', 'x', 'y'], c.concat(c));
+
+
+        helper.verifyArrayElements(testUtils, [], a);
+        helper.verifyArrayElements(testUtils, [1], b);
+        helper.verifyArrayElements(testUtils, ['x', 'y'], c);
+    },
+
+    testArrayAccessorMethods: function (component, event, helper) {
         var testUtils = component.get("v.testUtils");
         var obj1 = {
             arr: [1, 2, 3, 4]
@@ -300,7 +360,7 @@
         helper.verifyArrayElements(testUtils, ['Wind', 'Rain', 'Fire'], testObj.arr);
     },
 
-    testArrayForEach : function(component, event, helper) {
+    testArrayForEach: function (component, event, helper) {
         var testUtils = component.get("v.testUtils");
         var obj1 = {
             arr: [1, 2, 3, 4]
@@ -308,26 +368,45 @@
         component.set("v.wrapUnwrapTestObj", obj1);
         var testObj = component.get("v.wrapUnwrapTestObj");
         var sum = 0;
-        testObj.arr.forEach(function(entry) {
+        testObj.arr.forEach(function (entry) {
             sum += entry;
         });
         testUtils.addWaitForWithFailureMessage(
             10,
-            function() { return sum; },
+            function () {
+                return sum;
+            },
             "Failed to execute forEach"
         );
         var customThis = {sum: 0};
-        testObj.arr.forEach(function(entry) {
+        testObj.arr.forEach(function (entry) {
             this.sum += entry;
         }, customThis);
         testUtils.addWaitForWithFailureMessage(
             10,
-            function() { return customThis.sum; },
+            function () {
+                return customThis.sum;
+            },
             "Failed to execute forEach with a custom this"
         );
     },
 
-    testArrayAssociativeArray : function(component, event, helper) {
+    testArrayForIn: function (component, event, helper) {
+        var testUtils = component.get("v.testUtils");
+        var obj1 = {
+            arr: [1, 2, 3]
+        };
+        component.set("v.wrapUnwrapTestObj", obj1);
+        var testObj = component.get("v.wrapUnwrapTestObj");
+
+        var properties = [];
+        for (var prop in testObj.arr) {
+            properties.push(prop);
+        }
+        helper.verifyArrayElements(testUtils, ["0", "1", "2"], properties);
+    },
+
+    testArrayAssociativeArray: function (component, event, helper) {
         var testUtils = component.get("v.testUtils");
         var obj1 = {
             arr: [1, 2, 3, 4]
@@ -336,7 +415,7 @@
         var testObj = component.get("v.wrapUnwrapTestObj");
         testObj.arr["foo"] = "bar";
         var objKey = {};
-        testObj.arr[objKey] = {"hello" : "world"};
+        testObj.arr[objKey] = {"hello": "world"};
 
         testUtils.assertEquals(4, testObj.arr.length, "Items inserted using non-numeric index should not be included in length calculation");
         testUtils.assertEquals("bar", testObj.arr["foo"]);
@@ -353,5 +432,56 @@
         testObj.arr[9.1] = "bar";
         testUtils.assertEquals(4, testObj.arr.length, "Items inserted using non integer index should not be included in length calculation");
         testUtils.assertEquals("bar", testObj.arr[9.1]);
+    },
+
+    testArrayProxyTraps: function(component, event, helper) {
+        var testUtils = component.get("v.testUtils");
+        var obj = {
+            arr: [1, 2, 3]
+        };
+        component.set("v.wrapUnwrapTestObj", obj);
+
+        // Test other traps of the array proxy
+        var testArray = component.get("v.wrapUnwrapTestObj").arr;
+        testUtils.assertEquals(Array.prototype, Object.getPrototypeOf(testArray));
+
+        testUtils.assertTrue(Object.isExtensible(testArray));
+
+        Object.preventExtensions(testArray);
+        testUtils.assertFalse(Object.isExtensible(testArray));
+        // Verify that values cannot be added once array is marked as not extensible
+        testUtils.assertEquals(3, testArray.length);
+        // new indexes cannot be added
+        try {
+            testArray[3] = "4";
+            testUtils.fail("new indexes cannot be added");
+        } catch(expected) {}
+
+        testUtils.assertEquals(3, testArray.length);
+        testUtils.assertUndefined(testArray[3]);
+        // Existing indexes can be updated
+        testArray[2] = 4;
+        helper.verifyArrayElements(testUtils, [1, 2, 4], testArray);
+
+        var descriptor = Object.getOwnPropertyDescriptor(testArray, "1");
+        testUtils.assertNotUndefinedOrNull(descriptor, "Failed to get descriptor for array index");
+        testUtils.assertEquals(2, descriptor.value);
+
+        component.set("v.wrapUnwrapTestObj", {arr: ['a', 'b', 'c']})
+        testArray = component.get("v.wrapUnwrapTestObj").arr;
+        Object.defineProperty(
+            testArray,
+            3,
+            {
+                enumerable: true,
+                configurable: true,
+                writable: false,
+                value: 'z'
+            });
+        testUtils.assertEquals('z', testArray[3], "Failed to define new property on array");
+        helper.verifyArrayElements(testUtils, ["0", "1", "2", "3"], Object.keys(testArray));
+
+        delete testArray[0];
+        helper.verifyArrayElements(testUtils, [undefined, 'b', 'c', 'z'], testArray);
     }
 })

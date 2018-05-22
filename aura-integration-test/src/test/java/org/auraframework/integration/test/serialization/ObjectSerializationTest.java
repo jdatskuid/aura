@@ -21,22 +21,29 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 
 import org.auraframework.def.ActionDef;
+import org.auraframework.def.ComponentDef;
 import org.auraframework.def.ControllerDef;
+import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.Definition;
 import org.auraframework.def.TestCaseDef;
 import org.auraframework.def.TestSuiteDef;
 import org.auraframework.impl.AuraImplTestCase;
 import org.auraframework.impl.javascript.testsuite.JavascriptTestCaseDef;
+import org.auraframework.impl.validation.ReferenceValidationContextImpl;
 import org.auraframework.instance.Action;
+import org.auraframework.validation.ReferenceValidationContext;
 import org.junit.Test;
 
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 public class ObjectSerializationTest extends AuraImplTestCase {
     @Test
     public void testSerializeTestCaseDef() throws Exception {
-        TestSuiteDef suite = definitionService.getDefinition("js://auratest.jsmock", TestSuiteDef.class);
+    	DefDescriptor<ComponentDef> cmpDesc = definitionService.getDefDescriptor("markup://auratest:jsmock", ComponentDef.class);
+    	DefDescriptor<TestSuiteDef> testSuiteDesc = definitionService.getDefDescriptor("js://auratest.jsmock", TestSuiteDef.class, cmpDesc);
+        TestSuiteDef suite = definitionService.getDefinition(testSuiteDesc);
         TestCaseDef test = null;
         for (TestCaseDef caseDef : suite.getTestCaseDefs()) {
             if ("testActionString".equals(caseDef.getName())) {
@@ -67,6 +74,10 @@ public class ObjectSerializationTest extends AuraImplTestCase {
         assertTrue(newtest.getBrowsers().isEmpty());
         assertEquals(1, newtest.getTestLabels().size());
         assertTrue(newtest.getTestLabels().contains("basic"));
+
+        ReferenceValidationContext validationContext = new ReferenceValidationContextImpl(Maps.newHashMap());
+        newtest.validateReferences(validationContext);
+
         Definition def = newtest.getLocalDefs().get(0);
         assertEquals("java://org.auraframework.components.test.java.controller.JavaTestController", def.getDescriptor()
                 .getQualifiedName());

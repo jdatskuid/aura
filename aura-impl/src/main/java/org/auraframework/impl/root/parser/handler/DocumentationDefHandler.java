@@ -23,18 +23,19 @@ import javax.xml.stream.XMLStreamReader;
 
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.DefinitionParserAdapter;
-import org.auraframework.builder.RootDefinitionBuilder;
+import org.auraframework.builder.DocumentationDefBuilder;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DescriptionDef;
 import org.auraframework.def.DocumentationDef;
 import org.auraframework.def.ExampleDef;
+import org.auraframework.def.MetaDef;
 import org.auraframework.impl.documentation.DocumentationDefImpl;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.TextSource;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.AuraTextUtil;
 
-public class DocumentationDefHandler extends RootTagHandler<DocumentationDef> {
+public class DocumentationDefHandler extends FileTagHandler<DocumentationDef> {
 
     public static final String TAG = "aura:documentation";
 
@@ -72,7 +73,7 @@ public class DocumentationDefHandler extends RootTagHandler<DocumentationDef> {
     }
 
     @Override
-    public RootDefinitionBuilder<DocumentationDef> getBuilder() {
+    public DocumentationDefBuilder getBuilder() {
         return builder;
     }
 
@@ -87,16 +88,15 @@ public class DocumentationDefHandler extends RootTagHandler<DocumentationDef> {
             builder.addDescription(name, desc);
 
         } else if (ExampleDefHandler.TAG.equalsIgnoreCase(tag)) {
-            ExampleDef ex = new ExampleDefHandler<>(this, xmlReader, source, isInInternalNamespace, definitionService,
+            ExampleDef ex = new ExampleDefHandler(this, xmlReader, source, isInInternalNamespace, definitionService,
                     configAdapter, definitionParserAdapter).getElement();
             String name = ex.getName();
             builder.addExample(name, ex);
 
         } else if (MetaDefHandler.TAG.equalsIgnoreCase(tag)) {
-            // The appropriate handler must call getElement()
-            // MetaDef is not currently used
-            new MetaDefHandler<>(this, xmlReader, source, isInInternalNamespace, definitionService,
+            MetaDef meta = new MetaDefHandler(this, xmlReader, source, isInInternalNamespace, definitionService,
                     configAdapter, definitionParserAdapter).getElement();
+            builder.addMeta(meta.getName(), meta);
         } else {
             throw new XMLStreamException(String.format("<%s> cannot contain tag %s", getHandledTag(), tag));
         }

@@ -26,7 +26,8 @@ public class TemplateUtil {
         SYNC("<script src=\"%s\"></script>"),
         ASYNC("<script src=\"%s\" async defer></script>"),
         DEFER("<script src=\"%s\" defer></script>"),
-        LAZY("<script data-src=\"%s\"></script>");
+        LAZY("<script data-src=\"%s\"></script>"),
+        UNSAFELINE("<script>%s</script>");
 
         private final String tag;
 
@@ -39,18 +40,56 @@ public class TemplateUtil {
         }
     }
 
-    private static final String HTML_STYLE = "<link href=\"%s\" rel=\"stylesheet\" type=\"text/css\"/>\n";
+    private static final String SCRIPT_PREFETCH_TAG = "<link rel=\"prefetch\" href=\"%s\" as=\"script\"/>\n";
+    private static final String CSS_PRELOAD_TAG = "<link rel=\"preload\" href=\"%s\" as=\"style\"/>\n";
+    private static final String SCRIPT_PRELOAD_TAG = "<link rel=\"preload\" href=\"%s\" as=\"script\"/>\n";
 
-    public void writeHtmlStyle(String url, Appendable out) throws IOException {
+    private static final String HTML_STYLE = "<link href=\"%s\" rel=\"stylesheet\" type=\"text/css\"/>\n";
+    private static final String HTML_STYLE_CLASSED = "<link href=\"%s\" class=\"%s\" rel=\"stylesheet\" type=\"text/css\"/>\n";
+
+    private static final String HTML_DATA_HREF_STYLE = "<link data-href=\"%s\" rel=\"stylesheet\" type=\"text/css\"/>\n";
+    private static final String HTML_DATA_HREF_STYLE_CLASSED = "<link data-href=\"%s\" class=\"%s\" rel=\"stylesheet\" type=\"text/css\"/>\n";
+
+    public void writeHtmlStyle(String url, String clazz, Appendable out) throws IOException {
         if (url != null) {
-            out.append(String.format(HTML_STYLE, url));
+            if (clazz != null) {
+                out.append(String.format(HTML_STYLE_CLASSED, url, clazz));
+            } else {
+                out.append(String.format(HTML_STYLE, url));
+            }
         }
     }
 
-    public void writeHtmlStyles(List<String> styles, Appendable out) throws IOException {
+    public void writeHtmlStyles(List<String> styles, String clazz, Appendable out) throws IOException {
         if (styles != null) {
             for (String style : styles) {
-                out.append(String.format(HTML_STYLE, style));
+                if (clazz != null) {
+                    out.append(String.format(HTML_STYLE_CLASSED, style, clazz));
+                } else {
+                    out.append(String.format(HTML_STYLE, style));
+                }
+            }
+        }
+    }
+
+
+    public void writeHtmlDataHrefStyles(List<String> styles, String clazz, Appendable out) throws IOException {
+        if (styles != null) {
+            for (String style : styles) {
+                if (clazz != null) {
+                    out.append(String.format(HTML_DATA_HREF_STYLE_CLASSED, style, clazz));
+                } else {
+                    out.append(String.format(HTML_DATA_HREF_STYLE, style));
+                }
+            }
+        }
+    }
+    
+
+    public void writeUnsafeInlineHtmlScripts(AuraContext context, List<String> scripts, Appendable out) throws IOException {
+        if (scripts != null) {
+            for (String src : scripts) {
+                out.append(Script.UNSAFELINE.toHTML(src));
             }
         }
     }
@@ -73,7 +112,7 @@ public class TemplateUtil {
             out.append(scriptLoadingType.toHTML(scriptUrl));
         }
     }
-    
+
     public void writeHtmlScripts(AuraContext context, List <String> scripts, Script scriptLoadingType, Appendable out)
             throws IOException {
         if (scripts != null && !scripts.isEmpty()) {
@@ -83,6 +122,30 @@ public class TemplateUtil {
             }
             for (String src : scripts) {
                 out.append(scriptLoadingType.toHTML(src));
+            }
+        }
+    }
+
+    public void writePrefetchScriptTags(List <String> scriptUrls, Appendable out) throws IOException {
+        if (scriptUrls != null) {
+            for (String url : scriptUrls) {
+                out.append(String.format(SCRIPT_PREFETCH_TAG, url));
+            }
+        }
+    }
+    
+    public void writePreloadLinkTags(List <String> cssUrls, Appendable out) throws IOException {
+        if (cssUrls != null) {
+            for (String url : cssUrls) {
+                out.append(String.format(CSS_PRELOAD_TAG, url));
+            }
+        }
+    }
+    
+    public void writePreloadScriptTags(List<String> scriptUrls, Appendable out) throws IOException {
+        if (scriptUrls != null) {
+            for (String url : scriptUrls) {
+                out.append(String.format(SCRIPT_PRELOAD_TAG, url));
             }
         }
     }

@@ -49,6 +49,7 @@ Aura.Utils.Util = function Util() {
  */
 Aura.Utils.Util.prototype.isIE = (navigator.userAgent.indexOf("MSIE") !== -1) || (navigator.userAgent.indexOf("Trident/") !== -1);
 
+Promise.prototype.then = Promise.prototype['then'];
 
 /**
  * Browser check for localStorage enablement.
@@ -58,14 +59,14 @@ Aura.Utils.Util.prototype.isIE = (navigator.userAgent.indexOf("MSIE") !== -1) ||
 Aura.Utils.Util.prototype.isLocalStorageEnabled = function () {
     if (this.localStorageEnabled === undefined) {
         this.localStorageEnabled = false;
-        if (window.localStorage) {
-            try {
+        try {
+            if (window.localStorage) {
                 window.localStorage.setItem("__AURA_LOCAL_STORAGE_ENABLED_TEST", "");
                 window.localStorage.removeItem("__AURA_LOCAL_STORAGE_ENABLED_TEST");
                 this.localStorageEnabled = true;
-            } catch (ignore) {
-                // do nothing
             }
+        } catch (ignore) {
+            // do nothing
         }
     }
 
@@ -80,14 +81,15 @@ Aura.Utils.Util.prototype.isLocalStorageEnabled = function () {
 Aura.Utils.Util.prototype.isSessionStorageEnabled = function () {
     if (this.sessionStorageEnabled === undefined) {
         this.sessionStorageEnabled = false;
-        if (window.sessionStorage) {
-            try {
-                window.sessionStorage.setItem("__AURA_SESSION_STORAGE_ENABLED_TEST", "");
-                window.sessionStorage.removeItem("__AURA_SESSION_STORAGE_ENABLED_TEST");
-                this.sessionStorageEnabled = true;
-            } catch (ignore) {
-                // do nothing
+        try {
+            if (window.sessionStorage) {
+
+                    window.sessionStorage.setItem("__AURA_SESSION_STORAGE_ENABLED_TEST", "");
+                    window.sessionStorage.removeItem("__AURA_SESSION_STORAGE_ENABLED_TEST");
+                    this.sessionStorageEnabled = true;
             }
+        } catch (ignore) {
+            // do nothing
         }
     }
 
@@ -160,38 +162,11 @@ Aura.Utils.Util.prototype.isIOSWebView = function() {
  *
  * @private
  */
-Aura.Utils.Util.prototype.globalEval = function(src, globals, optionalSourceURL) {
-    var srcToEval = "return (" + src + ");";
-    if (window["$$safe-eval-compat$$"]) {
-        //For perf, disable pre-processing step and assume that src passed returns a value
-        return window["$$safe-eval-compat$$"](srcToEval, optionalSourceURL, true, window, globals);
-    }
+Aura.Utils.Util.prototype.globalEval = function(src, sourceURL) {
 
-    // --- backward compatibility ---
-    // If eval is allowed by the browser (e.g. IE11, AIS, LO), we don't load safeEvalWorker. In such cases we fallback
-    // to the old mechanism of evaluation.
-    // This evaluation occurs in the global scope and with the extra globals visible but not defined there.
-    var keys = [];
-    var vals = [];
-    var sourceURL = "";
-    for (var key in globals) {
-        keys.push(key);
-        vals.push(globals[key]);
-    }
-
-    if (optionalSourceURL) {
-        sourceURL = '\n//# sourceURL=' + optionalSourceURL;
-    }
-
-    if (keys.length > 0) {
-        return new Function(keys, srcToEval + sourceURL).apply({}, vals);
-    } else {
-        // for component and library hydration, globals is undefined
-        // Chrome new Function output hard-coded 1st line "(function() {"
-        // so use eval instead to keep script content consistent across browsers
-        // force an indirect eval so it uses global context
-        return (0,eval)("(function(){"+ srcToEval +"})();" + sourceURL);
-    }
+    // Force an indirect eval so it uses the global context.
+    sourceURL = sourceURL ? '\n//# sourceURL=' + sourceURL : '';
+    return (0,eval)("(function(){ return (\n"+ src +"\n)})();" + sourceURL);
 };
 
 /**
@@ -242,14 +217,20 @@ Aura.Utils.Util.prototype.isPlainObject = function(o){
     // If has modified constructor
     if (typeof o.constructor !== 'function') { return false; }
 
-    // If has modified prototype
-    var p = o.constructor.prototype;
-    if (isObjectObject(p) === false) { return false; }
 
-    // If constructor does not have an Object-specific method
-    if (p.hasOwnProperty('isPrototypeOf') === false) {
-        return false;
-    }
+    // @dval: Added temporal try/catch until we figure out a better way
+    // to guarantee proxification in intrinsic/primordials:
+    // https://git.soma.salesforce.com/raptor/raptor/issues/406
+    try {
+        // If has modified prototype
+        var p = o.constructor.prototype;
+        if (isObjectObject(p) === false) { return false; }
+
+        // If constructor does not have an Object-specific method
+        if (p.hasOwnProperty('isPrototypeOf') === false) {
+            return false;
+        }
+    } catch (e) { /* Assume is  object when throws */}
 
     // Most likely a plain Object
     return true;
@@ -541,8 +522,56 @@ Aura.Utils.Util.prototype.copy = function(value){
 };
 
 /**
+ * Compares value equality of two variables. Returns true if primitive values match,
+ * or if Object or Array members contain the same values. Checks Objects and Arrays recursively.
+ * Fails fast. Note that objects stop comparing after satisfying 'likeness' against 'expected' -- i.e.,
+ * 'actual' is allowed to exhibit members that 'expected' does not, as long as all members of 'expected' are matched.
+ *
+ * @param {Object} expected The baseline value to use in the comparison against 'actual'.
+ * @param {Object} actual The value to compare against 'expected'.
+ * @returns {Boolean} Returns true if the values match, and false if they do not.
+ */
+Aura.Utils.Util.prototype.equals = function(expected,actual){
+    if(expected===actual){
+        return true; // primitive similarity, reference equality.
+    }
+    if(!expected||!actual){
+        return false; // no === match, but one value is falsey (null, undefined, 0, false, '', ...)
+    }
+    if(this.isObject(expected)){
+        if(!this.isObject(actual)){
+            return false;
+        }
+        for(var x in expected){
+            if(expected.hasOwnProperty(x)){
+                if(!actual.hasOwnProperty(x)){
+                    return false;
+                }
+                if(!this.equals(expected[x],actual[x])){
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+    if(this.isArray(expected)){
+        if(!this.isArray(actual)||expected.length!==actual.length){
+            return false;
+        }
+        for(var i=0;i<expected.length;i++){
+            if(!this.equals(expected[i],actual[i])){
+                return false;
+            }
+        }
+        return true;
+    }
+    return false;
+};
+
+/**
  * Compares values. In the case of an Array or Object, compares first level references only.
  * In the case of a literal, directly compares value and type equality.
+ * USE IN TESTS ONLY. HAS NON-TRIVIAL PERFORMANCE IMPLICATIONS.
  *
  * @param {Object} expected The source value to compare.
  * @param {Object} actual The target value to compare.
@@ -968,7 +997,17 @@ Aura.Utils.Util.prototype.appendChild = function(newEl, referenceEl) {
  * @export
  */
 Aura.Utils.Util.prototype.removeElement = function(element) {
-    if (element && !(element.parentNode === this.trashcan)) {
+    if (!element) {
+        return;
+    }
+
+    // Out early for custom elements
+    if (element.__customElement && element.parentElement) {
+        element.parentElement.removeChild(element);
+        return;
+    }
+
+    if (!(element.parentNode === this.trashcan)) {
         if (element.parentNode) {
             //
             // We do a check to ensure that we don't try to add the element
@@ -989,6 +1028,7 @@ Aura.Utils.Util.prototype.removeElement = function(element) {
                 $A.assert(this.isUndefined(element["aura_deleted"]), "Element was reused after delete");
                 element["aura_deleted"] = true;
             }
+
             this.trashcan.appendChild(element);
         } else{
             this.trash.push(element);
@@ -1328,6 +1368,10 @@ Aura.Utils.Util.prototype.on = (function() {
 Aura.Utils.Util.prototype.removeOn = function(element, eventName, listener, useCapture) {
     $A.assert(element, "try to remove an event listener from a no-longer-exist DOM element");
 
+    if (this.isUndefined(listener)) {
+        return;
+    }
+
     if (listener.registeredAuraHandler) {
         listener = listener.registeredAuraHandler;
     }
@@ -1531,9 +1575,9 @@ Aura.Utils.Util.prototype.apply = function(/* Object|Function */ baseObject, /* 
                 if(deepCopy&&value!=undefined) {//eslint-disable-line eqeqeq
                     var branchValue = null;
                     if (this.isArray(value)) {
-                    	branchValue = baseObject[property] || [];
+                        branchValue = baseObject[property] || [];
                     } else if (this.isPlainObject(value)) {
-                    	branchValue = baseObject[property] || {};
+                        branchValue = baseObject[property] || {};
                     }
                     if (branchValue) {
                         baseObject[property] = this.apply(branchValue, value, forceCopy, deepCopy);
@@ -1548,6 +1592,45 @@ Aura.Utils.Util.prototype.apply = function(/* Object|Function */ baseObject, /* 
     }
     return baseObject;
 };
+
+/**
+ * apply() has a bug that it copies values from the prototype.
+ * This was found in late 210 a week before FF. Thats to late for a change to apply(), so Kris Gray created
+ * this method which does the right thing.
+ *
+ * We'll fix the bug by using this new method, and in 212, we'll switch apply() to behave like this method.
+ * The API and functionality is the same except that it does not copy values from the prototype.
+ * Please DO NOT EXPORT THIS METHOD. That makes it much harder to replace in 212.
+ */
+Aura.Utils.Util.prototype.applyNotFromPrototype = function(/* Object|Function */ baseObject, /* Object|Function*/ members, /* bool */ forceCopy, /* bool */ deepCopy) {
+    if(members) {
+        var value=null;
+        for (var property in members) {
+            if(!members.hasOwnProperty(property)) {continue;}
+            var setValue=forceCopy||!baseObject.hasOwnProperty(property);
+            if(setValue||deepCopy){
+                value=members[property];
+                if(deepCopy&&value!=undefined) {//eslint-disable-line eqeqeq
+                    var branchValue = null;
+                    if (this.isArray(value)) {
+                        branchValue = baseObject[property] || [];
+                    } else if (this.isPlainObject(value)) {
+                        branchValue = baseObject[property] || {};
+                    }
+                    if (branchValue) {
+                        baseObject[property] = this.applyNotFromPrototype(branchValue, value, forceCopy, deepCopy);
+                        continue;
+                    }
+                }
+                if(setValue) {
+                    baseObject[property] = value;
+                }
+            }
+        }
+    }
+    return baseObject;
+};
+
 
 Aura.Utils.Util.prototype.CAMEL_CASE_TO_HYPHENS_REGEX = /([A-Z])/g;
 
@@ -1732,6 +1815,9 @@ Aura.Utils.Util.prototype.isHTMLElement = function(obj) {
  * @returns {Boolean} True if the object is an SVGElement object, or false otherwise.
  */
 Aura.Utils.Util.prototype.isSVGElement = function(obj) {
+    if(obj.correspondingUseElement) {
+        return obj.correspondingUseElement instanceof SVGElement || obj instanceof SVGElement;
+    }
     return obj instanceof SVGElement;
 };
 
@@ -2277,17 +2363,6 @@ Aura.Utils.Util.prototype.isExpression = function (obj) {
 };
 
 /**
- * Checks if the object is an Aura Action.
- *
- * @param {Object} obj The object to check for.
- * @returns {Boolean} True if the object type is a controller action, or false otherwise.
- * @private
- */
-Aura.Utils.Util.prototype.isAction = function(obj) {
-    return obj instanceof Action;
-};
-
-/**
  * Checks if the object is an Aura value object.
  *
  * @param {Object} obj The object to check for.
@@ -2308,6 +2383,17 @@ Aura.Utils.Util.prototype.isValue = function(obj) {
  */
 Aura.Utils.Util.prototype.isAction = function(obj) {
     return obj instanceof Action;
+};
+
+/**
+ * Checks if the object is an Aura Event object.
+ *
+ * @param {Object} obj The object to check for.
+ * @returns {Boolean} True if the object type is an Aura Event.
+ * @export
+ */
+Aura.Utils.Util.prototype.isEvent = function(obj) {
+    return obj instanceof Aura.Event.Event;
 };
 
 /**
@@ -2397,33 +2483,37 @@ Aura.Utils.Util.prototype.setText = function(node, text) {
 
 /**
  * Posts message to the provided window. This was done to workaround an issue where browser sets
- * event.source to be safeEvalWorker window (see W-3443540). 
+ * event.source to be safeEvalWorker window (see W-3443540).
+ * NOTE: safeEvalWorker has been removed.
  * @param {Window} targetWindow The destination window for the message
  * @param {Array} argsArray list of arguments to be posted
  * @export
  */
 Aura.Utils.Util.prototype.postMessage = function(targetWindow, argsArray){
-	if(targetWindow && targetWindow["postMessage"]){
-		targetWindow["postMessage"].apply(targetWindow, argsArray);
-	}
+    if(targetWindow && targetWindow["postMessage"]){
+        targetWindow["postMessage"].apply(targetWindow, argsArray);
+    }
 };
 
 /**
- * Get a string representation of component hierarchy by calling getOwner and walk up the component tree. 
+ * Get a string representation of component hierarchy by calling getOwner and walk up the component tree.
  * @param {component} leaf component to walk up the hierarchy
  * @private
  */
 Aura.Utils.Util.prototype.getComponentHierarchy = function(component){
-    if (!component) {
+    if (this.isUndefinedOrNull(component)) {
         return '';
     }
     var ret = ['['+component.getType()+']'];
     var owner = component.getOwner();
-    while (owner !== owner.getOwner()) {
+
+    while (!this.isUndefinedOrNull(owner) && owner !== owner.getOwner()) {
         ret.push('['+owner.getType()+']');
         owner = owner.getOwner();
     }
-    ret.push('['+owner.getType()+']');
+    if (!this.isUndefinedOrNull(owner)) {
+        ret.push('['+owner.getType()+']');
+    }
     return ret.reverse().join('>');
 };
 
@@ -2434,13 +2524,32 @@ Aura.Utils.Util.prototype.getComponentHierarchy = function(component){
 Aura.Utils.Util.prototype.hasSourceURL = function() {
     if (this.sourceURLsupported === undefined) {
         try {
-            eval('throw new Error("test");\n//# sourceURL=testSourceURL.js');//eslint-disable-line no-eval
+            this.globalEval('(undefined).x', "testSourceURL.js");
         } catch(e) {
             this.sourceURLsupported = e.stack.indexOf("testSourceURL.js") > -1;
         }
     }
 
     return this.sourceURLsupported;
+};
+
+/**
+ * Returns a hash for a passed in string.
+ * Replicates Java's hashCode method (https://docs.oracle.com/javase/7/docs/api/java/lang/String.html#hashCode()).
+ * @param {String} a string to be hashed.
+ * @returns {Number} a hashed representation of the passed in string.
+ * @private
+ */
+Aura.Utils.Util.prototype.getHashCode = function(value) {
+    var hash = 0;
+    if (!value || !value.length) {
+        return hash;
+    }
+    for (var i = 0; i < value.length; i++) {
+        hash = ((hash << 5) - hash) + value.charCodeAt(i);
+        hash = hash & hash;
+    }
+    return hash;
 };
 
 //#if {"excludeModes" : ["PRODUCTION", "PRODUCTIONDEBUG"]}
@@ -2525,7 +2634,7 @@ Aura.Utils.Util.prototype.hasSourceURL = function() {
         }
         return t;
     };
-    
+
     /**
      * Loads a JavaScript resource.
      * @param {String} url The URL of the JavaScript resource to load.

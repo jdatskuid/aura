@@ -15,12 +15,6 @@
  */
 package org.auraframework.integration.test.http;
 
-import java.text.SimpleDateFormat;
-import java.util.Arrays;
-import java.util.Calendar;
-
-import javax.inject.Inject;
-
 import org.apache.http.Header;
 import org.apache.http.HttpHeaders;
 import org.apache.http.HttpResponse;
@@ -32,20 +26,22 @@ import org.auraframework.def.ComponentDef;
 import org.auraframework.integration.test.util.AuraHttpTestCase;
 import org.auraframework.system.AuraContext.Format;
 import org.auraframework.system.AuraContext.Mode;
-import org.auraframework.test.adapter.MockConfigAdapter;
 import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.test.annotation.AuraTestLabels;
 import org.auraframework.util.test.annotation.UnAdaptableTest;
 import org.junit.Test;
+
+import java.text.SimpleDateFormat;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.Locale;
 
 /**
  * Automation to verify the functioning of AuraResourceServlet. AuraResourceServlet is used to preload definitions of
  * components in a given namespace. It is also used to load CSS
  */
 public class AuraResourceServletHttpTest extends AuraHttpTestCase {
-    @Inject
-    private MockConfigAdapter configAdapter;
-    
     /**
      * Verify style def ordering for components included as facets. Create a chain of components as facet and verify the
      * order of css(Style Defs)
@@ -283,7 +279,7 @@ public class AuraResourceServletHttpTest extends AuraHttpTestCase {
 
     @Test
     public void testInlineJSNoCacheHeaders() throws Exception {
-        String url = "/l/" + AuraTextUtil.urlencode(getSimpleContext(Format.JS, false)) + "/inline.js?jwt=" + configAdapter.generateJwtToken();
+        String url = "/l/" + AuraTextUtil.urlencode(getSimpleContext(Format.JS, false)) + "/inline.js?jwt=" + getMockConfigAdapter().generateJwtToken();
 
         HttpGet get = obtainGetMethod(url);
         HttpResponse httpResponse = perform(get);
@@ -292,18 +288,23 @@ public class AuraResourceServletHttpTest extends AuraHttpTestCase {
         Header cacheControl[] = httpResponse.getHeaders(HttpHeaders.CACHE_CONTROL);
         assertEquals(HttpStatus.SC_OK, getStatusCode(httpResponse));
         assertTrue(HttpHeaders.CACHE_CONTROL + " header must exists for inline.js", cacheControl.length > 0);
-        assertTrue(HttpHeaders.CACHE_CONTROL + " header should be no-cache, no-store",
-                cacheControl[0].getValue().contains("no-cache, no-store"));
-        Header pragma[] = httpResponse.getHeaders(HttpHeaders.PRAGMA);
-        assertTrue(HttpHeaders.PRAGMA + " header must exists for inline.js", pragma.length > 0);
-        assertTrue(HttpHeaders.PRAGMA + " header should be no-cache",
-                pragma[0].getValue().contains("no-cache"));
+        assertTrue(HttpHeaders.CACHE_CONTROL + " header should include no-cache",
+                cacheControl[0].getValue().contains("no-cache"));
+        assertTrue(HttpHeaders.CACHE_CONTROL + " header should include no-store",
+                cacheControl[0].getValue().contains("no-store"));
+
+        String expiresHdr = httpResponse.getFirstHeader(HttpHeaders.EXPIRES).getValue();
+        Date expires = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.ENGLISH).parse(expiresHdr);
+        Date expected = new Date(System.currentTimeMillis());
+        assertTrue(String.format("Expires header should be in the past. Expected before %s, got %s (%s).", expected,
+                expires, expiresHdr), expires.before(expected));
+        assertNotNull(HttpHeaders.EXPIRES + " header should exist", httpResponse.getFirstHeader(HttpHeaders.EXPIRES));
     }
 
     @Test
     public void testInlineJSExceptionCode() throws Exception {
         // modified uid url
-        String url = "/l/" + AuraTextUtil.urlencode(getSimpleContext(Format.JS, true)) + "/inline.js?jwt=" + configAdapter.generateJwtToken();
+        String url = "/l/" + AuraTextUtil.urlencode(getSimpleContext(Format.JS, true)) + "/inline.js?jwt=" + getMockConfigAdapter().generateJwtToken();
 
         HttpGet get = obtainGetMethod(url);
         HttpResponse httpResponse = perform(get);

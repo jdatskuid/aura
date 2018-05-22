@@ -136,8 +136,7 @@
         }]
     },
 
-    // TODO(W-2529066): Newly created component not indexed against component it's added to
-    _testCreatesButtonWithLocalId:{
+    testCreatesButtonWithLocalId:{
         test:[function(component){
             var targetId="testButton";
             var actionComplete = false;
@@ -194,7 +193,7 @@
 
     testReturnsActionErrorMessageForUnknownComponentType:{
         test:function(){
-            var expected="No COMPONENT named markup://bogus:bogus found";
+            var expected="Could not find def descriptor for: markup://bogus:bogus";
             var actual=null;
             var actionComplete = false;
 
@@ -294,11 +293,11 @@
         }
     },
 
-    testPassesINCOMPLETEIfOneComponentTimesoutWhenCreatingMultipleComponents:{
+    testPassesERRORIfOneComponentTimesoutWhenCreatingMultipleComponents:{
         // TODO(W-2537764): IE < 10 gives Access Denied error when trying to send XHRs after setServerReachable(false)
-        browsers: ["-IE7", "-IE8", "-IE9"],
+        browsers: ["-IE8", "-IE9"],
         test:function(){
-            var expected="INCOMPLETE";
+            var expected="ERROR";
             var actual;
             var actionComplete = false;
             $A.test.setServerReachable(false);
@@ -346,7 +345,7 @@
 
     testPassesStatusListWithDetailedInfoWhenCreatingMultipleComponents:{
         test:function(){
-            var expected="SUCCESS,SUCCESS,SUCCESS,ERROR,SUCCESS";
+            var expected="SUCCESS,ERROR,SUCCESS,ERROR,SUCCESS";
             var actual;
             var actionComplete = false;
 
@@ -373,7 +372,7 @@
 
     testPassesActionErrorMessageWhenCreatingMultipleComponents:{
         test:function(){
-            var expected="No COMPONENT named markup://bogus:bogus found";
+            var expected="Could not find def descriptor for: markup://bogus:bogus";
             var actual;
             var actionComplete = false;
 
@@ -390,6 +389,74 @@
 
             $A.test.addWaitFor(true, function(){ return actionComplete; }, function() {
                 $A.test.assertTrue(actual.indexOf(expected) != -1, "Received unexpected action status message: <"+actual+">");
+            });
+        }
+    },
+
+    /**
+     * Verify that when we pass in string with the same format 
+     * as an expression to create component, it doesn't not convert it to a reference. 
+     *
+     * 1. Set v.reference to something known
+     * 2. Create a text component with a string that is an expression
+     * 3. Get the value that the text component was created with
+     * 4. Validate that it is the raw string value, not the value that the expression would have pointed at if it was a live reference.
+     */
+    testCreateWithExpression: {
+        test: function(cmp) {
+            var expected = "{!v.reference}";
+            var actual;
+
+            cmp.set("v.reference", "testCreateWithExpression");
+            $A.createComponent("aura:text", {
+                value: expected
+            }, function(textCmp) {
+                actual = textCmp.get("v.value");
+            });
+
+            $A.test.assertEquals(expected, actual);
+        }
+    },
+
+    /**
+     * Verify that when we pass in string with the same format 
+     * as a Function Call value to create component, it doesn't not convert it to a reference. 
+     *
+     * 1. Set v.reference to something known
+     * 2. Create a text component with a string that is a string version of an function call value
+     * 3. Get the value that the text component was created with
+     * 4. Validate that it is the raw string value, not the value that the expression would have pointed at if it was a live reference.
+     */
+    testCreateWithFunctionCallValue: {
+        test: function(cmp) {
+            var expected = "{!v.reference + v.handledEvent}";
+            var actual;
+
+            cmp.set("v.handledEvent", false);
+            cmp.set("v.reference", "testCreateWithFunctionCallValue");
+            $A.createComponent("aura:text", {
+                value: expected
+            }, function(textCmp) {
+                actual = textCmp.get("v.value");
+            });
+
+            $A.test.assertEquals(expected, actual);
+        }
+    },
+
+    testCreatedComponentIsRetrievable:{
+        test: function(cmp){
+            var targetId = "testButtonForRetrieval";
+
+            $A.createComponent("ui:button",
+                {"aura:id":targetId, label:"label"},
+                function(targetComponent) {
+                    cmp.find("createdComponents").set("v.body",targetComponent);
+                }
+            );
+
+            $A.test.addWaitFor(true, function() {
+                return typeof cmp.find(targetId) !== "undefined";
             });
         }
     }

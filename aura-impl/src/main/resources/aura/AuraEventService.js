@@ -823,7 +823,7 @@ AuraEventService.prototype.getAppEventHandlerIterator = (function() {
                             }
                             if(rootCmp) {
                                 // check if the cmp is contained within the rootCmp
-                                var containsResult = $A.componentService.contains(rootCmp, cmp);
+                                var containsResult = $A.componentService.containsComponent(rootCmp, cmp);
                                 if(!containsResult.result) {
                                     // the component hierarchy for the cmp does not include the rootCmp
                                     // so don't include these handlers in the result set for the iterator
@@ -1108,7 +1108,7 @@ AuraEventService.prototype.addEventHandler=function(component,eventDef,handler,p
  * @deprecated use <code>addEventHandler</code> instead.
  */
 AuraEventService.prototype.addHandler = function(config) {
-    //$A.deprecated("$A.eventService.addHandler(config) is no longer supported.","Please use Component#addEventHandler(event,handler,phase,includeFacets) instead.","2016/12/31","2017/07/13");
+    //$A.deprecated("$A.eventService.addHandler(config) is no longer supported.","Please use Component#addEventHandler(event,handler,phase,includeFacets) instead.");
     var includeFacets=config["includeFacets"];
     includeFacets=includeFacets !== undefined && includeFacets !== null && includeFacets !== false && includeFacets !== 0 && includeFacets !== "false" && includeFacets !== "" && includeFacets !== "f";
     var component=$A.getComponent(config["globalId"]);
@@ -1178,7 +1178,7 @@ AuraEventService.prototype.removeEventHandler=function(component,eventDef,handle
  * @export
  */
 AuraEventService.prototype.removeHandler = function(config) {
-    //$A.deprecated("$A.eventService.removeHandler(config) is no longer supported.","Please use $A.removeEventHandler(event,handler,phase) instead.","2016/12/31","2017/07/13");
+    //$A.deprecated("$A.eventService.removeHandler(config) is no longer supported.","Please use $A.removeEventHandler(event,handler,phase) instead.");
 
 //    config["event"] = DefDescriptor.normalize(config["event"]);
 
@@ -1276,19 +1276,14 @@ AuraEventService.prototype.getDef = function(descriptor) {
     var definition = this.getEventDef(descriptor);
 
     if(definition && !$A.clientService.allowAccess(definition)) {
-        var context=$A.getContext();
-        var contextCmp = context&&context.getCurrentAccess();
-        var message="Access Check Failed! EventService.getEventDef():'" + definition.getDescriptor().toString() + "' is not visible to '" + contextCmp + "'.";
-        if(context.enableAccessChecks) {
-            if(context.logAccessFailures){
-                var ae = new $A.auraError(message);
-                ae["component"] = contextCmp && contextCmp.getDef().getDescriptor().getQualifiedName();
-                ae["componentStack"] = context && context.getAccessStackHierarchy();
-                $A.error(null, ae);
+        var message="Access Check Failed! EventService.getEventDef():'" + definition.getDescriptor().toString() + "' is not visible to '" + $A.clientService.currentAccess + "'.";
+        if($A.clientService.enableAccessChecks) {
+            if($A.clientService.logAccessFailures){
+                $A.error(null,new $A.auraError(message));
            }
             return null;
         } else {
-            if(context.logAccessFailures){
+            if($A.clientService.logAccessFailures){
                 $A.warning(message);
             }
             // Intentional fallthrough
@@ -1310,20 +1305,14 @@ AuraEventService.prototype.getDef = function(descriptor) {
 AuraEventService.prototype.hasDefinition = function(descriptor) {
     var definition = this.getEventDef(descriptor);
     if(definition && !$A.clientService.allowAccess(definition)) {
-        var context=$A.getContext();
-        var contextCmp = context&&context.getCurrentAccess();
-        var message="Access Check Failed! EventService.hasDefinition():'" + definition.getDescriptor().toString() + "' is not visible to '" + contextCmp + "'.";
-
-        if(context.enableAccessChecks) {
-            if(context.logAccessFailures){
-                var ae = new $A.auraError(message);
-                ae["component"] = contextCmp && contextCmp.getDef().getDescriptor().getQualifiedName();
-                ae["componentStack"] = context && context.getAccessStackHierarchy();
-                $A.error(null, ae);
+        var message="Access Check Failed! EventService.hasDefinition():'" + definition.getDescriptor().toString() + "' is not visible to '" + $A.clientService.currentAccess + "'.";
+        if($A.clientService.enableAccessChecks) {
+            if($A.clientService.logAccessFailures){
+                $A.error(null,new $A.auraError(message));
             }
             return false;
         }else{
-            if(context.logAccessFailures){
+            if($A.clientService.logAccessFailures){
                 $A.warning(message);
             }
             //Intentional fallthrough
@@ -1339,7 +1328,7 @@ AuraEventService.prototype.hasDefinition = function(descriptor) {
  * @private
  */
 AuraEventService.prototype.createDescriptorConfig = function(descriptor) {
-    descriptor = typeof descriptor === 'string' ? descriptor : descriptor["descriptor"].toString();
+    descriptor = typeof descriptor === 'string' ? descriptor : descriptor[Json.ApplicationKey.DESCRIPTOR].toString();
     descriptor = descriptor.indexOf("://") < 0 ? "markup://" + descriptor : descriptor;
     return { "descriptor" : descriptor };
 };
@@ -1390,7 +1379,7 @@ AuraEventService.prototype.getDefinition = function(descriptor, callback) {
  * @private
  */
 AuraEventService.prototype.getDescriptorFromConfig = function(descriptorConfig) {
-    var descriptor = descriptorConfig && descriptorConfig["descriptor"];
+    var descriptor = descriptorConfig && descriptorConfig[Json.ApplicationKey.DESCRIPTOR];
     $A.assert(descriptor, "Event Descriptor for Config required for registration");
     return descriptor;
 };
@@ -1402,7 +1391,7 @@ AuraEventService.prototype.getDescriptorFromConfig = function(descriptorConfig) 
  * @returns {EventDef} instance from registry
  */
 AuraEventService.prototype.createFromSavedConfigs = function(config) {
-    var descriptor = config["descriptor"];
+    var descriptor = config[Json.ApplicationKey.DESCRIPTOR];
     if (!descriptor && config["getDescriptor"]) {
         descriptor = config.getDescriptor();
     }
@@ -1446,8 +1435,8 @@ AuraEventService.prototype.createEventDef = function(config) {
  * @param {Object} config event definition config
  */
 AuraEventService.prototype.saveEventConfig = function(config) {
-    $A.assert(config && config["descriptor"], "Event config required for registration");
-    this.savedEventConfigs[config["descriptor"]] = config;
+    $A.assert(config && config[Json.ApplicationKey.DESCRIPTOR], "Event config required for registration");
+    this.savedEventConfigs[config[Json.ApplicationKey.DESCRIPTOR]] = config;
 };
 
 /**

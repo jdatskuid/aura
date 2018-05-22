@@ -36,7 +36,7 @@ import org.auraframework.service.DefinitionService;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.text.Hash;
 
-import com.google.common.base.Objects;
+import com.google.common.base.MoreObjects;
 import com.google.common.base.Optional;
 import com.google.common.base.Predicate;
 import com.google.common.collect.ImmutableList;
@@ -71,7 +71,7 @@ public final class TokenCacheImpl implements TokenCache {
             DefDescriptor<TokensDef> concrete = definitionService.getDefinition(descriptor).getConcreteDescriptor();
             unique.remove(concrete); // unlike the normal behavior, we want to move the position of duplicate entries
             unique.add(concrete);
-            if (descriptor != concrete) {
+            if (!concrete.equals(descriptor)) {
                 origs.put(concrete, descriptor);
             }
         }
@@ -186,36 +186,31 @@ public final class TokenCacheImpl implements TokenCache {
     }
 
     @Override
-    public Optional<String> getDescriptorsUid() {
-        if (descriptors.isEmpty()) {
+    public Optional<String> getTokensUid() throws QuickFixException {
+        if (descriptors.isEmpty() && dynamicTokens.isEmpty()) {
             return Optional.absent();
         }
 
         Hash.StringBuilder builder = new Hash.StringBuilder();
+        
         for (DefDescriptor<TokensDef> descriptor : descriptors) {
             builder.addString(descriptor.getQualifiedName());
+            
+            String uid = definitionService.getUid(null, descriptor);
+            builder.addString(uid);
         }
-        return Optional.of(builder.build().toString());
-    }
-
-    @Override
-    public Optional<String> getActiveDynamicTokensUid() {
-        if (dynamicTokens.isEmpty()) {
-            return Optional.absent();
-        }
-
+        
         Map<String, String> activeDynamicTokens = activeDynamicTokens();
-
-        Hash.StringBuilder builder = new Hash.StringBuilder();
         for (Entry<String, String> entry : activeDynamicTokens.entrySet()) {
             builder.addString(entry.getKey());
             builder.addString(entry.getValue());
         }
+        
         return Optional.of(builder.build().toString());
     }
 
     @Override
     public String toString() {
-        return Objects.toStringHelper(this).add("tokens", descriptors).add("dynamicTokens", activeDynamicTokens()).toString();
+        return MoreObjects.toStringHelper(this).add("tokens", descriptors).add("dynamicTokens", activeDynamicTokens()).toString();
     }
 }

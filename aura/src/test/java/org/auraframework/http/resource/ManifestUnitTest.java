@@ -27,7 +27,7 @@ import org.auraframework.http.ManifestUtil;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.AuraContext.Format;
 import org.auraframework.test.util.DummyHttpServletResponse;
-import org.auraframework.util.test.util.UnitTestCase;
+import org.junit.Assert;
 import org.junit.Test;
 import org.mockito.Mockito;
 
@@ -37,14 +37,14 @@ import org.mockito.Mockito;
  * friendly to getting a context service, and I think changing that may impact other tests, so I'm leaving it at least
  * for now.
  */
-public class ManifestUnitTest extends UnitTestCase {
+public class ManifestUnitTest {
 
     /**
      * Name is API!.
      */
     @Test
     public void testName() {
-        assertEquals("app.manifest", new Manifest().getName());
+        Assert.assertEquals("app.manifest", new Manifest().getName());
     }
 
     /**
@@ -52,7 +52,7 @@ public class ManifestUnitTest extends UnitTestCase {
      */
     @Test
     public void testFormat() {
-        assertEquals(Format.MANIFEST, new Manifest().getFormat());
+        Assert.assertEquals(Format.MANIFEST, new Manifest().getFormat());
     }
 
     private Enumeration<String> getEmptyStringEnumeration() {
@@ -74,13 +74,13 @@ public class ManifestUnitTest extends UnitTestCase {
         manifest.setManifestUtil(manifestUtil);
         manifest.setServletUtilAdapter(servletUtilAdapter);
 
-        Mockito.when(manifestUtil.isManifestEnabled(request)).thenReturn(false);
+        Mockito.when(manifestUtil.isManifestEnabled()).thenReturn(false);
         Mockito.when(request.getParameterNames()).thenReturn(getEmptyStringEnumeration());
 
         manifest.write(request, response, null);
 
         // This is mocked.
-        Mockito.verify(manifestUtil, Mockito.times(1)).isManifestEnabled(request);
+        Mockito.verify(manifestUtil, Mockito.times(1)).isManifestEnabled();
 
         //
         // These are the real verifications. It should not be cached, and it should be marked
@@ -109,14 +109,14 @@ public class ManifestUnitTest extends UnitTestCase {
         manifest.setManifestUtil(manifestUtil);
         manifest.setServletUtilAdapter(servletUtilAdapter);
 
-        Mockito.when(manifestUtil.isManifestEnabled(request)).thenReturn(true);
+        Mockito.when(manifestUtil.isManifestEnabled()).thenReturn(true);
         Mockito.when(manifestUtil.checkManifestCookie(request, response)).thenReturn(false);
         Mockito.when(request.getParameterNames()).thenReturn(getEmptyStringEnumeration());
 
         manifest.write(request, response, null);
 
         // This is mocked.
-        Mockito.verify(manifestUtil, Mockito.times(1)).isManifestEnabled(request);
+        Mockito.verify(manifestUtil, Mockito.times(1)).isManifestEnabled();
         Mockito.verify(manifestUtil, Mockito.times(1)).checkManifestCookie(request, response);
 
         //
@@ -145,14 +145,14 @@ public class ManifestUnitTest extends UnitTestCase {
         manifest.setManifestUtil(manifestUtil);
         manifest.setServletUtilAdapter(servletUtilAdapter);
 
-        Mockito.when(manifestUtil.isManifestEnabled(request)).thenReturn(true);
+        Mockito.when(manifestUtil.isManifestEnabled()).thenReturn(true);
         Mockito.when(manifestUtil.checkManifestCookie(request, response)).thenReturn(true);
         Mockito.when(request.getParameterNames()).thenReturn(getEmptyStringEnumeration());
 
         manifest.write(request, response, context);
 
         // This is mocked.
-        Mockito.verify(manifestUtil, Mockito.times(1)).isManifestEnabled(request);
+        Mockito.verify(manifestUtil, Mockito.times(1)).isManifestEnabled();
         Mockito.verify(manifestUtil, Mockito.times(1)).checkManifestCookie(request, response);
         Mockito.verify(context, Mockito.times(1)).getApplicationDescriptor();
 
@@ -193,6 +193,6 @@ public class ManifestUnitTest extends UnitTestCase {
 
         manifest.setContentType(response);
 
-        assertEquals("text/cache-manifest", response.getContentType());
+        Assert.assertEquals("text/cache-manifest", response.getContentType());
     }
 }

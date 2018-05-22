@@ -25,6 +25,7 @@ import org.auraframework.def.DescriptorFilter;
 import org.auraframework.def.RootDefinition;
 import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.system.DefRegistry;
+import org.auraframework.tools.node.api.NodeLambdaFactory;
 import org.auraframework.util.resource.ResourceLoader;
 
 public interface ConfigAdapter extends AuraAdapter {
@@ -32,13 +33,13 @@ public interface ConfigAdapter extends AuraAdapter {
 
     boolean isProduction();
 
+    boolean isFileMonitorEnabled();
+
     Set<Mode> getAvailableModes();
 
     Mode getDefaultMode();
 
     String getAuraJSURL();
-
-    String getLockerWorkerURL();
 
     /** Returns a string to identify this unique version of the Aura framework. */
     String getAuraFrameworkNonce();
@@ -64,20 +65,12 @@ public interface ConfigAdapter extends AuraAdapter {
     boolean validateCss();
 
     /**
-     * SessionCacheKey is a key that is used for caches that are based typically per customer basis. 
+     * SessionCacheKey is a key that is used for caches that are based typically per customer basis.
      * if this returns null, it mean that caches that uses this key will not be active.
-     * 
+     *
      * @return a String, may be null
      */
     String getSessionCacheKey();
-
-    // TODO: This shouldn't be a API of config adapter.
-    // check reference. Remove it if not needed.
-    /**
-     * Timezone from current context or GMT
-     * @return timezone
-     */
-    String getCurrentTimezone();
 
     /**
      * Returns reset css file url
@@ -106,14 +99,14 @@ public interface ConfigAdapter extends AuraAdapter {
 
     /**
      * Validate the app.encryptionkey request
-     * 
+     *
      * @return true if the request has a valid jwt token.
      */
     boolean validateGetEncryptionKey(String ssid);
 
     /**
      * Validate the inline.js request
-     * 
+     *
      * @return true if the request has a valid jwt token.
      */
     boolean validateBootstrap(String ssid);
@@ -179,40 +172,95 @@ public interface ConfigAdapter extends AuraAdapter {
 
     boolean isLockerServiceEnabled();
     boolean requireLocker(RootDefinition def);
-    String getLockerServiceCacheBuster();
 
     /**
      * Is strict CSP policy enforced:
-     *  1. No unsafe-eval
+     *  1. Allow unsafe-eval
      *  2. No unsafe-inline
      * @return
      */
     boolean isStrictCSPEnforced();
-    
+
+    /**
+     * Is frozen realm policy enabled: freezing object properties.
+     * @return
+     */
+    boolean isFrozenRealmEnabled();
+
+    /**
+     * If true bootstrap.js will not be served but rather it's contents rendered inline (or inline.js as a fallback)
+     * @return
+     */
+    boolean isBootstrapInliningEnabled();
+
+    /**
+     * If false then models will not be included in the application instance used when bootstrapping
+     * @return
+     */
+    boolean isBootstrapModelExclusionEnabled();
+
     /**
      * @return max number of parallel XHRs used to execute server actions, must be 2 or more
      */
     int getMaxParallelXHRCount();
-    
+
     /**
      * @return whether to use one XHR to send each action (use with HTTP/2 only)
      */
     boolean getXHRExclusivity();
 
-    /**
-     * @return whether modules is enabled through configuration
-     */
-    boolean isModulesEnabled();
-
-    /**
-     * @return Set of registered module namespaces
-     */
-    Set<String> getModuleNamespaces();
-
-    /**
-     * @param namespaces module namespaces
-     */
-    void addModuleNamespaces(Set<String> namespaces);
-    
     boolean cdnEnabled();
+
+    /**
+     * @return URL with scheme and host, no trailing slash.
+     */
+    String getCDNDomain();
+
+    /**
+     * Module namespace aliases
+     *
+     * @return map of a module namespace aliases
+     */
+    Map<String, String> getModuleNamespaceAliases();
+
+    /**
+     * Checks whether module is allowed to be used in components
+     * that are not internal
+     *
+     * @param namespace module namespace to check
+     * @param name      module name to check
+     * @return whether module is allowed by non internal components
+     */
+    boolean isAllowedModule(String namespace, String name);
+
+    /**
+     * @return if public caching of actions is enabled
+     */
+    boolean isActionPublicCachingEnabled();
+
+    /**
+     * @return Cache key to add to the context for action public caching.
+     */
+    String getActionPublicCacheKey();
+
+    /**
+     * @return factory for the nodejs service
+     */
+    NodeLambdaFactory nodeServiceFactory();
+    
+    boolean uriAddressableDefsEnabled();
+
+    boolean isSecureRequest(HttpServletRequest request);
+
+    /**
+     * Required module services.
+     * @return set of require module services
+     */
+    Set<String> getRequiredServices();
+
+    /**
+     * CSP Report Uri.
+     * @return the report-uri for CSP directives
+     */
+    String getCSPReportUri();
 }

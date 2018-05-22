@@ -5,8 +5,8 @@
      */
 
     // LockerService not supported on IE
-    // TODO(W-3674741,W-3674751): FF and iOS browser versions in autobuilds are too far behind
-    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPHONE", "-IPAD"],
+    // TODO(W-3674741, W-4446969): FF and LockerService disabled for iOS browser in 212
+    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-SAFARI", "-IPHONE", "-IPAD"],
 
     // TODO(tbliss): make these lists on SecureElement accessible here for maintainablility
     ElementPropertiesWhitelist: [
@@ -24,7 +24,7 @@
     OtherPropertiesWhitelist: ["childNodes", "children", "ownerDocument", "parentNode", "offsetParent"],
 
     MethodsWhitelist: ["appendChild", "replaceChild", "insertBefore", "addEventListener", "removeEventListener",
-                       "dispatchEvent", "getAttribute", "setAttribute", "blur", "click", "focus", "hasAttribute",
+                       "dispatchEvent", "getAttribute", "setAttribute", "blur", "click", "focus", "hasChildNodes", "hasAttribute",
                        "hasAttributeNS", "removeAttribute", "getAttributeNS", "setAttributeNS", "removeAttributeNS"],
 
     setUp: function(cmp) {
@@ -245,6 +245,24 @@
         }
     },
 
+    testPropertyMeta: {
+        test: function(cmp) {
+            cmp.testPropertyMeta();
+        }
+    },
+
+    testPropertyAttributeAllowedOnMetaOnly: {
+        test: function(cmp) {
+            cmp.testPropertyAttributeAllowedOnMetaOnly();
+        }
+    },
+
+    testPropertyAttributeBlockedOnMeta: {
+        test: function(cmp) {
+            cmp.testPropertyAttributeBlockedOnMeta();
+        }
+    },
+
     //FIXME - goliver - "LI" : [ "value" ],
 
     //FIXME - goliver - "LINK" : [ "crossOrigin", "href", "hreflang", "media", "rel", "sizes", "title", "type" ],
@@ -440,9 +458,21 @@
         }
     },
 
+    testOuterHTMLForExistingElement: {
+        test: function(cmp) {
+            cmp.testOuterHTML("ExistingElement");
+        }
+    },
+
     testInnerHTMLForCreatedElement: {
         test: function(cmp) {
             cmp.testInnerHTML("CreatedElement");
+        }
+    },
+
+    testOuterHTMLForCreatedElement: {
+        test: function(cmp) {
+            cmp.testOuterHTML("CreatedElement");
         }
     },
 
@@ -464,6 +494,30 @@
         }
     },
 
+    testAddEventListenerFunctionListener: {
+        test: function(cmp) {
+            cmp.testAddEventListenerFunctionListener();
+        }
+    },
+
+    testAddEventListenerObjectListener: {
+        test: function(cmp) {
+            cmp.testAddEventListenerObjectListener();
+        }
+    },
+
+    testAddEventListenerStaticMethod: {
+        test: function(cmp) {
+            cmp.testAddEventListenerStaticMethod();
+        }
+    },
+
+    testAddEventListenerThrowsInvalidListener: {
+        test: function(cmp) {
+            cmp.testAddEventListenerThrowsInvalidListener();
+        }
+    },
+
     testSvgGetBBox: {
         test: function(cmp) {
             cmp.testSvgGetBBox();
@@ -475,12 +529,12 @@
             cmp.testScalarExpression();
         }
     },
-    
+
     testTableAPI: {
         test: function(cmp) {
             cmp.testTableAPI();
         }
-    },    
+    },
 
     testElementCache: {
         test: function(cmp) {
@@ -559,9 +613,14 @@
     },
 
     testGetSetInvalidAttributes: {
-        test: function(cmp) {
+        test: [
+          function(cmp) {
             cmp.testGetSetInvalidAttributes();
-        }
+          },
+          function(cmp) {
+            cmp.testGetSetValueAttributeOnNonInputElement();
+          }
+        ]
     },
 
     testRecursiveTraversal: {
@@ -625,6 +684,42 @@
     testNodeApiParamUnfilter: {
         test: function(cmp) {
             cmp.testNodeApiParamUnfilter();
+        }
+    },
+
+    testElementObjectProperties: {
+        test: function(cmp) {
+            cmp.testElementObjectProperties();
+        }
+    },
+
+    testHasChildNodes: {
+        test: function(cmp) {
+            cmp.testHasChildNodes();
+        }
+    },
+
+    testSetAttributeXlinkHref: {
+        test: function(cmp) {
+            cmp.testSetAttributeXlinkHref();
+        }
+    },
+
+    testSetAttributeNSXlinkHref: {
+        test: function(cmp) {
+            cmp.testSetAttributeNSXlinkHref();
+        }
+    },
+
+    testSetAttributeNodeXlinkHref: {
+        test: function(cmp) {
+            cmp.testSetAttributeNodeXlinkHref();
+        }
+    },
+
+    testSetAttributeNodeNSXlinkHref: {
+        test: function(cmp) {
+            cmp.testSetAttributeNodeNSXlinkHref();
         }
     }
 })

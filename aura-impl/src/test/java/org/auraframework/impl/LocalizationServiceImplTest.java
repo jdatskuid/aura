@@ -353,10 +353,10 @@ public class LocalizationServiceImplTest extends AuraTestCase {
         }
         // Locale US -> Japan
         {
-            String expectedJP = NumberFormat.getCurrencyInstance(Locale.JAPAN).format(9.2d);
-            String inputEN = "$009.2";
+            String expectedJP = NumberFormat.getCurrencyInstance(Locale.JAPAN).format(9.0d);
+            String inputEN = "$9.00";
             BigDecimal moneyEN = localizationService.parseCurrency(inputEN, Locale.US);
-            String actualJP = localizationService.formatCurrency(moneyEN, Locale.JAPAN, 2, -2);
+            String actualJP = localizationService.formatCurrency(moneyEN, Locale.JAPAN);
             assertEquals(expectedJP, actualJP);
         }
         // Locale US -> Arabic

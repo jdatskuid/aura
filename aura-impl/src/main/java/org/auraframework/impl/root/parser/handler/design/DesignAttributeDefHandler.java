@@ -15,23 +15,25 @@
  */
 package org.auraframework.impl.root.parser.handler.design;
 
-import com.google.common.collect.ImmutableSet;
+import java.util.Set;
+
+import javax.xml.stream.XMLStreamException;
+import javax.xml.stream.XMLStreamReader;
+
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.DefinitionParserAdapter;
+import org.auraframework.def.InterfaceDef;
 import org.auraframework.def.design.DesignAttributeDef;
 import org.auraframework.def.design.DesignAttributeDefaultDef;
 import org.auraframework.def.design.DesignDef;
 import org.auraframework.impl.design.DesignAttributeDefImpl;
 import org.auraframework.impl.root.parser.handler.ParentedTagHandler;
-import org.auraframework.impl.root.parser.handler.RootTagHandler;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.TextSource;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.AuraTextUtil;
 
-import javax.xml.stream.XMLStreamException;
-import javax.xml.stream.XMLStreamReader;
-import java.util.Set;
+import com.google.common.collect.ImmutableSet;
 
 public class DesignAttributeDefHandler extends ParentedTagHandler<DesignAttributeDef, DesignDef> {
     public static final String TAG = "design:attribute";
@@ -48,10 +50,12 @@ public class DesignAttributeDefHandler extends ParentedTagHandler<DesignAttribut
     private static final String ATTRIBUTE_PLACEHOLDER = "placeholder";
     private static final String ATTRIBUTE_DESCRIPTION = "description";
     private static final String ATTRIBUTE_DEFAULT = "default";
+    private static final String ATTRIBUTE_ALLOWED_INTERFACES = "allowedInterfaces";
     //private attributes
     private static final String ATTRIBUTE_MIN_API = "minAPI";
     private static final String ATTRIBUTE_MAX_API = "maxAPI";
     private static final String ATTRIBUTE_TRANSLATABLE = "translatable";
+    private static final String ATTRIBUTE_ACCESSCHECK = "accessCheck";
 
     private final static Set<String> ALLOWED_ATTRIBUTES = ImmutableSet.of(ATTRIBUTE_NAME, ATTRIBUTE_LABEL,
             ATTRIBUTE_TYPE, ATTRIBUTE_REQUIRED, ATTRIBUTE_READONLY, ATTRIBUTE_DEPENDENCY, ATTRIBUTE_DATASOURCE,
@@ -60,7 +64,8 @@ public class DesignAttributeDefHandler extends ParentedTagHandler<DesignAttribut
     private final static Set<String> INTERNAL_ATTRIBUTES = ImmutableSet.of(ATTRIBUTE_NAME, ATTRIBUTE_LABEL,
             ATTRIBUTE_TYPE, ATTRIBUTE_REQUIRED, ATTRIBUTE_READONLY, ATTRIBUTE_DEPENDENCY, ATTRIBUTE_DATASOURCE,
             ATTRIBUTE_MIN, ATTRIBUTE_MAX, ATTRIBUTE_PLACEHOLDER, ATTRIBUTE_DESCRIPTION, ATTRIBUTE_DEFAULT,
-            ATTRIBUTE_MAX_API, ATTRIBUTE_MIN_API, ATTRIBUTE_TRANSLATABLE );
+            ATTRIBUTE_MAX_API, ATTRIBUTE_MIN_API, ATTRIBUTE_TRANSLATABLE, ATTRIBUTE_ALLOWED_INTERFACES,
+            ATTRIBUTE_ACCESSCHECK);
 
     private final DesignAttributeDefImpl.Builder builder = new DesignAttributeDefImpl.Builder();
 
@@ -69,7 +74,7 @@ public class DesignAttributeDefHandler extends ParentedTagHandler<DesignAttribut
     }
 
     // TODO implement tool specific properties
-    public DesignAttributeDefHandler(RootTagHandler<DesignDef> parentHandler, XMLStreamReader xmlReader,
+    public DesignAttributeDefHandler(DesignDefHandler parentHandler, XMLStreamReader xmlReader,
                                      TextSource<?> source, boolean isInInternalNamespace, DefinitionService definitionService,
                                      ConfigAdapter configAdapter, DefinitionParserAdapter definitionParserAdapter) {
         super(parentHandler, xmlReader, source, isInInternalNamespace, definitionService, configAdapter, definitionParserAdapter);
@@ -95,6 +100,14 @@ public class DesignAttributeDefHandler extends ParentedTagHandler<DesignAttribut
         String minApi = getAttributeValue(ATTRIBUTE_MIN_API);
         String maxApi = getAttributeValue(ATTRIBUTE_MAX_API);
         Boolean translatable = getBooleanAttributeValue(ATTRIBUTE_TRANSLATABLE);
+        String accessCheck = getAttributeValue(ATTRIBUTE_ACCESSCHECK);
+
+        String allowedInterfaceNames = getAttributeValue(ATTRIBUTE_ALLOWED_INTERFACES);
+        if (allowedInterfaceNames != null && allowedInterfaceNames.length() > 0) {
+            for (String allowedInterface : AuraTextUtil.splitSimple(",", allowedInterfaceNames)) {
+                builder.addAllowedInterface(getDefDescriptor((allowedInterface.trim()), InterfaceDef.class));
+            }
+        }
 
         if (!AuraTextUtil.isNullEmptyOrWhitespace(name)) {
             builder.setDescriptor(definitionService.getDefDescriptor(name, DesignAttributeDef.class));
@@ -121,13 +134,14 @@ public class DesignAttributeDefHandler extends ParentedTagHandler<DesignAttribut
         builder.setParentDescriptor(getParentDefDescriptor());
         builder.setIsInternalNamespace(isInInternalNamespace());
         builder.setAccess(readAccessAttribute());
+        builder.setAccessCheck(accessCheck);
     }
 
     @Override
     protected void handleChildTag() throws XMLStreamException, QuickFixException {
         String tag = getTagName();
         if (isInInternalNamespace() && DesignAttributeDefaultDefHandler.TAG.equalsIgnoreCase(tag)) {
-            DesignAttributeDefaultDef def = new DesignAttributeDefaultDefHandler(getParentHandler(), xmlReader, source,
+            DesignAttributeDefaultDef def = new DesignAttributeDefaultDefHandler((DesignDefHandler)getParentHandler(), xmlReader, source,
                     isInInternalNamespace, definitionService, configAdapter, definitionParserAdapter).getElement();
             builder.setDefault(def);
         } else {

@@ -16,6 +16,7 @@
 package org.auraframework.impl.root;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -39,7 +40,8 @@ import org.auraframework.util.json.Json;
  */
 public final class MethodDefImpl extends RootDefinitionImpl<MethodDef> implements MethodDef {
 
-    private static final long serialVersionUID = 2241357666688011567L;
+    private static final long serialVersionUID = -2477214600636335736L;
+
     private final DefDescriptor<? extends RootDefinition> parentDescriptor;
     private final String action;
     private final SerializeToType serializeTo;
@@ -78,7 +80,10 @@ public final class MethodDefImpl extends RootDefinitionImpl<MethodDef> implement
             json.writeMapEntry("action", action);
         }
         if(attributeDefs!=null&&!attributeDefs.isEmpty()) {
-            json.writeMapEntry("attributes", attributeDefs);
+            Collection<AttributeDef> defs = attributeDefs.values();
+            if (!defs.isEmpty()) {
+                json.writeMapEntry("attributes", defs);
+            }
         }
         json.writeMapEnd();
     }

@@ -10,7 +10,7 @@
     testSetPrototypeOfBaseElementThrowsError: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
         var div = document.getElementById("title");
-        
+
         try {
             // note that with the SecureElement Proxy we need to go down an extra prototype level to get to
             // HTMLDivElement. The first getPrototypeOf returns our first Proxy layer.
@@ -24,7 +24,7 @@
     testInstanceOf: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
         var div = document.getElementById("title");
- 
+
         testUtils.assertTrue(div instanceof HTMLElement);
         testUtils.assertTrue(div instanceof HTMLDivElement);
     },
@@ -45,24 +45,18 @@
         var div = document.getElementById("title");
 
         // 'get' on unsupported property works but 'set' throws an error
-        testUtils.assertUndefined(div.shadowRoot);
-        try {
-            div.shadowRoot = "foo";
-            testUtils.fail("Expected error trying to set unsupported property");
-        } catch (e) {
-            testUtils.assertEquals("SecureElement does not allow access to shadowRoot", e.message, "Unexpected error" +
-                    " message setting unsupported property");
-        }
+        testUtils.assertUndefined(div.align);
+        testUtils.expectAuraWarning('SecureElement does not allow access to align');
+        div.align = "foo";
+        testUtils.assertUndefined(div.align);
     },
 
     testInOperation: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
         var div = document.getElementById("title");
-
         // simple 'in' usage for properties that exist or do not
         testUtils.assertTrue("textContent" in div);
         testUtils.assertFalse("foobar" in div);
-        testUtils.assertTrue("shadowRoot" in div); // part of the HTMLDivElement prototype but blocked by Locker
 
         // now try on expandos
         div.foo = "expando!";
@@ -109,7 +103,70 @@
             delete div.expando;
             testUtils.fail("Expected error trying to delete non-configurable property");
         } catch (e) {
-            testUtils.assertEquals("'deleteProperty' on proxy: trap returned falsish for property 'expando'", e.message);
+            if ($A.get("$Browser.isFIREFOX")) {
+                testUtils.assertEquals("property \"expando\" is non-configurable and can't be deleted", e.message);
+            } else {
+                testUtils.assertEquals("Cannot delete property 'expando' of [object Object]", e.message);
+            }
         }
+    },
+
+    testAddOptionsToSelect: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+        var selectContainer = document.getElementById("selectContainer");
+        selectContainer[0] = new Option(1, 1);
+        selectContainer[1] = new Option(2, 2);
+        selectContainer[2] = new Option(3, 3);
+        var selectOptions = selectContainer.options;
+        testUtils.assertTrue(selectOptions instanceof HTMLOptionsCollection);
+        testUtils.assertEquals(3, selectOptions.length);
+        testUtils.assertEquals('<option value="1">1</option>', selectOptions[0].outerHTML);
+        testUtils.assertEquals('<option value="2">2</option>', selectOptions.item(1).outerHTML);
+    },
+
+    testDefineCheckedProperty: function(cmp, event, helper) {
+        var testUtils = cmp.get("v.testUtils");
+
+        var node = document.createElement("input");
+        node.type = 'checkbox';
+
+        var getValue = helper.trackValueOnNode(node, 'checked');
+
+        node.checked = true;
+        testUtils.assertEquals("true", getValue(), "Custom node 'checked' attribute setter not called");
+        testUtils.assertEquals(true, node.checked, "Custom node 'checked' attribute getter returned wrong value");
+        node.checked = false;
+        testUtils.assertEquals("false", getValue(), "Custom node 'checked' attribute setter not called");
+        testUtils.assertEquals(false, node.checked, "Custom node 'checked' attribute getter returned wrong value");
+
+        return node;
+    },
+
+    testDefineValueProperty: function(cmp, event, helper) {
+        var testUtils = cmp.get("v.testUtils");
+
+        var node = document.createElement("input");
+
+        var getValue = helper.trackValueOnNode(node, 'value');
+
+        node.value = "black";
+        testUtils.assertEquals("black", getValue(), "Custom node 'value' attribute setter not called");
+        testUtils.assertEquals("black", node.value, "Custom node 'value' attribute getter returned wrong value");
+        node.value = "white";
+        testUtils.assertEquals("white", getValue(), "Custom node 'value' attribute setter not called");
+        testUtils.assertEquals("white", node.value, "Custom node 'value' attribute getter returned wrong value");
+
+        return node;
+    },
+
+    /**
+     * Automation for W-4701252
+     * @param cmp
+     */
+    testValuePropertyOnNonInputElement: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+
+        var aTag = document.getElementById("anchorWithValue");
+        testUtils.assertNull(aTag.getAttribute("value"), "Accessing invalid attribute values should continue to return null");
     }
 })

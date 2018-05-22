@@ -30,6 +30,7 @@ import org.auraframework.system.Source;
 import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
+import org.junit.Ignore;
 import org.junit.Test;
 
 import com.google.common.collect.Sets;
@@ -110,6 +111,7 @@ public class ApplicationDefTest extends BaseComponentDefTest<ApplicationDef> {
      * @throws Exception
      */
     @Test
+    @Ignore("we dropped this exception")
     public void testNonExistantNameSpace() throws Exception {
         try {
             definitionService.getDefinition("auratest:test_Preload_ScrapNamespace", ApplicationDef.class);
@@ -117,29 +119,6 @@ public class ApplicationDefTest extends BaseComponentDefTest<ApplicationDef> {
         } catch (InvalidDefinitionException e) {
             assertEquals("Invalid dependency *://somecrap:*[COMPONENT]", e.getMessage());
         }
-    }
-
-    /**
-     * Verify the isOnePageApp() API on ApplicationDef Applications who have the isOnePageApp attribute set, will have
-     * the template cached.
-     *
-     * @throws Exception
-     */
-    @Test
-    public void testIsOnePageApp() throws Exception {
-        DefDescriptor<ApplicationDef> desc = addSourceAutoCleanup(ApplicationDef.class,
-                String.format(baseTag, "isOnePageApp='true'", ""));
-        ApplicationDef onePageApp = definitionService.getDefinition(desc);
-        assertEquals(Boolean.TRUE, onePageApp.isOnePageApp());
-
-        desc = addSourceAutoCleanup(ApplicationDef.class, String.format(baseTag, "isOnePageApp='false'", ""));
-        ApplicationDef nonOnePageApp = definitionService.getDefinition(desc);
-        assertEquals(Boolean.FALSE, nonOnePageApp.isOnePageApp());
-
-        // By default an application is not a onePageApp
-        desc = addSourceAutoCleanup(ApplicationDef.class, String.format(baseTag, "", ""));
-        ApplicationDef simpleApp = definitionService.getDefinition(desc);
-        assertEquals(Boolean.FALSE, simpleApp.isOnePageApp());
     }
 
     /** verify that we set tokens explicitly set on the tokens tag */
@@ -159,8 +138,7 @@ public class ApplicationDefTest extends BaseComponentDefTest<ApplicationDef> {
         String src = String.format("<aura:application tokens=\"%s\"/>", tokens.getDescriptorName());
         DefDescriptor<ApplicationDef> desc = addSourceAutoCleanup(ApplicationDef.class, src);
 
-        Set<DefDescriptor<?>> deps = Sets.newHashSet();
-        definitionService.getDefinition(desc).appendDependencies(deps);
+        Set<DefDescriptor<?>> deps = definitionService.getDefinition(desc).getDependencySet();
         assertTrue(deps.contains(tokens));
     }
 
@@ -171,7 +149,7 @@ public class ApplicationDefTest extends BaseComponentDefTest<ApplicationDef> {
         DefDescriptor<ApplicationDef> desc = addSourceAutoCleanup(ApplicationDef.class, src);
 
         try {
-            definitionService.getDefinition(desc).validateReferences();
+            definitionService.getDefinition(desc);
             fail("expected to get an exception");
         } catch (Exception e) {
             checkExceptionContains(e, DefinitionNotFoundException.class, "No TOKENS");

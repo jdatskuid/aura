@@ -17,7 +17,6 @@ package org.auraframework.impl.cache;
 
 import com.google.common.cache.CacheStats;
 import org.auraframework.adapter.LoggingAdapter;
-import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.cache.Cache;
 import org.auraframework.system.LoggingContext;
 
@@ -27,7 +26,6 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 
-@ServiceComponent
 public class CacheImpl<K, T> implements Cache<K, T> {
     private LoggingAdapter loggingAdapter;
 

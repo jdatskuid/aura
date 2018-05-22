@@ -51,7 +51,7 @@ public class ComponentDefRefArrayTypeDef extends DefinitionImpl<TypeDef> impleme
 
         public Builder() {
             super(TypeDef.class);
-            setDescriptor(new DefDescriptorImpl<>("aura://Aura.ComponentDefRef[]", TypeDef.class, null));
+            setDescriptor(new DefDescriptorImpl<>("aura", "Aura", "ComponentDefRef[]", TypeDef.class, null));
             setLocation(getDescriptor().getQualifiedName(), -1);
             setAccess(new DefinitionAccessImpl(AuraContext.Access.GLOBAL));
         };
@@ -89,14 +89,5 @@ public class ComponentDefRefArrayTypeDef extends DefinitionImpl<TypeDef> impleme
             return new ComponentDefRefArrayImpl((List<DefinitionReference>)config, valueProvider);
         }
         return config;
-    }
-
-    @Override
-    public void appendDependencies(Object instance, Set<DefDescriptor<?>> deps) {
-        @SuppressWarnings("unchecked")
-        List<ComponentDefRef> value = (List<ComponentDefRef>) instance;
-        for (ComponentDefRef componentDefRef : value) {
-            componentDefRef.appendDependencies(deps);
-        }
     }
 }

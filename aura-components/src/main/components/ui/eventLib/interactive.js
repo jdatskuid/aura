@@ -224,7 +224,8 @@ function lib() { //eslint-disable-line no-unused-vars
              // this component could become invalid, so guard just in-case
              if(component.isValid()) {
                 var e = component.getEvent(event.type);
-                if (!$A.util.isUndefinedOrNull(e)) {
+                // e could be regular event, so it won't have getDef method.
+                if (!$A.util.isUndefinedOrNull(e) && e.getDef) {
                     lib.setEventParams(e, event);
                     e.fire();
                 }
@@ -266,15 +267,17 @@ function lib() { //eslint-disable-line no-unused-vars
          */
         setEventParams : function(e, DOMEvent) {
             // set parameters if there is any
-            var attributeDefs = e.getDef().getAttributeDefs();
+            var attributeDefs = e.getDef().getAttributeDefs().getNames();
             var params = {};
-            for (var key in attributeDefs) {
-                if (key === "domEvent") {
-                    params[key] = DOMEvent;
-                } else if (key === "keyCode") { // we need to re-visit this keyCode madness soon
-                    params[key] = DOMEvent.which || DOMEvent.keyCode;
+            var attribute;
+            for (var c=0,length=attributeDefs.length;c<length;c++) {
+                attribute = attributeDefs[c];
+                if (attribute === "domEvent") {
+                    params[attribute] = DOMEvent;
+                } else if (attribute === "keyCode") { // we need to re-visit this keyCode madness soon
+                    params[attribute] = DOMEvent.which || DOMEvent.keyCode;
                 } else {
-                    params[key] = DOMEvent[key];
+                    params[attribute] = DOMEvent[attribute];
                 }
             }
             e.setParams(params);

@@ -39,13 +39,15 @@ import org.auraframework.impl.util.AuraUtil;
 import org.auraframework.system.AuraContext;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import com.google.common.base.Objects;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 public class FlavorsDefImpl extends RootDefinitionImpl<FlavorsDef> implements FlavorsDef {
-    private static final long serialVersionUID = -4162113731545878044L;
+
+    private static final long serialVersionUID = 8656338421965511637L;
 
     private final List<FlavorIncludeDef> flavorIncludeDefs;
     private final List<FlavorDefaultDef> flavorDefaultDefs;
@@ -103,12 +105,12 @@ public class FlavorsDefImpl extends RootDefinitionImpl<FlavorsDef> implements Fl
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
         for (FlavorIncludeDef flavorInclude : flavorIncludeDefs) {
-            flavorInclude.validateReferences();
+            flavorInclude.validateReferences(validationContext);
         }
         for (FlavorDefaultDef flavorDefaultDef : flavorDefaultDefs) {
-            flavorDefaultDef.validateReferences();
+            flavorDefaultDef.validateReferences(validationContext);
         }
     }
 

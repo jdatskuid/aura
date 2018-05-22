@@ -1,4 +1,6 @@
 ({
+    browsers : [ "GOOGLECHROME" ],
+
     /**
      * Verify that AuraError's severity default value is Quiet
      */
@@ -31,7 +33,6 @@
         attributes: {"handleSystemError": true},
         test: [
             function(cmp) {
-
                 $A.test.expectAuraError("Error from app client controller");
                 $A.test.clickOrTouch(cmp.find("errorFromClientControllerButton").getElement());
                 $A.test.addWaitForWithFailureMessage(true, function(){
@@ -68,6 +69,23 @@
     },
 
     /**
+     * Verify the failing descriptor is set as the created component when error is thrown during component creation.
+     */
+    testFailingDescriptorForErrorDuringComponentCreation: {
+        test: function(cmp) {
+            var expected = "auratest:errorHandling$controller$init";
+
+            try {
+                $A.createComponent("markup://auratest:errorHandling", { throwErrorFromInit: true }, function() {});
+                $A.test.fail("Expecting an error thrown from $A.createComponent.");
+            } catch (e) {
+                var actual = e["component"];
+                $A.test.assertEquals(expected, actual);
+            }
+        }
+    },
+
+    /**
      * Verify that failing descriptor is correct when an Error gets thrown from aura:method.
      * The test approach is to click a button to call aura:method in controller.
      */
@@ -99,7 +117,7 @@
             },
             function(cmp) {
                 var actual = this.findFailingDescriptorFromErrorModal();
-                var expected = cmp.getDef().getDescriptor().getQualifiedName();
+                var expected = cmp.getType();
 
                 $A.test.assertEquals(expected, actual);
             }
@@ -133,7 +151,7 @@
             },
             function(cmp) {
                 var actual = this.findFailingDescriptorFromErrorModal();
-                var expected = cmp.find("containedCmp").getDef().getDescriptor().getQualifiedName();
+                var expected = cmp.find("containedCmp").getType();
 
                 $A.test.assertEquals(expected, actual);
             }
@@ -146,7 +164,7 @@
      * The test approach is that call a client action to trigger a function wrapped by $A.getCallback, which
      * trigger another a funtion wrapped by $A.getCallback via aura:method. The actual error is from the latter
      * function, so the failing descriptor is the owner component of that function, which is the contained
-     * component (markup://auratest:errorHandling).
+     * component (auratest:errorHandling).
      */
     testFailingDescriptorForErrorFromNestedGetCallbackFunctions: {
         test: [
@@ -158,7 +176,7 @@
             },
             function(cmp) {
                 var actual = this.findFailingDescriptorFromErrorModal();
-                var expected = cmp.find("containedCmp").getDef().getDescriptor().getQualifiedName();
+                var expected = cmp.find("containedCmp").getType();
 
                 $A.test.assertEquals(expected, actual);
             }
@@ -181,16 +199,31 @@
         ]
     },
 
+    testFailingDescriptorForErrorFromPromise: {
+        test: [
+            function(cmp) {
+                $A.test.clickOrTouch(cmp.find("errorFromPromiseButton").getElement());
+                this.waitForErrorModal();
+            },
+            function(cmp) {
+                var actual = this.findFailingDescriptorFromErrorModal();
+                var expected = "auratest:errorHandlingApp";
+
+                $A.test.assertTrue(actual.indexOf(expected) > -1);
+            }
+        ]
+     },
+
     testFailingDescriptorForNonExistingEventHandlerError: {
         test: [
             function(cmp) {
-                $A.test.expectAuraError("Unable to find 'nonExistingHandler'");
+                $A.test.expectAuraError("Unable to find action 'nonExistingHandler'");
                 $A.test.clickOrTouch(cmp.find("fireTestEventButton").getElement());
                 this.waitForErrorModal();
             },
             function(cmp) {
                 var actual = this.findFailingDescriptorFromErrorModal();
-                var expected = cmp.getDef().getDescriptor().getQualifiedName();
+                var expected = "auratest:errorHandlingApp";
 
                 $A.test.assertEquals(expected, actual);
             }

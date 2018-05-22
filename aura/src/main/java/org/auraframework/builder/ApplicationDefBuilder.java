@@ -18,6 +18,9 @@ package org.auraframework.builder;
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.FlavorsDef;
+import org.auraframework.def.module.ModuleDef;
+
+import java.util.Set;
 
 /**
  */
@@ -35,4 +38,18 @@ public interface ApplicationDefBuilder extends BaseComponentDefBuilder<Applicati
      * @param flavorOverride The {@link FlavorsDef} descriptor.
      */
     BaseComponentDefBuilder<ApplicationDef> setFlavorOverrides(DefDescriptor<FlavorsDef> flavorOverrides);
+
+    /**
+     * Specifies the {@link FlavorsDef}.
+     *
+     * @param flavorOverride The {@link FlavorsDef}.
+     */
+    BaseComponentDefBuilder<ApplicationDef> setFlavorOverrides(FlavorsDef flavorOverrides);
+
+    /**
+     * Specifies module services
+     *
+     * @param services
+     */
+    BaseComponentDefBuilder<ApplicationDef> setModuleServices(Set<DefDescriptor<ModuleDef>> services);
 }

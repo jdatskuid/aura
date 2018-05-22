@@ -16,9 +16,6 @@
 package org.auraframework.service;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.Reader;
-import java.util.Collection;
 import java.util.Map;
 
 import org.auraframework.Aura;
@@ -39,47 +36,6 @@ import org.auraframework.throwable.quickfix.QuickFixException;
 public interface SerializationService extends AuraService {
 
     /**
-     * Deserialize a value from the format of the current {@link AuraContext}
-     * 
-     * @param type The class of the type of value to return as retrieved from
-     *            {@link DefType#getPrimaryInterface()}
-     * @throws IOException
-     * @throws QuickFixException
-     */
-    <T> T read(Reader in, Class<T> type) throws IOException, QuickFixException;
-
-    /**
-     * Deserialize a value from the named format
-     * 
-     * @param type The class of the type of value to return as retrieved from
-     *            {@link DefType#getPrimaryInterface()}
-     * @throws IOException
-     * @throws QuickFixException
-     */
-    <T> T read(Reader in, Class<T> type, String format) throws IOException, QuickFixException;
-
-    /**
-     * Deserialize a Collection of values from the format of the current
-     * {@link AuraContext}
-     * 
-     * @param type The class of the type of values to return as retrieved from
-     *            {@link DefType#getPrimaryInterface()}
-     * @throws IOException
-     * @throws QuickFixException
-     */
-    <T> Collection<T> readCollection(Reader in, Class<T> type) throws IOException, QuickFixException;
-
-    /**
-     * Deserialize a Collection of values from the named format
-     * 
-     * @param type The class of the type of values to return as retrieved from
-     *            {@link DefType#getPrimaryInterface()}
-     * @throws IOException
-     * @throws QuickFixException
-     */
-    <T> Collection<T> readCollection(Reader in, Class<T> type, String format) throws IOException, QuickFixException;
-
-    /**
      * Serialize value to the format of the current {@link AuraContext} and
      * write it to out. Note that this method takes no Class--the
      * SerializationService will attempt to deduce an appropriate type to
@@ -90,19 +46,7 @@ public interface SerializationService extends AuraService {
      * @throws IOException
      * @throws QuickFixException
      */
-
     <T> void write(T value, Map<String, Object> attributes, Appendable out) throws IOException, QuickFixException;
-
-    /**
-     * Serialize value to the format of the current {@link AuraContext} and
-     * write it to out.
-     * 
-     * @param type The class of the value as retrieved from
-     *            {@link DefType#getPrimaryInterface()}
-     * @throws IOException
-     */
-    <T> void write(T value, Map<String, Object> attributes, Class<T> type, Appendable out) throws IOException,
-            QuickFixException;
 
     /**
      * Serialize value to the named format and write it to out.
@@ -112,48 +56,6 @@ public interface SerializationService extends AuraService {
      * @throws IOException
      */
     <T> void write(T value, Map<String, Object> attributes, Class<T> type, Appendable out, String format)
-            throws IOException, QuickFixException;
-
-    /**
-     * Serialize value to the format of the current {@link AuraContext} and
-     * write it to out.
-     * 
-     * @param type The class of the value as retrieved from
-     *            {@link DefType#getPrimaryInterface()}
-     * @throws IOException
-     */
-    <T> void writeBinary(T value, Map<String, Object> attributes, Class<T> type, OutputStream out)
-            throws IOException, QuickFixException;
-
-    /**
-     * Serialize value to the named format and write it to out.
-     * 
-     * @param type The class of the value as retrieved from
-     *            {@link DefType#getPrimaryInterface()}
-     * @throws IOException
-     */
-    <T> void writeBinary(T value, Map<String, Object> attributes, Class<T> type, OutputStream out, String format)
-            throws IOException, QuickFixException;
-
-    /**
-     * Serialize values to the format of the current {@link AuraContext} and
-     * write it them to out.
-     * 
-     * @param type The class of the values as retrieved from
-     *            {@link DefType#getPrimaryInterface()}
-     * @throws IOException
-     */
-    <T> void writeCollection(Collection<? extends T> values, Class<T> type, Appendable out) throws IOException,
-            QuickFixException;
-
-    /**
-     * Serialize values to the named format and write it them to out.
-     * 
-     * @param type The class of the values as retrieved from
-     *            {@link DefType#getPrimaryInterface()}
-     * @throws IOException
-     */
-    <T> void writeCollection(Collection<? extends T> values, Class<T> type, Appendable out, String format)
             throws IOException, QuickFixException;
 
     <T> FormatAdapter<T> getFormatAdapter(String format, Class<T> type) throws QuickFixException;

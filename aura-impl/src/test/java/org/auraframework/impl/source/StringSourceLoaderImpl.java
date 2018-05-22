@@ -15,19 +15,12 @@
  */
 package org.auraframework.impl.source;
 
-import java.util.HashSet;
-import java.util.Map;
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
-
-import javax.annotation.Nullable;
-import javax.annotation.PostConstruct;
-import javax.inject.Inject;
-
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.auraframework.adapter.ConfigAdapter;
+import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.ControllerDef;
@@ -59,14 +52,17 @@ import org.auraframework.system.Source;
 import org.auraframework.system.SourceListener.SourceMonitorEvent;
 import org.auraframework.test.source.StringSourceLoader;
 import org.auraframework.util.FileMonitor;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
-import org.springframework.context.annotation.Lazy;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
+import javax.annotation.Nullable;
+import javax.annotation.PostConstruct;
+import javax.inject.Inject;
+import java.util.HashSet;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * This source loader allows tests to load and unload source from strings.
@@ -79,18 +75,8 @@ import com.google.common.collect.Sets;
  * or provide descriptors via find that aura will not be able to find because it has a fixed idea of the namespaces
  * represented. This could be fixed by providing a fixed view into the namespaces provided.
  */
+@ServiceComponent
 public final class StringSourceLoaderImpl implements StringSourceLoader {
-    
-    @Configuration
-    public static class BeanConfiguration {
-        private static final StringSourceLoaderImpl INSTANCE = new StringSourceLoaderImpl();
-
-        @Lazy
-        @Bean
-        public StringSourceLoader stringSourceLoaderImpl() {
-            return INSTANCE;
-        }
-    }
     
     @Inject
     private DefinitionService definitionService;
@@ -102,12 +88,6 @@ public final class StringSourceLoaderImpl implements StringSourceLoader {
     private FileMonitor fileMonitor;
 
     private static final String DEFAULT_NAME_PREFIX = "thing";
-    private static final Set<String> PREFIXES = ImmutableSet.of(
-            DefDescriptor.MARKUP_PREFIX.toLowerCase(),
-            DefDescriptor.JAVASCRIPT_PREFIX.toLowerCase(),
-            DefDescriptor.CSS_PREFIX.toLowerCase(),
-            DefDescriptor.TEMPLATE_CSS_PREFIX.toLowerCase(),
-            DefDescriptor.CUSTOM_FLAVOR_PREFIX.toLowerCase());
     private static final Set<DefType> DEFTYPES = ImmutableSet.of(
             DefType.APPLICATION, DefType.COMPONENT, DefType.EVENT, DefType.LIBRARY,
             DefType.INCLUDE, DefType.INTERFACE, DefType.CONTROLLER,
@@ -153,7 +133,7 @@ public final class StringSourceLoaderImpl implements StringSourceLoader {
             return bundleDescriptor.getName();
         }
 
-        private BundleSource<? extends Definition> getBundle(DefDescriptor<?> descriptor) {
+        public BundleSource<? extends Definition> getBundle(DefDescriptor<?> descriptor) {
             return bundles.get(getBundleKey(descriptor));
         }
         
@@ -388,7 +368,7 @@ public final class StringSourceLoaderImpl implements StringSourceLoader {
             boolean overwrite, NamespaceAccess access) {
         DefType defType = descriptor.getDefType();
         Format format = DescriptorInfo.get(defType.getPrimaryInterface()).getFormat();
-        StringSource<D> source = new StringSource<>(fileMonitor, descriptor, contents, descriptor.getQualifiedName(), format);
+        StringSource<D> source = new StringSource<>(descriptor, contents, descriptor.getQualifiedName(), format);
         return putSource(descriptor, source, overwrite, access);
     }
 
@@ -402,14 +382,14 @@ public final class StringSourceLoaderImpl implements StringSourceLoader {
             NamespaceInfo namespaceInfo = getOrAddNamespace(namespace, access);
 
             boolean containsKey = namespaceInfo.put(source, overwrite);
-                if (containsKey) {
-                    event = SourceMonitorEvent.CHANGED;
-                }
+            if (containsKey) {
+                event = SourceMonitorEvent.CHANGED;
+            }
         } finally {
             nsLock.unlock();
         }
         // notify source listeners of change
-        fileMonitor.onSourceChanged(descriptor, event, null);
+        fileMonitor.onSourceChanged(event, descriptor.getQualifiedName());
 
         return source;
     }
@@ -433,7 +413,7 @@ public final class StringSourceLoaderImpl implements StringSourceLoader {
             nsLock.unlock();
         }
         // notify source listeners of change
-        fileMonitor.onSourceChanged(descriptor, SourceMonitorEvent.DELETED, null);
+        fileMonitor.onSourceChanged(SourceMonitorEvent.DELETED, descriptor.getQualifiedName());
     }
 
     /**
@@ -477,11 +457,6 @@ public final class StringSourceLoaderImpl implements StringSourceLoader {
     }
 
     @Override
-    public Set<String> getPrefixes() {
-        return PREFIXES;
-    }
-
-    @Override
     public <D extends Definition> Source<D> getSource(DefDescriptor<D> descriptor) {
         if (descriptor == null) {
             return null;
@@ -491,10 +466,6 @@ public final class StringSourceLoaderImpl implements StringSourceLoader {
         if (namespaceInfo != null) {
             @SuppressWarnings("unchecked")
             Source<D> ret = (Source<D>)namespaceInfo.get(descriptor);
-            if (ret != null && ret instanceof StringSource) {
-                // return a copy of the StringSource to emulate other Sources (hash is reset)
-                return new StringSource<>(fileMonitor, (StringSource<D>)ret);
-            }
             return ret;
         }
         return null;
@@ -596,5 +567,18 @@ public final class StringSourceLoaderImpl implements StringSourceLoader {
 
     @Override
     public void reset() {
+    }
+
+    @Override
+    public BundleSource<?> getBundle(DefDescriptor<?> descriptor) {
+        if (descriptor == null) {
+            return null;
+        }
+        NamespaceInfo namespaceInfo = namespaces.get(getNamespace(descriptor));
+
+        if (namespaceInfo != null) {
+            return namespaceInfo.getBundle(descriptor);
+        }
+        return null;
     }
 }

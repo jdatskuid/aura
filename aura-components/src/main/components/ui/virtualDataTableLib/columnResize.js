@@ -49,7 +49,7 @@ function lib(w) { //eslint-disable-line no-unused-vars
     };
 
     ColumnResizer.prototype = {
-        DIVIDER_RELAYOUT_DELAY: 150,
+        DIVIDER_RELAYOUT_DELAY: 17,
         _setDividerHeight: function(indicator) {
             // Since window.innerHeight and getBoundingClientRect call will trigger relayout,
             // and divider is not visible when init the VDT, so we can delay the _setDividerHeight.
@@ -175,15 +175,29 @@ function lib(w) { //eslint-disable-line no-unused-vars
         _initializeHandles : function(table) {
             var totalWidth = 0;
             var columns = this.columns;
+            var i;
+
+            // initialWidths can be set to NULL to avoid setting any widths on the table header on initialization
+           if (this.config.initialWidths === null) {
+                // in this case we just initialize the handles and do nothing else
+                for (i = 0; i < columns.length; i++) {
+                    var column = columns[i];
+                    if (!this.hasHandle(column)) {
+                        var handle = this._createHandle();
+                        this._attachHandle(column, handle);
+                    }
+                }
+                return;
+            }
 
             var initialWidths = this.config.initialWidths || [];
             // Create and attach a handle to each column
             var promise = Promise.resolve();
             var that = this;
-            for (var i = 0; i < columns.length; i++) {
+            for (i = 0; i < columns.length; i++) {
                 promise = this._calculateWidthAsync(promise, columns[i], initialWidths[i])
-                    .then(function(column) {
-                        totalWidth += column.clientWidth;
+                    .then(function(col) {
+                        totalWidth += col.clientWidth;
                     });
             }
 
@@ -256,7 +270,14 @@ function lib(w) { //eslint-disable-line no-unused-vars
          */
         _createIndicator : function() {
             var indicator = document.createElement('div');
-            indicator.classList.add(this.config.indicatorClasses);
+            var indicatorClasses = $A.util.isString(this.config.indicatorClasses) ? this.config.indicatorClasses : '';
+
+            indicatorClasses = indicatorClasses.split(/\s+/);
+            // We should manually add all classes because IE does not support multiple arguments for 'add' https://developer.mozilla.org/en-US/docs/Web/API/Element/classList
+            for (var i = 0; i < indicatorClasses.length; i++) {
+                indicator.classList.add(indicatorClasses[i]);
+            }
+
             indicator.classList.add(INDICATOR_CLASS);
 
             var columnDivider = document.createElement('span');
@@ -487,12 +508,14 @@ function lib(w) { //eslint-disable-line no-unused-vars
          */
         _onStart : function(e) {
             var th = this._findParentTH(e.target);
+            var targetX = e.target.getBoundingClientRect().left;
 
             // Save what's being resized so we can reference it later
             this.current = {
                 element : th,
                 range : this._findRangeElement(th),
-                startX : e.clientX,
+                offsetX : e.clientX - targetX,
+                startX : targetX,
                 width : th.clientWidth,
                 tableOffset : this.table.getBoundingClientRect().left
             };
@@ -503,7 +526,7 @@ function lib(w) { //eslint-disable-line no-unused-vars
             this.table.classList.add("resizing");
             this._setDividerHeight(this.indicator);
 
-            this._slideIndicator(e.clientX);
+            this._slideIndicator(targetX);
         },
 
         /**
@@ -514,10 +537,11 @@ function lib(w) { //eslint-disable-line no-unused-vars
          */
         _onMove : function(e) {
             var current = this.current;
-            var currentWidth = e.clientX - current.element.offsetLeft - current.tableOffset;
+            var currentWidth = e.clientX + current.offsetX - current.element.offsetLeft - current.tableOffset;
 
-            if (currentWidth > this.config.minWidth || e.clientX > current.startX) {
-                this._slideIndicator(e.clientX);
+            var normalizedX = e.clientX - current.offsetX;
+            if (currentWidth > this.config.minWidth || normalizedX > current.startX) {
+                this._slideIndicator(normalizedX);
                 current.width = currentWidth;
             }
         },
@@ -650,7 +674,7 @@ function lib(w) { //eslint-disable-line no-unused-vars
          * Checks to see if the specified column has a handle attached
          */
         hasHandle : function(column) {
-            return column ? (column.querySelector(HANDLE_CLASS) !== null) : false;
+            return column ? (column.querySelector('.' + HANDLE_CLASS) !== null) : false;
         },
 
         /**
@@ -709,6 +733,7 @@ function lib(w) { //eslint-disable-line no-unused-vars
                 var column = this.columns[i];
                 var width = widths[i];
 
+                // we must be able to set widths that are smaller than min width due to "system columns"
                 if ($A.util.isUndefinedOrNull(width)) {
                     width = this.config.minWidth;
                 }

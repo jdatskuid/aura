@@ -52,6 +52,7 @@ import org.auraframework.impl.root.AttributeDefImpl;
 import org.auraframework.impl.root.AttributeDefRefImpl;
 import org.auraframework.impl.root.RequiredVersionDefImpl;
 import org.auraframework.impl.root.component.BaseComponentDefImpl.Builder;
+import org.auraframework.impl.root.component.DefRefDelegate;
 import org.auraframework.impl.root.event.RegisterEventDefImpl;
 import org.auraframework.impl.system.SubDefDescriptorImpl;
 import org.auraframework.impl.util.TextTokenizer;
@@ -254,7 +255,7 @@ public abstract class BaseComponentDefHandler<T extends BaseComponentDef, B exte
             if (componentDefRef.isFlavorable() || componentDefRef.hasFlavorableChild()) {
                 builder.setHasFlavorableChild(true);
             }
-            DefinitionReference defRef = createDefRefDelegate(componentDefRef);
+            DefinitionReference defRef = new DefRefDelegate(componentDefRef);
             body.add(defRef);
         }
     }
@@ -341,13 +342,18 @@ public abstract class BaseComponentDefHandler<T extends BaseComponentDef, B exte
             // Style
             //
             String styleName = getAttributeValue(ATTRIBUTE_STYLE);
+            StyleDef sd = null;
             if (styleName != null){
                 DefDescriptor<StyleDef> styleDescriptor = getDefDescriptor(styleName, StyleDef.class);
-                builder.setStyleDefExternal(styleDescriptor);
+                sd = getBundledDef(styleDescriptor);
+                if (sd == null) {
+                    builder.setStyleDefExternal(styleDescriptor);
+                }
+            } else {
+                sd = getBundledDef(StyleDef.class, DefDescriptor.CSS_PREFIX);
             }
-            StyleDef sd = getBundledDef(StyleDef.class, DefDescriptor.CSS_PREFIX);
             if (sd != null) {
-                builder.setStyleDef(getBundledDef(StyleDef.class, DefDescriptor.CSS_PREFIX));
+                builder.setStyleDef(sd);
             }
 
             FlavoredStyleDef flavor = getBundledDef(FlavoredStyleDef.class, DefDescriptor.CSS_PREFIX);
@@ -450,6 +456,10 @@ public abstract class BaseComponentDefHandler<T extends BaseComponentDef, B exte
 
     @Override
     public void addExpressionReferences(Set<PropertyReference> propRefs) {
+        DefDescriptor<T> target=builder.getDescriptor();
+        for(PropertyReference propRef:propRefs){
+            propRef.setTarget(target);
+        }
         builder.addAllExpressionRefs(propRefs);
     }
 }

@@ -58,12 +58,10 @@ function Action(def, suffix, method, paramDefs, background, cmp, caboose) {
     this.allAboardCallback = undefined;
     this.abortable = false;
     this.deferred = false;
+    this.defDependencies = undefined;
 
     this.returnValue = undefined;
     this.returnValueUserland = undefined;
-
-    // FIXME: only for runActions - deprecated
-    this.completion = undefined;
 
     // FIXME: creation path
     this.pathStack = [];
@@ -75,8 +73,9 @@ function Action(def, suffix, method, paramDefs, background, cmp, caboose) {
     // FIXME: need to expose for plugins
     this.refreshAction = undefined;
 
-    var ctx = $A.getContext();
-    this.callingCmp = ctx ? ctx.getCurrentAccess() : null;
+    this.callingCmp = $A.clientService.currentAccess;
+
+    this.retryCount = 0;
 
     // propagating locker key when possible
     $A.lockerService.trust(cmp, this);
@@ -84,14 +83,8 @@ function Action(def, suffix, method, paramDefs, background, cmp, caboose) {
 
 // Static methods:
 
-Action.STORAGE_NAME = "actions";
-
 Action.getStorageKey = function(descriptor, params) {
     return descriptor + ":" + $A.util["json"].orderedEncode(params);
-};
-
-Action.getStorage = function() {
-    return $A.storageService.getStorage(Action.STORAGE_NAME);
 };
 
 // Instance methods:
@@ -312,35 +305,6 @@ Action.prototype.setCreationPathIndex = function(idx) {
 };
 
 /**
- * Sets the completion function.
- *
- * @private
- */
-Action.prototype.setCompletion = function(fn) {
-    $A.assert($A.util.isFunction(fn), "Action.setCompletion: argument must be a function");
-    this.completion = fn;
-};
-
-/**
- * Calls the completion function if any.
- *
- * @private
- */
-Action.prototype.complete = function() {
-    try {
-        if (this.completion) {
-            this.completion();
-        }
-    } catch (e) {
-        if ($A.clientService.inAuraLoop()) {
-            throw e;
-        } else {
-            throw new $A.auraError("Action.complete: Failed during completion callback", e);
-        }
-    }
-};
-
-/**
  * Gets the current creatorPath from the top of the pathStack
  *
  * @returns {String}
@@ -366,6 +330,17 @@ Action.prototype.getCurrentPath = function() {
  */
 Action.prototype.getDef = function() {
     return this.def;
+};
+
+/**
+ * Gets name of the Action.
+ *
+ * @platform
+ * @returns {String} Name of the Action.
+ * @export
+ */
+Action.prototype.getName = function() {
+    return this.def.getName();
 };
 
 /**
@@ -504,8 +479,7 @@ Action.prototype.setCallback = function(scope, callback, name) {
             && name !== "ABORTED") {
         throw new $A.auraError("Action.setCallback(): Invalid callback name '" + name + "'");
     }
-    var context=$A.getContext();
-    if(context&&context.getCurrentAccess()&&$A.clientService.inAuraLoop()) {
+    if($A.clientService.currentAccess&&$A.clientService.inAuraLoop()) {
         callback = $A.getCallback(callback);
     }
     // If name is undefined or specified as "ALL", then apply same callback in all cases
@@ -578,7 +552,7 @@ Action.prototype.setAllAboardCallback = function(scope, callback) {
 Action.prototype.callAllAboardCallback = function (context) {
     if (this.allAboardCallback) {
         var previous = context.setCurrentAction(this);
-        context.setCurrentAccess(this.cmp);
+        $A.clientService.setCurrentAccess(this.cmp);
         try {
             this.allAboardCallback();
         } catch (e) {
@@ -586,7 +560,7 @@ Action.prototype.callAllAboardCallback = function (context) {
             return false;
         } finally {
             context.setCurrentAction(previous);
-            context.releaseCurrentAccess();
+            $A.clientService.releaseCurrentAccess();
         }
     }
     return true;
@@ -653,8 +627,13 @@ Action.prototype.run = function(evt) {
 Action.prototype.runDeprecated = function(evt) {
     $A.assert(this.def && this.def.isClientAction(),
              "run() cannot be called on a server action. Use $A.enqueueAction() instead.");
+
+    if(this.cmp.destroyed===1) {
+        return;
+    }
+
     this.state = "RUNNING";
-    $A.getContext().setCurrentAccess(this.cmp);
+    $A.clientService.setCurrentAccess(this.cmp);
     try {
         var secureCmp = $A.lockerService.wrapComponent(this.cmp);
         var secureEvt = $A.lockerService.wrapComponentEvent(secureCmp, evt);
@@ -667,7 +646,7 @@ Action.prototype.runDeprecated = function(evt) {
     } catch (e) {
         this.markException(e);
     } finally {
-        $A.getContext().releaseCurrentAccess();
+        $A.clientService.releaseCurrentAccess();
     }
 };
 
@@ -765,24 +744,6 @@ Action.prototype.setBackground = function() {
 };
 
 /**
- * Deprecated. Note: This method is deprecated and should not be used.
- * Use <code>$A.enqueueAction</code> instead.
- *
- * The deprecated <code>runAfter</code> method adds a specified server-side action to the action queue. It is for
- * server-side actions only. For example, <code>this.runAfter(serverAction);</code> sends the action to the server and
- * runs the callback when the server action completes (if the action was not aborted).
- *
- * @deprecated
- * @public
- * @param {Action}
- *            action The action to run.
- * @export
- */
-Action.prototype.runAfter = function(action) {
-    $A.clientService.enqueueAction(action);
-};
-
-/**
  * Updates the fields from a response.
  *
  * @param {Object} response The response from the server.
@@ -801,6 +762,9 @@ Action.prototype.updateFromResponse = function(response) {
     this.error = response["error"];
     this.storage = response["storage"];
     this.components = response["components"];
+    if (response["defDependencies"]) {
+        this.defDependencies = response["defDependencies"];
+    }
     if (this.state === "ERROR") {
         //
         // Careful now. If we get back an event from the server as part of the error,
@@ -902,6 +866,7 @@ Action.prototype.getStored = function() {
         return {
             "returnValue" : this.returnValue,
             "components" : this.components,
+            "defDependencies" : this.defDependencies,
             "state" : "SUCCESS",
             "storage" : {
                 "created" : new Date().getTime()
@@ -914,10 +879,18 @@ Action.prototype.getStored = function() {
 
 /**
  * Returns the json representation of the action
+ * If the action is publicly cacheable, the ID is stripped out
  * @private
  */
 Action.prototype.prepareToSend = function() {
-    return this.toJSON();
+    var json = this.toJSON();
+
+    // publicly cacheable actions need to have their IDs stripped out before sending
+    if (this.isPubliclyCacheable()) {
+        delete json.id;
+    }
+
+    return json;
 };
 
 /**
@@ -932,7 +905,7 @@ Action.prototype.finishAction = function(context) {
     var id = this.getId(context);
     var error = undefined;
     var oldDisplayFlag = $A.showErrors();
-    context.setCurrentAccess(this.cmp);
+    $A.clientService.setCurrentAccess(this.cmp);
     try {
         if (this.isFromStorage()) {
             // suppress errors dialogs while performing cached actions.
@@ -952,10 +925,7 @@ Action.prototype.finishAction = function(context) {
                         try {
                             this.parseAndFireEvent(this.events[x]);
                         } catch (e) {
-                            var eventFailedMessage = "Events failed: "+(this.def?this.def.toString():"");
-                            $A.warning(eventFailedMessage, e);
-                            e.message = e.message ? (e.message + '\n' + eventFailedMessage) : eventFailedMessage;
-                            error = e;
+                            error = this.processFinishActionException(e, "Events failed: ");
                         }
                     }
                 }
@@ -965,19 +935,55 @@ Action.prototype.finishAction = function(context) {
 
                 try {
                     if (cb) {
-                        cb["fn"].call(cb["s"], this, this.cmp);
+                        if (this.defDependencies && $A.getContext().uriAddressableDefsEnabled) {
+                            var that = this;
+                            var previousClearComponents = clearComponents;
+                            clearComponents = false;
+                            var componentsToFinish = this.components;
+                            this.components = undefined;
+                            var access = $A.clientService.currentAccess;
+                            $A.componentService.loadComponentDefs(this.defDependencies, function(err) {
+                                var previousAction = context.setCurrentAction(that);
+                                $A.clientService.setCurrentAccess(access);
+                                if (componentsToFinish) {
+                                    that.components = componentsToFinish;
+                                }
+                                try {
+                                    cb["fn"].call(cb["s"], that, that.cmp);
+                                } catch (e) {
+                                    that.processFinishActionException(e, "Callback failed: ", err, true);
+                                } finally {
+                                    $A.clientService.releaseCurrentAccess();
+                                    if (that.components && !that.storable && !this.remaining) {
+                                        context.finishComponentConfigs(id);
+                                        previousClearComponents = false;
+                                    }
+                                    context.setCurrentAction(previousAction);
+                                    if (previousClearComponents) {
+                                        context.clearComponentConfigs(id);
+                                    }
+                                }
+                                if (err) {
+                                    throw err;
+                                }
+                            });
+                        } else {
+                            cb["fn"].call(cb["s"], this, this.cmp);
+                        }
+                    } else if (this.defDependencies) {
+                        $A.componentService.loadComponentDefs(this.defDependencies, function(err) {
+                            if (err) {
+                                throw err;
+                            }
+                        });
                     }
                 } catch (e) {
-                    var callbackFailedMessage = "Callback failed: " + (this.def?this.def.toString():"");
-                    $A.warning(callbackFailedMessage, e);
-                    e.message = e.message ? (e.message + '\n' + callbackFailedMessage) : callbackFailedMessage;
                     if (!error) {
-                        error = e;
+                        error = this.processFinishActionException(e, "Callback failed: ");
                     }
                 }
 
-                this.complete();
-                if (this.components && (cb || !this.storable || !this.getStorage())) {
+                if (this.components && (cb || !this.storable || !$A.clientService.getActionStorage().isStorageEnabled())) {
                     context.finishComponentConfigs(id);
                     clearComponents = false;
                 }
@@ -985,17 +991,14 @@ Action.prototype.finishAction = function(context) {
                 this.abort();
             }
         } catch (e) {
-            var actionFailedMessage = "Action failed: " + (this.def?this.def.toString():"");
-            $A.warning(actionFailedMessage, e);
-            e.message = e.message ? (e.message + '\n' + actionFailedMessage) : actionFailedMessage;
             if (!error) {
-                error = e;
+                error = this.processFinishActionException(e, "Action failed: ");
             }
 
             clearComponents = true;
         }
     } finally {
-        context.releaseCurrentAccess();
+        $A.clientService.releaseCurrentAccess();
     }
     context.setCurrentAction(previous);
     if (clearComponents) {
@@ -1011,6 +1014,31 @@ Action.prototype.finishAction = function(context) {
             throw new $A.auraError("Action.prototype.finishAction Error ", error);
         }
     }
+};
+
+/**
+ *
+ * @param e - the exception to handle
+ * @param err - additional error
+ * @param raise - boolean flag to tell it to throw now
+ * @private
+ */
+Action.prototype.processFinishActionException = function(e, message, err, raise) {
+    var failedMessage = message + (this.def?this.def.toString():"");
+    if (err) {
+        failedMessage += "\nAdditionally, Component Definition loader failure: " + err;
+    }
+    $A.warning(failedMessage, e);
+    e.message = e.message ? (e.message + '\n' + failedMessage) : failedMessage;
+
+    if (raise) {
+        if ($A.clientService.inAuraLoop() || e instanceof $A.auraFriendlyError) {
+            throw e;
+        } else {
+            throw new $A.auraError("Action.prototype.finishAction Error ", e);
+        }
+    }
+    return e;
 };
 
 /**
@@ -1049,7 +1077,6 @@ Action.prototype.abort = function() {
     } finally {
         $A.log("ABORTED: "+this.getStorageKey());
     }
-    this.complete();
 };
 
 /**
@@ -1070,18 +1097,6 @@ Action.prototype.setAbortable = function() {
 };
 
 /**
- * [Deprecated] [Returns undefined]
- *
- * @public
- * @returns {string} undefined
- * @export
- * @deprecated
- */
-Action.prototype.getAbortableId = function() {
-    return undefined;
-};
-
-/**
  * Checks if this action is a refresh.
  * @export
  */
@@ -1098,30 +1113,6 @@ Action.prototype.isRefreshAction = function() {
  */
 Action.prototype.isAbortable = function() {
     return this.abortable;
-};
-
-/**
- * [Deprecated] Does nothing.
- *
- * @public
- * @returns {Boolean} false
- * @export
- * @deprecated
- */
-Action.prototype.setExclusive = function() {
-    return false;
-};
-
-/**
- * [Deprecated] Returns false.
- *
- * @public
- * @returns {Boolean} false
- * @export
- * @deprecated
- */
-Action.prototype.isExclusive = function() {
-    return false;
 };
 
 /**
@@ -1238,6 +1229,21 @@ Action.prototype.isChained = function() {
 };
 
 /**
+ * Returns the number of times this action has been retried
+ * @returns {number}
+ */
+Action.prototype.getRetryCount = function() {
+    return this.retryCount;
+};
+
+/**
+ * Increment the retry counter on this action
+ */
+Action.prototype.incrementRetryCount = function() {
+    this.retryCount++;
+};
+
+/**
  * Returns the key/value pairs of the Action id, descriptor, and parameters in JSON format.
  *
  * @public
@@ -1250,13 +1256,19 @@ Action.prototype.toJSON = function() {
 
     // calling component has requiredVersionDefs or component is versioned.
     var isVersioned = (requiredVersionDefs && requiredVersionDefs.values) || version;
-    return {
+
+    var json = {
         "id" : this.getId(),
         "descriptor" : (this.def?this.def.getDescriptor():"UNKNOWN"),
         "callingDescriptor" : isVersioned ? (callingComponentDef ? callingComponentDef.getDescriptor().getQualifiedName() : "UNKNOWN") : "UNKNOWN",
-        "params" : this.params,
-        "version" : isVersioned ? version : null
+        "params" : this.params
     };
+
+    if (isVersioned) {
+        json["version"] = version;
+    }
+
+    return json;
 };
 
 /**
@@ -1267,13 +1279,16 @@ Action.prototype.toJSON = function() {
 Action.prototype.markException = function(e) {
     var descriptor = this.def ? this.def.toString() : "";
 
+    if (e instanceof $A.auraError || e instanceof $A.auraFriendlyError) {
+        // keep the root cause failing descriptor
+        e.setComponent(e["component"] || descriptor);
+    }
+
     // if the error doesn't have id, we wrap it with auraError so that when displaying UI, it will have an id
     if (!e.id) {
         e = new $A.auraError(descriptor ? "Action failed: " + descriptor : "", e);
-        e["component"] = descriptor;
-    } else if (e instanceof $A.auraError) {
-        // keep the root cause failing descriptor
-        e["component"] = e["component"] || descriptor;
+        // id is set when a component is set to error
+        e.setComponent(descriptor);
     }
 
     if (!e['componentStack']) {
@@ -1339,12 +1354,12 @@ Action.prototype.copyToRefresh = function() {
  */
 Action.prototype.getRefreshAction = function(originalResponse) {
     var storage = originalResponse["storage"];
-    var storageService = this.getStorage();
+    var actionStorage = $A.clientService.getActionStorage().getStorage();
     var autoRefreshInterval =
             (this.storableConfig && !$A.util.isUndefined(this.storableConfig["refresh"])
              && $A.util.isNumber(this.storableConfig["refresh"]))
                     ? this.storableConfig["refresh"] * 1000
-                    : storageService.getDefaultAutoRefreshInterval();
+                    : actionStorage.getDefaultAutoRefreshInterval();
 
     // only refresh the action if it is sufficiently old
     var now = new Date().getTime();
@@ -1385,11 +1400,11 @@ Action.prototype.getRetryFromStorageAction = function() {
  * Gets the Action storage.
  *
  * @returns {Storage}
- * @private
+ * @deprecated
  * @export
  */
 Action.prototype.getStorage = function() {
-    return Action.getStorage();
+    return $A.clientService.getActionStorage().getStorage();
 };
 
 /**
@@ -1434,6 +1449,18 @@ Action.prototype.fireRefreshEvent = function(event, responseUpdated) {
             }).fire();
         }
     }
+};
+
+/**
+ * Returns true if public caching is enabled and the current action is publicly cacheable (based on the definition).
+ *
+ * For server-side Actions only.
+ *
+ * @returns {Boolean}
+ * @private
+ */
+Action.prototype.isPubliclyCacheable = function() {
+    return $A.getContext().isActionPublicCachingEnabled() && this.def.isPublicCachingEnabled() && this.def.getPublicCachingExpiration() > 0;
 };
 
 Aura.Controller.Action = Action;

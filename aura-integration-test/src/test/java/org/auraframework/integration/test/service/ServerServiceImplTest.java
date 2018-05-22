@@ -15,6 +15,7 @@
  */
 package org.auraframework.integration.test.service;
 
+import static org.junit.Assert.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -31,7 +32,6 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import javax.inject.Inject;
-
 import org.auraframework.def.ActionDef;
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.ComponentDef;
@@ -48,6 +48,7 @@ import org.auraframework.instance.Component;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.service.InstanceService;
 import org.auraframework.service.ServerService;
+import org.auraframework.service.ServerService.HYDRATION_TYPE;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.AuraContext.Authentication;
 import org.auraframework.system.AuraContext.Format;
@@ -60,8 +61,10 @@ import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
 import org.auraframework.util.json.JsonReader;
 import org.auraframework.util.json.JsonStreamReader;
+import org.auraframework.util.test.annotation.ThreadHostileTest;
+import org.auraframework.validation.ReferenceValidationContext;
+import org.hamcrest.CoreMatchers;
 import org.junit.Test;
-
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -79,7 +82,7 @@ public class ServerServiceImplTest extends AuraImplTestCase {
         setShouldSetupContext(false);
     }
 
-    private static final Set<String> GLOBAL_IGNORE = Sets.newHashSet("context", "actions", "perf");
+    private static final Set<String> GLOBAL_IGNORE = Sets.newHashSet("context", "actions", "perf", "perfSummary");
 
     // Do not test for null message, it cannot legally be null.
     private static class EmptyActionDef implements ActionDef {
@@ -101,7 +104,12 @@ public class ServerServiceImplTest extends AuraImplTestCase {
         }
 
         @Override
-        public void validateReferences() throws QuickFixException {
+        public Set<DefDescriptor<?>> getDependencySet() {
+            return Sets.newHashSet();
+        }
+
+        @Override
+        public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
         }
 
         @Override
@@ -126,10 +134,6 @@ public class ServerServiceImplTest extends AuraImplTestCase {
         @Override
         public <D extends Definition> D getSubDefinition(SubDefDescriptor<D, ?> descriptor) {
             return null;
-        }
-
-        @Override
-        public void retrieveLabels() throws QuickFixException {
         }
 
         @Override
@@ -588,7 +592,7 @@ public class ServerServiceImplTest extends AuraImplTestCase {
 
         // prime def cache
         StringWriter output = new StringWriter();
-        serverService.writeDefinitions(dependencies, output);
+        serverService.writeDefinitions(dependencies, output, false, -1, HYDRATION_TYPE.all);
         String text = output.toString();
         final String dupeCheck = "$A.clientService.initDefs(";
         if (text.indexOf(dupeCheck) != text.lastIndexOf(dupeCheck)) {
@@ -597,7 +601,7 @@ public class ServerServiceImplTest extends AuraImplTestCase {
 
         // now check that defs not re-written with unempty cache
         output = new StringWriter();
-        serverService.writeDefinitions(dependencies, output);
+        serverService.writeDefinitions(dependencies, output, false, -1, HYDRATION_TYPE.all);
         text = output.toString();
         if (text.indexOf(dupeCheck) != text.lastIndexOf(dupeCheck)) {
             fail("found duplicated code in: " + text);
@@ -607,12 +611,13 @@ public class ServerServiceImplTest extends AuraImplTestCase {
     /**
      * Verify that toggling whether LockerService is enabled or not returns a different result from writeDefinitions
      */
+    @ThreadHostileTest("Modifies if locker service is enabled")
     @Test
     public void testWriteDefinitionsLockerServiceCacheBuster() throws Exception {
         DefDescriptor<ComponentDef> cmpDesc = definitionService
                 .getDefDescriptor("lockerTest:basicTest", ComponentDef.class);
         AuraContext context = contextService
-                .startContext(Mode.DEV, AuraContext.Format.JS, AuraContext.Authentication.AUTHENTICATED, cmpDesc);
+                .startContext(Mode.UTEST, AuraContext.Format.JS, AuraContext.Authentication.AUTHENTICATED, cmpDesc);
         final String uid = definitionService.getUid(null, cmpDesc);
         context.addLoaded(cmpDesc, uid);
         Set<DefDescriptor<?>> dependencies = definitionService.getDependencies(uid);
@@ -620,13 +625,13 @@ public class ServerServiceImplTest extends AuraImplTestCase {
         // get defs with LockerService enabled
         getMockConfigAdapter().setLockerServiceEnabled(true);
         StringWriter output = new StringWriter();
-        serverService.writeDefinitions(dependencies, output);
+        serverService.writeDefinitions(dependencies, output, false, -1, HYDRATION_TYPE.all);
         String firstOutput = output.toString();
 
         // now get defs with LockerService disabled
         getMockConfigAdapter().setLockerServiceEnabled(false);
         output = new StringWriter();
-        serverService.writeDefinitions(dependencies, output);
+        serverService.writeDefinitions(dependencies, output, false, -1, HYDRATION_TYPE.all);
         String secondOutput = output.toString();
 
         assertFalse("Expected writeDefinitions output to change after modifying LockerService cache buster",
@@ -636,6 +641,7 @@ public class ServerServiceImplTest extends AuraImplTestCase {
     /**
      * Verify that metrics service writes data out.
      */
+    @ThreadHostileTest("PRODUCTION")
     @Test
     public void testWriteDefinitionsMetricsWithDevMode() throws Exception {
         Action action = new EmptyAction(definitionService);
@@ -660,6 +666,7 @@ public class ServerServiceImplTest extends AuraImplTestCase {
     /**
      * Verify that metrics service does not write anything out.
      */
+    @ThreadHostileTest("PRODUCTION")
     @Test
     public void testWriteDefinitionsNoMetricsWithProdMode() throws Exception {
         Action action = new EmptyAction(definitionService);
@@ -680,7 +687,7 @@ public class ServerServiceImplTest extends AuraImplTestCase {
         assertNotNull(outputObj);
         assertNull(outputObj.get("perf"));
     }
-    
+
     @Test
     public void testPreloadJSDependencies() throws Exception {
         DefDescriptor<ComponentDef> appDesc = definitionService
@@ -694,7 +701,7 @@ public class ServerServiceImplTest extends AuraImplTestCase {
         definitionService.getDefinition(appDesc);
 
         StringWriter output = new StringWriter();
-        serverService.writeDefinitions(dependencies, output);
+        serverService.writeDefinitions(dependencies, output, false, -1, HYDRATION_TYPE.all);
 
         String sourceNoWhitespace = output.toString().replaceAll("\\s", "");
 
@@ -728,11 +735,10 @@ public class ServerServiceImplTest extends AuraImplTestCase {
         }
         source.append("</aura:application>");
 
-        String js = getDefinitionsOutput(source.toString(),
-                AuraContext.Mode.PROD);
-        assertFalse(
-                "There are syntax errors preventing compression of application javascript",
-                js.contains("There are errors preventing this file from being minimized!"));
+        getDefinitionsOutput(source.toString(), AuraContext.Mode.UTEST);
+//        assertFalse(
+//                "There are syntax errors preventing compression of application javascript",
+//                js.contains("There are errors preventing this file from being minimized!"));
     }
 
     /**
@@ -770,6 +776,18 @@ public class ServerServiceImplTest extends AuraImplTestCase {
     // }
 
     /**
+     * Tests that application templates are no included in app.js
+     */
+    @Test
+    public void testTemplatesNotIncludedInAppJS() throws Exception {
+        String source = "<aura:application template=\"auradocs:template\"></aura:application>";
+        String js = getDefinitionsOutput(source.toString(), AuraContext.Mode.PROD);
+
+        assertFalse("auradocs:template or its base aura:template was present in app.js",
+                    js.contains(":template"));
+    }
+
+    /**
      * This is verification for W-2657282. The bug was when an IOException is thrown in try block,
      * a new exception may be thrown in finally block, so the new exception will hide the original
      * exception.
@@ -802,42 +820,81 @@ public class ServerServiceImplTest extends AuraImplTestCase {
         Set<DefDescriptor<?>> dependencies = definitionService.getDependencies(uid);
 
         StringWriter output = new StringWriter();
-        serverService.writeDefinitions(dependencies, output);
+        serverService.writeDefinitions(dependencies, output, false, -1, HYDRATION_TYPE.all);
 
         return output.toString();
     }
 
-	@Test
+    @Test
     public void testWriteTemplateHasCsrfTokenIfAppcacheNotEnabled() throws Exception {
-		DefDescriptor<ApplicationDef> appDesc = addSourceAutoCleanup(ApplicationDef.class,
-				String.format(baseApplicationTag, "useAppCache='false' render='client'", ""));
-		AuraContext context = contextService.startContext(Mode.PROD, Format.HTML, Authentication.AUTHENTICATED);
-		context.setApplicationDescriptor(appDesc);
-		ApplicationDef appDef = definitionService.getDefinition(appDesc);
-		
-		Component template = serverService.writeTemplate(context , appDef, null, null);
-		
-		String init = (String)template.getAttributes().getValue("auraInit");
-		@SuppressWarnings("unchecked")
-		Map<String,Object> initMap = (Map<String, Object>) new JsonReader().read(init);
-		
-		assertEquals("Token should be sent if appcache is not enabled", "aura", initMap.get("token"));
+        DefDescriptor<ApplicationDef> appDesc = addSourceAutoCleanup(ApplicationDef.class,
+                String.format(baseApplicationTag, "useAppCache='false' render='client'", ""));
+        AuraContext context = contextService.startContext(Mode.PROD, Format.HTML, Authentication.AUTHENTICATED);
+        context.setApplicationDescriptor(appDesc);
+        ApplicationDef appDef = definitionService.getDefinition(appDesc);
+
+        Component template = serverService.writeTemplate(context , appDef, null, null);
+
+        String init = (String)template.getAttributes().getValue("auraInit");
+        @SuppressWarnings("unchecked")
+        Map<String,Object> initMap = (Map<String, Object>) new JsonReader().read(init);
+
+        assertEquals("Token should be sent if appcache is not enabled", "aura", initMap.get("token"));
     }
 
     @Test
     public void testWriteTemplateHasNoCsrfTokenIfAppcacheEnabled() throws Exception {
-		DefDescriptor<ApplicationDef> appDesc = addSourceAutoCleanup(ApplicationDef.class,
-				String.format(baseApplicationTag, "useAppCache='true' render='client'", ""));
-		AuraContext context = contextService.startContext(Mode.PROD, Format.HTML, Authentication.AUTHENTICATED);
-		context.setApplicationDescriptor(appDesc);
-		ApplicationDef appDef = definitionService.getDefinition(appDesc);
-		
-		Component template = serverService.writeTemplate(context , appDef, null, null);
-		
-		String init = (String)template.getAttributes().getValue("auraInit");
-		@SuppressWarnings("unchecked")
-		Map<String,Object> initMap = (Map<String, Object>) new JsonReader().read(init);
-		
-		assertEquals("Token should not be sent if appcache is enabled", false, initMap.containsKey("token"));
+        DefDescriptor<ApplicationDef> appDesc = addSourceAutoCleanup(ApplicationDef.class,
+                String.format(baseApplicationTag, "useAppCache='true' render='client'", ""));
+        AuraContext context = contextService.startContext(Mode.PROD, Format.HTML, Authentication.AUTHENTICATED);
+        context.setApplicationDescriptor(appDesc);
+        ApplicationDef appDef = definitionService.getDefinition(appDesc);
+
+        Component template = serverService.writeTemplate(context , appDef, null, null);
+
+        String init = (String)template.getAttributes().getValue("auraInit");
+        @SuppressWarnings("unchecked")
+        Map<String,Object> initMap = (Map<String, Object>) new JsonReader().read(init);
+
+        assertEquals("Token should not be sent if appcache is enabled", false, initMap.containsKey("token"));
+    }
+
+    @Test
+    public void testWriteTemplateHasPrefetchTagsForClientLibraries() throws Exception {
+        // Arrange
+        String appMarkup = "<aura:application><aura:clientLibrary name='CkEditor' type='JS' /></aura:application>";
+        DefDescriptor<ApplicationDef> appDesc = addSourceAutoCleanup(ApplicationDef.class, appMarkup);
+
+        AuraContext context = contextService.startContext(Mode.PROD, Format.HTML, Authentication.AUTHENTICATED);
+        context.setApplicationDescriptor(appDesc);
+        definitionService.updateLoaded(appDesc);
+
+        // Act
+        ApplicationDef appDef = definitionService.getDefinition(appDesc);
+        Component template = serverService.writeTemplate(context , appDef, null, null);
+
+        // Assert
+        String actual = template.getAttributes().getValue("prefetchTags").toString();
+        assertThat(actual, CoreMatchers.containsString("ckeditor.js"));
+    }
+    
+
+    @Test
+    public void testWriteTemplateExcludesPrefetchFalseTagsForClientLibraries() throws Exception {
+        // Arrange
+        String appMarkup = "<aura:application><aura:clientLibrary name='CkEditor' type='JS' prefetch='false' /></aura:application>";
+        DefDescriptor<ApplicationDef> appDesc = addSourceAutoCleanup(ApplicationDef.class, appMarkup);
+
+        AuraContext context = contextService.startContext(Mode.PROD, Format.HTML, Authentication.AUTHENTICATED);
+        context.setApplicationDescriptor(appDesc);
+        definitionService.updateLoaded(appDesc);
+
+        // Act
+        ApplicationDef appDef = definitionService.getDefinition(appDesc);
+        Component template = serverService.writeTemplate(context , appDef, null, null);
+
+        // Assert
+        String actual = template.getAttributes().getValue("prefetchTags").toString();
+        assertThat(actual, CoreMatchers.not(CoreMatchers.containsString("ckeditor.js")));
     }
 }

@@ -66,7 +66,7 @@
 
     getTriggerComponent: function (element) {
         var htmlCmp = $A.componentService.getRenderingComponentForElement(element);
-        var component = htmlCmp.getComponentValueProvider().getConcreteComponent();
+        var component = htmlCmp ? htmlCmp.getComponentValueProvider().getConcreteComponent() : null;
         while (component && !component.isInstanceOf("ui:popupTrigger")) {
             component = component.getComponentValueProvider().getConcreteComponent();
         }
@@ -110,7 +110,7 @@
 
         // if overflow is auto overflow-y is also auto,
         // however in firefox the opposite is not true
-        var overflow = getComputedStyle(elem)['overflow-y'];
+        var overflow = (getComputedStyle(elem) || elem.style)['overflow-y'];
 
         if (overflow === 'auto') {
             this._scrollableParent = elem;
@@ -149,7 +149,12 @@
                     var elemRect = element.getBoundingClientRect();
                     var referenceElemRect = target.getBoundingClientRect();
                     var horizontalCornerAlignment = this.rightCornerFitsInViewport(viewPort, elemRect, referenceElemRect) ? "left" : "right";
-                    var verticalCornerAlignment = this.bottomCornerFitsInViewport(viewPort, elemRect, referenceElemRect) ? "top" : "bottom";
+                    var verticalCornerAlignment;
+                    if (this.topCornerFitsInViewport(elemRect, referenceElemRect)) {
+                        verticalCornerAlignment = this.bottomCornerFitsInViewport(viewPort, elemRect, referenceElemRect) ? "top" : "bottom";
+                    } else {
+                        verticalCornerAlignment = "top";
+                    }
                     component._constraint = this.lib.panelPositioning.createRelationship({
                         element: element,
                         target: target,
@@ -158,11 +163,17 @@
                         targetAlign: horizontalCornerAlignment + " " + (verticalCornerAlignment === "top" ? "bottom" : "top"),
                         padTop: 2
                     });
-
-                    this.lib.panelPositioning.reposition(function () {
-                        element.classList.add("positioned");
-                        element.style.opacity = 1;
-                    });
+                    
+                    // Adding a small timeout so that the positioning calculation
+                    // happens after the pop up have been attached to the DOM
+                    // browsers like IE11 were getting the wrong position due to a race rendering condition
+                    setTimeout($A.getCallback(function () {
+                        this.lib.panelPositioning.reposition(function () {
+                            element.classList.add("positioned");
+                            element.style.opacity = 1;
+                        });
+                    }).bind(this),50);
+                    
                 }.bind(this)));
             }
         }
@@ -185,6 +196,10 @@
     bottomCornerFitsInViewport: function (viewPort, elemRect, referenceElemRect) {
         return (viewPort.height - referenceElemRect.bottom) > elemRect.height;
 
+    },
+
+    topCornerFitsInViewport: function (elemRect, referenceElemRect) {
+        return (referenceElemRect.top > elemRect.height);
     },
 
     setAriaAttributes: function (component) {

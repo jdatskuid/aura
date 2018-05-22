@@ -74,7 +74,20 @@ public class ExceptionAdapterImplTest extends AuraImplTestCase {
         String errorMsg = "error message";
         String CmpStack = "Component stack";
         String JsStacktrace = "JS stack trace";
-        AuraClientException clientException = new AuraClientException(causeDescriptor, errorId, errorMsg, JsStacktrace, CmpStack, instanceService, exceptionAdapter, configAdapter, contextService, definitionService);
+        String stacktraceIdGen = "stacktraceIdGen";
+        AuraClientException clientException = new AuraClientException(
+                causeDescriptor,
+                errorId,
+                errorMsg,
+                JsStacktrace,
+                CmpStack,
+                stacktraceIdGen,
+                AuraClientException.Level.ERROR,
+                instanceService,
+                exceptionAdapter,
+                configAdapter,
+                contextService,
+                definitionService);
 
         exceptionAdapter.handleException(clientException, null);
         List<LoggingEvent> logs = appender.getLog();
@@ -86,6 +99,7 @@ public class ExceptionAdapterImplTest extends AuraImplTestCase {
                 "Unhandled Exception '" + errorMsg +"':",
                 "Client error id: " + errorId,
                 "Failing descriptor: " + causeDescriptor,
+                "StacktraceId gen: " + stacktraceIdGen,
                 "Component hierarchy: " + CmpStack,
                 "Javascript stack: " + JsStacktrace
             };

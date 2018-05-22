@@ -16,22 +16,24 @@
 
 package org.auraframework.http.resource;
 
+import org.auraframework.adapter.AppJsUtilAdapter;
+import org.auraframework.annotations.Annotations.ServiceComponent;
+import org.auraframework.def.DefDescriptor;
+import org.auraframework.service.ServerService.HYDRATION_TYPE;
+import org.auraframework.system.AuraContext;
+import org.auraframework.system.AuraContext.Format;
+
+import javax.inject.Inject;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Set;
 
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
-
-import org.auraframework.annotations.Annotations.ServiceComponent;
-import org.auraframework.def.DefDescriptor;
-import org.auraframework.system.AuraContext;
-import org.auraframework.system.AuraContext.Format;
-
 @ServiceComponent
 public class AppJs extends AuraResourceImpl {
-    private static final String APPJS_PREPEND = "\"undefined\"===typeof Aura&&(Aura={});Aura.bootstrap||(Aura.bootstrap={});Aura.frameworkJsReady||(Aura.ApplicationDefs={cmpExporter:{},libExporter:{}},$A={componentService:{addComponent:function(a,b){Aura.ApplicationDefs.cmpExporter[a]=b},addLibraryExporter:function(a,b){Aura.ApplicationDefs.libExporter[a]=b},initEventDefs:function(a){Aura.ApplicationDefs.eventDefs=a},initLibraryDefs:function(a){Aura.ApplicationDefs.libraryDefs=a},initControllerDefs:function(a){Aura.ApplicationDefs.controllerDefs=a},initModuleDefs:function(a){Aura.ApplicationDefs.moduleDefs=a}}});\n";
-    private static final String APPJS_APPEND = "\nAura.appJsReady = true;Aura.appDefsReady&&Aura.appDefsReady();";
+
+    private AppJsUtilAdapter appJsUtilAdapter;
 
     public AppJs() {
         super("app.js", Format.JS);
@@ -39,20 +41,37 @@ public class AppJs extends AuraResourceImpl {
 
     @Override
     public void write(HttpServletRequest request, HttpServletResponse response, AuraContext context) throws IOException {
-        Set<DefDescriptor<?>> dependencies = servletUtilAdapter.verifyTopLevel(request, response, context);
+        boolean isSplitEnabled = context.isAppJsSplitEnabled();
+        Set<DefDescriptor<?>> dependencies = isSplitEnabled ?
+                    appJsUtilAdapter.getPartDependencies(request, response, context, 1) :
+                    servletUtilAdapter.verifyTopLevel(request, response, context);
         if (dependencies == null) {
             return;
         }
 
         try {
             PrintWriter writer = response.getWriter();
-            writer.append(APPJS_PREPEND);
-            serverService.writeDefinitions(dependencies, writer);
-            writer.append(APPJS_APPEND);
+            writer.append(AppJsUtilAdapter.APPJS_PREREQ);
+
+            if (isSplitEnabled) {
+                serverService.writeDefinitions(dependencies, writer, true, 1, HYDRATION_TYPE.all);
+                writer.append(AppJsUtilAdapter.APPJS_APPEND);
+            } else {
+                serverService.writeDefinitions(dependencies, writer, false, -1, HYDRATION_TYPE.all);
+                writer.append(AppJsUtilAdapter.APPJS_APPEND);
+                writer.append(AppJsUtilAdapter.APPCOREJS_READY);
+            }
+
+            writer.append(AppJsUtilAdapter.APPJS_READY);
+            writer.append(AppJsUtilAdapter.EXECUTE_APPDEFSREADY);
         } catch (Throwable t) {
             servletUtilAdapter.handleServletException(t, false, context, request, response, false);
             exceptionAdapter.handleException(new AuraResourceException(getName(), response.getStatus(), t));
         }
     }
 
+    @Inject
+    public void setAppJsUtilAdapter(AppJsUtilAdapter appJsUtilAdapter) {
+        this.appJsUtilAdapter = appJsUtilAdapter;
+    }
 }

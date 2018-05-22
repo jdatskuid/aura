@@ -16,9 +16,6 @@
 
 package org.auraframework.integration.test.components.ui.dialogUITest;
 
-import java.net.MalformedURLException;
-import java.net.URISyntaxException;
-
 import org.auraframework.integration.test.util.WebDriverTestCase;
 import org.auraframework.test.util.WebDriverUtil.BrowserType;
 import org.junit.Test;
@@ -66,16 +63,17 @@ public class DialogUITest extends WebDriverTestCase {
 
     // Helper method used to make sure that enter is not used for Safari
     public void clickOnElementOrPressEnter(WebElement elm) {
-        if (BrowserType.SAFARI.equals(getBrowserType())) {
+        BrowserType type = getBrowserType();
+        if (BrowserType.SAFARI.equals(type)) {
             elm.click();
         } else {
-            getAuraUITestingUtil().pressEnter(elm);
+            elm.sendKeys(Keys.ENTER);
         }
     }
 
     public void openDialogBox(WebDriver driver) {
         WebElement element = driver.findElement(By.cssSelector(RESULT_LABEL));
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
         element = driver.findElement(By.cssSelector("button[class*='" + LAUNCH_DIALOG + "']"));
 
         clickOnElementOrPressEnter(element);
@@ -141,7 +139,7 @@ public class DialogUITest extends WebDriverTestCase {
      ***********************************************************************************************/
     @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testDialogModalWorksWithoutButtonsAttribSet() throws MalformedURLException, URISyntaxException {
+    public void testDialogModalWorksWithoutButtonsAttribSet() throws Exception {
         open(URL_MODAL);
         WebDriver driver = getDriver();
 
@@ -150,7 +148,7 @@ public class DialogUITest extends WebDriverTestCase {
 
     @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testDialogModalFocusOnDialogBox() throws MalformedURLException, URISyntaxException {
+    public void testDialogModalFocusOnDialogBox() throws Exception {
         open(URL_MODAL);
         WebDriver driver = getDriver();
 
@@ -189,10 +187,10 @@ public class DialogUITest extends WebDriverTestCase {
     /***********************************************************************************************
      *************************** NON-MODAL DIALOG BOX CHECK******************************************
      ***********************************************************************************************/
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8, BrowserType.SAFARI,
+    @ExcludeBrowsers({ BrowserType.IE8, BrowserType.SAFARI,
             BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testDialogNonModalCheckBoxes() throws MalformedURLException, URISyntaxException {
+    public void testDialogNonModalCheckBoxes() throws Exception {
         open(URL_NON_MODAL_WITH_CHECKBOXES);
 
         WebDriver driver = getDriver();
@@ -207,7 +205,7 @@ public class DialogUITest extends WebDriverTestCase {
 
         classOfActiveElem = "button[title*='" + CONFIRM_STR + "']";
         element = driver.findElement(By.cssSelector(classOfActiveElem));
-        getAuraUITestingUtil().pressEnter(element);
+        element.sendKeys(Keys.ENTER);
 
         // Getting the input text box to grab the value that was put in it
         element = driver.findElement(By.cssSelector(RESULT_LABEL));
@@ -215,10 +213,10 @@ public class DialogUITest extends WebDriverTestCase {
     }
 
     // Checking if Dialog box will will close after having all elements tabbed through
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.SAFARI, BrowserType.ANDROID_PHONE,
+    @ExcludeBrowsers({ BrowserType.SAFARI, BrowserType.ANDROID_PHONE,
             BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testDialogNonModalTab() throws MalformedURLException, URISyntaxException {
+    public void testDialogNonModalTab() throws Exception {
         open(URL_NON_MODAL);
 
         WebDriver driver = getDriver();
@@ -228,20 +226,19 @@ public class DialogUITest extends WebDriverTestCase {
         WebElement element = moveToNextActiveElement(driver);
         assertEquals("Went through all check boxees but did not get to the cancel button", CANCEL_STR,
                 element.getAttribute("title"));
-
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         // Getting Ok button
         element = moveToNextActiveElement(driver);
         assertEquals("Got to the cancel button but did not tab to confirm button", CONFIRM_STR,
                 element.getAttribute("title"));
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         // Getting close button
         element = moveToNextActiveElement(driver);
         assertEquals("Got to the confirm button but did not tab to close button", CLOSE_STR,
                 element.getAttribute("title"));
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         // Getting the item that called it
         String classOfActiveElem = "button[class*='" + getAuraUITestingUtil().getEval(CLASSNAME) + "']";
@@ -251,10 +248,10 @@ public class DialogUITest extends WebDriverTestCase {
                 LAUNCH_DIALOG, element.getAttribute("className"));
     }
 
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.SAFARI, BrowserType.ANDROID_PHONE,
+    @ExcludeBrowsers({ BrowserType.SAFARI, BrowserType.ANDROID_PHONE,
             BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testDialogNonModalFocusOnExit() throws MalformedURLException, URISyntaxException {
+    public void testDialogNonModalFocusOnExit() throws Exception {
         open(URL_NON_MODAL);
 
         WebDriver driver = getDriver();
@@ -277,10 +274,10 @@ public class DialogUITest extends WebDriverTestCase {
 
     // Checking that the Escape button should not submit with submiting
     // here
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.SAFARI, BrowserType.ANDROID_PHONE,
+    @ExcludeBrowsers({ BrowserType.SAFARI, BrowserType.ANDROID_PHONE,
             BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testDialogNonModalDefaultSubmit() throws MalformedURLException, URISyntaxException {
+    public void testDialogNonModalDefaultSubmit() throws Exception {
         open(URL_NON_MODAL);
 
         WebDriver driver = getDriver();
@@ -291,7 +288,7 @@ public class DialogUITest extends WebDriverTestCase {
         assertEquals("Went through all check boxees but did not get to the cancel button", CANCEL_STR,
                 element.getAttribute("title"));
 
-        getAuraUITestingUtil().pressTab(element);
+        element.sendKeys(Keys.TAB);
 
         // Getting Ok button
         element = moveToNextActiveElement(driver);
@@ -313,7 +310,7 @@ public class DialogUITest extends WebDriverTestCase {
     // Checking that the Escape button should not submit with submiting
     @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testDialogNonModalEscapeButton() throws MalformedURLException, URISyntaxException {
+    public void testDialogNonModalEscapeButton() throws Exception {
         open(URL_NON_MODAL);
 
         WebDriver driver = getDriver();
@@ -334,10 +331,10 @@ public class DialogUITest extends WebDriverTestCase {
     }
 
     // Check that shift tab does not break nonModal Dialog boxes
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.SAFARI, BrowserType.ANDROID_PHONE,
+    @ExcludeBrowsers({ BrowserType.SAFARI, BrowserType.ANDROID_PHONE,
             BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testDialogNonModalShiftTab() throws MalformedURLException, URISyntaxException {
+    public void testDialogNonModalShiftTab() throws Exception {
         open(URL_NON_MODAL);
 
         WebDriver driver = getDriver();
@@ -381,7 +378,7 @@ public class DialogUITest extends WebDriverTestCase {
 
     @TargetBrowsers({ BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testMobilePhoneModal() throws MalformedURLException, URISyntaxException {
+    public void testMobilePhoneModal() throws Exception {
         open(URL_MODAL);
         WebDriver driver = getDriver();
 
@@ -392,7 +389,7 @@ public class DialogUITest extends WebDriverTestCase {
 
     @TargetBrowsers({ BrowserType.IPAD, BrowserType.IPHONE })
     @Test
-    public void testMobilePhoneNonModal() throws MalformedURLException, URISyntaxException {
+    public void testMobilePhoneNonModal() throws Exception {
         open(URL_NON_MODAL);
         WebDriver driver = getDriver();
         // Open dialog box, press ok to check that it submitted data.

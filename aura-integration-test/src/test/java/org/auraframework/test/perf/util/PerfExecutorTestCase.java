@@ -1,5 +1,3 @@
-package org.auraframework.test.perf.util;
-
 /*
  * Copyright (C) 2013 salesforce.com, inc.
  *
@@ -15,6 +13,7 @@ package org.auraframework.test.perf.util;
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+package org.auraframework.test.perf.util;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.gson.Gson;
@@ -22,6 +21,7 @@ import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
+import org.auraframework.impl.util.AuraUtil;
 import org.auraframework.integration.test.util.WebDriverTestCase;
 import org.auraframework.integration.test.util.WebDriverTestCase.TargetBrowsers;
 import org.auraframework.system.AuraContext;
@@ -29,7 +29,6 @@ import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.test.perf.PerfWebDriverUtil;
 import org.auraframework.test.util.WebDriverUtil.BrowserType;
 import org.auraframework.throwable.quickfix.QuickFixException;
-import org.auraframework.util.AuraFiles;
 import org.auraframework.util.json.JsonEncoder;
 import org.auraframework.util.test.annotation.PerfCmpTest;
 import org.auraframework.util.test.perf.metrics.PerfMetrics;
@@ -43,9 +42,6 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.net.MalformedURLException;
-import java.net.URISyntaxException;
 import java.net.URLEncoder;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -121,7 +117,7 @@ public class PerfExecutorTestCase extends WebDriverTestCase {
             if(fileName.contains("/core/")){
                 componentsDir = moduleDir.toString();
             } else {
-                componentsDir =  AuraFiles.Core.getPath() + "/aura-components/src/test/components";
+                componentsDir =  AuraUtil.getAuraHome() + "/aura-components/src/test/components";
             }
         } catch (QuickFixException e1) {
             // TODO Auto-generated catch block
@@ -133,8 +129,7 @@ public class PerfExecutorTestCase extends WebDriverTestCase {
         return componentsDir;
     }
 
-    private void loadComponent(String url, DefDescriptor<BaseComponentDef> descriptor) throws MalformedURLException,
-            URISyntaxException {
+    private void loadComponent(String url, DefDescriptor<BaseComponentDef> descriptor) throws Exception {
 
         openTotallyRaw(url);
 
@@ -174,7 +169,7 @@ public class PerfExecutorTestCase extends WebDriverTestCase {
         return condition;
     }
 
-    private String generateUrl (DefDescriptor<BaseComponentDef> descriptor, Mode mode, String customUrl) throws UnsupportedEncodingException, MalformedURLException, URISyntaxException {
+    private String generateUrl (DefDescriptor<BaseComponentDef> descriptor, Mode mode, String customUrl) throws Exception {
         // If descriptor is application type, then build the url with .app extension
         if (descriptor.getDefType() == DefType.APPLICATION) {
             return new StringBuilder().append("/").append(descriptor.getNamespace())

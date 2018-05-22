@@ -16,21 +16,45 @@
 
 package org.auraframework.impl.adapter;
 
-import org.apache.log4j.Logger;
-import org.apache.log4j.spi.LoggingEvent;
-import org.auraframework.impl.test.util.LoggingTestAppender;
-import org.auraframework.throwable.GenericEventException;
-import org.auraframework.util.test.util.UnitTestCase;
-import org.junit.Test;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.verify;
 
-import java.util.List;
 import java.util.UUID;
+import java.util.logging.Level;
 
-public class ServerErrorUtilAdapterImplUnitTest extends UnitTestCase {
+import org.auraframework.service.ContextService;
+import org.auraframework.service.LoggingService;
+import org.auraframework.system.AuraContext;
+import org.auraframework.system.AuraContext.Mode;
+import org.auraframework.throwable.GenericEventException;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Mockito;
+
+public class ServerErrorUtilAdapterImplUnitTest {
 
     private static final String SERVER_ERROR_EVENT = "aura:serverActionError";
 
-    private ServerErrorUtilAdapterImpl serverErrorUtilAdapter = new ServerErrorUtilAdapterImpl();
+    private ServerErrorUtilAdapterImpl serverErrorUtilAdapter;
+
+    @Before
+    public void setUp() {
+        serverErrorUtilAdapter = new ServerErrorUtilAdapterImpl();
+
+        ContextService mockContextSerivce = Mockito.mock(ContextService.class);
+        AuraContext mockContext = Mockito.mock(AuraContext.class);
+        Mockito.when(mockContext.getMode()).thenReturn(Mode.DEV);
+        Mockito.when(mockContextSerivce.getCurrentContext()).thenReturn(mockContext);
+
+        LoggingService mockLoggingService = Mockito.mock(LoggingService.class);
+
+        serverErrorUtilAdapter.setContextService(mockContextSerivce);
+        serverErrorUtilAdapter.setLoggingService(mockLoggingService);
+    }
 
     @Test
     public void handleException() throws Exception {
@@ -54,19 +78,29 @@ public class ServerErrorUtilAdapterImplUnitTest extends UnitTestCase {
     }
 
     @Test
-    public void processError() {
-        Logger logger = Logger.getLogger(ServerErrorUtilAdapterImpl.class);
-        LoggingTestAppender appender = new LoggingTestAppender();
-        List<LoggingEvent> logs = appender.getLog();
-        logger.addAppender(appender);
+    public void processErrorWithInfoLevelException() {
+        ServerErrorUtilAdapterImpl serverErrorUtilAdapter = new ServerErrorUtilAdapterImpl();
+
+        ContextService mockContextSerivce = Mockito.mock(ContextService.class);
+        AuraContext mockContext = Mockito.mock(AuraContext.class);
+        Mockito.when(mockContext.getMode()).thenReturn(Mode.DEV);
+        Mockito.when(mockContextSerivce.getCurrentContext()).thenReturn(mockContext);
+
+        LoggingService mockLoggingService = Mockito.mock(LoggingService.class);
+
+        serverErrorUtilAdapter.setContextService(mockContextSerivce);
+        serverErrorUtilAdapter.setLoggingService(mockLoggingService);
+
 
         String message = "err";
-        String errorId = serverErrorUtilAdapter.processError(message, new RuntimeException());
+        String errorId = serverErrorUtilAdapter.processError(message, new RuntimeException(), Level.INFO, null);
 
         // This will throw if errorId isn't a uuid.
         UUID.fromString(errorId);
 
-        String logMessage = logs.get(0).getMessage().toString();
-        assertTrue(logMessage.equals(message));
+        ArgumentCaptor<String> argument = ArgumentCaptor.forClass(String.class);
+        verify(mockLoggingService).warn(argument.capture(), any(Throwable.class));
+        assertEquals(message, argument.getValue());
     }
+
 }

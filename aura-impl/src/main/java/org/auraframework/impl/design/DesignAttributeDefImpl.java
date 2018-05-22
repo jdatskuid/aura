@@ -21,22 +21,27 @@ import org.auraframework.builder.design.DesignAttributeDefBuilder;
 import org.auraframework.def.AttributeDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.DefDescriptor;
+import org.auraframework.def.InterfaceDef;
 import org.auraframework.def.RootDefinition;
+import org.auraframework.def.TypeDef;
 import org.auraframework.def.design.DesignAttributeDef;
 import org.auraframework.def.design.DesignAttributeDefaultDef;
 import org.auraframework.impl.system.DefinitionImpl;
+import org.auraframework.impl.type.ComponentArrayTypeDef;
+import org.auraframework.impl.type.ComponentDefRefArrayTypeDef;
+import org.auraframework.impl.util.AuraUtil;
 import org.auraframework.service.DefinitionService;
-import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.Set;
 
 public class DesignAttributeDefImpl extends DefinitionImpl<DesignAttributeDef> implements DesignAttributeDef {
-    private static final Set<String> VALID_DESIGN_ATTRIBUTE_TYPES = Sets.newHashSet("string", "integer", "boolean");
-    private static final Set<String> VALID_DESIGN_ATTRIBUTE_TYPES_FOR_FACET = Sets.newHashSet("object[]", "aura.component[]");
+    private static final Set<String> VALID_DESIGN_ATTRIBUTE_TYPES_FOR_FACET = Sets.newHashSet("object[]", "aura.component[]", "aura.componentdefref[]");
     private static final Set<String> VALID_DATASOURCE_ATTRIBUTE_TYPES = Sets.newHashSet("string");
     private static final long serialVersionUID = 3290806856269872853L;
 
@@ -55,12 +60,13 @@ public class DesignAttributeDefImpl extends DefinitionImpl<DesignAttributeDef> i
     private final String placeholder;
     private final String description;
     private final String defaultValue;
+    private final Set<DefDescriptor<InterfaceDef>> allowedInterfaces;
     //Privileged
     private final String minApi;
     private final String maxApi;
     private final boolean translatable;
     private final DesignAttributeDefaultDef defaultFacet;
-
+    private final String accessCheck;
 
     protected DesignAttributeDefImpl(Builder builder) {
         super(builder);
@@ -79,9 +85,11 @@ public class DesignAttributeDefImpl extends DefinitionImpl<DesignAttributeDef> i
         this.minApi = builder.minApi;
         this.maxApi = builder.maxApi;
         this.translatable = builder.translatable;
+        this.allowedInterfaces = AuraUtil.immutableSet(builder.allowedInterfaces);
         this.defaultFacet = builder.defaultFacet;
         this.isInInternalNamespace = builder.isInInternalNamespace;
         this.parentDescriptor = builder.parentDescriptor;
+        this.accessCheck = builder.accessCheck;
     }
 
     @Override
@@ -160,6 +168,11 @@ public class DesignAttributeDefImpl extends DefinitionImpl<DesignAttributeDef> i
     }
 
     @Override
+    public Set<DefDescriptor<InterfaceDef>> getAllowedInterfaces() {
+        return allowedInterfaces;
+    }
+
+    @Override
     public String getDescription() {
         return description;
     }
@@ -168,31 +181,31 @@ public class DesignAttributeDefImpl extends DefinitionImpl<DesignAttributeDef> i
     public DefDescriptor<? extends RootDefinition> getParentDescriptor() {
         return parentDescriptor;
     }
+    
+    @Override
+    public String getAccessCheck() {
+    	return accessCheck;
+    }
 
     @Override
-    public void validateReferences() throws QuickFixException {
-        super.validateReferences();
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        super.validateReferences(validationContext);
 
         DefinitionService definitionService = Aura.getDefinitionService();
         ComponentDef cmp = definitionService.getDefinition(getParentDescriptor().getQualifiedName(),ComponentDef.class);
         AttributeDef attr = cmp.getAttributeDef(getName());
         if (attr == null || !attr.getName().equals(getName())) {
-            throw new DefinitionNotFoundException(Aura.getDefinitionService().getDefDescriptor(getName(),
-                    AttributeDef.class));
+            throw new InvalidDefinitionException("The design file contains attribute '"+getName()+"' but the component doesn't.", getLocation());
         }
+        TypeDef attrType = attr.getTypeDef();
         if(!isInInternalNamespace && getDataSource() != null){
-            if(!VALID_DATASOURCE_ATTRIBUTE_TYPES.contains(
-                    attr.getTypeDef().getDescriptor().getDescriptorName().toLowerCase())){
+            if(!VALID_DATASOURCE_ATTRIBUTE_TYPES.contains(attrType.getDescriptor().getDescriptorName().toLowerCase())){
                 throw new InvalidDefinitionException("Only String attributes may have a datasource in the design file.", getLocation());
             }
-
-        } else if(!isInInternalNamespace && !VALID_DESIGN_ATTRIBUTE_TYPES.contains(
-                attr.getTypeDef().getDescriptor().getDescriptorName().toLowerCase())){
-            throw new InvalidDefinitionException("Only Boolean, Integer or String attributes may be exposed in design files.", getLocation());
         }
 
         if (getAttributeDefault() != null &&
-                !VALID_DESIGN_ATTRIBUTE_TYPES_FOR_FACET.contains(attr.getTypeDef().getDescriptor().getDescriptorName().toLowerCase())) {
+                !VALID_DESIGN_ATTRIBUTE_TYPES_FOR_FACET.contains(attrType.getDescriptor().getDescriptorName().toLowerCase())) {
             throw new InvalidDefinitionException("Only attributes of type Object[] or Aura.Component[] may have default blocks", getLocation());
         }
 
@@ -201,7 +214,14 @@ public class DesignAttributeDefImpl extends DefinitionImpl<DesignAttributeDef> i
                     getLocation());
         }
         if (defaultFacet != null) {
-            defaultFacet.validateReferences();
+            defaultFacet.validateReferences(validationContext);
+        }
+
+        if (!allowedInterfaces.isEmpty() && !(attrType instanceof ComponentArrayTypeDef) &&
+            !(attrType instanceof ComponentDefRefArrayTypeDef)) {
+            throw new InvalidDefinitionException(
+                    "Only attributes of type Aura.Component[] or Aura.ComponentDefRef may have allowed interface list",
+                    getLocation());
         }
     }
 
@@ -236,6 +256,8 @@ public class DesignAttributeDefImpl extends DefinitionImpl<DesignAttributeDef> i
         private DesignAttributeDefaultDef defaultFacet;
         private boolean isInInternalNamespace;
         private DefDescriptor<? extends RootDefinition> parentDescriptor;
+        private Set<DefDescriptor<InterfaceDef>> allowedInterfaces;
+        private String accessCheck;
 
         /**
          * @see org.auraframework.impl.system.DefinitionImpl.BuilderImpl#build()
@@ -349,6 +371,21 @@ public class DesignAttributeDefImpl extends DefinitionImpl<DesignAttributeDef> i
         public DesignAttributeDefBuilder setIsInternalNamespace(boolean internalNamespace) {
             this.isInInternalNamespace = internalNamespace;
             return this;
+        }
+
+        @Override
+        public DesignAttributeDefBuilder addAllowedInterface(DefDescriptor<InterfaceDef> allowedInterface) {
+            if (this.allowedInterfaces == null) {
+                this.allowedInterfaces = new HashSet<>();
+            }
+            this.allowedInterfaces.add(allowedInterface);
+            return this;
+        }
+        
+        @Override
+        public DesignAttributeDefBuilder setAccessCheck(String accessCheck) {
+        	this.accessCheck = accessCheck;
+        	return this;
         }
     }
 }

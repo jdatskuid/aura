@@ -20,7 +20,7 @@ import java.util.Map;
 
 /**
  */
-public interface DocumentationDef extends RootDefinition {
+public interface DocumentationDef extends Definition {
     @Override
     DefDescriptor<DocumentationDef> getDescriptor();
     
@@ -43,4 +43,9 @@ public interface DocumentationDef extends RootDefinition {
      * @return map from ExampleDef name to ExampleDef
      */
     Map<String, ExampleDef> getExampleDefsAsMap();
+    
+    /**
+     * Gets the {@link MetaDef} within this documentation.
+     */
+    Map<String, MetaDef> getMetaDefsAsMap();
 }

@@ -15,13 +15,14 @@
  */
 package org.auraframework.http;
 
+import com.google.common.collect.Maps;
+
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-
+import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
@@ -32,12 +33,9 @@ import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 import org.apache.http.HttpHeaders;
 import org.auraframework.AuraDeprecated;
 import org.auraframework.adapter.ConfigAdapter;
-import org.auraframework.adapter.LocalizationAdapter;
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.ComponentDef;
@@ -60,8 +58,6 @@ import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.json.JsonReader;
 import org.springframework.web.context.support.SpringBeanAutowiringSupport;
 
-import com.google.common.collect.Maps;
-
 public class AuraContextFilter implements Filter {
     public static final EnumParam<AuraContext.Mode> mode = new EnumParam<>(AuraServlet.AURA_PREFIX
             + "mode", false, AuraContext.Mode.class);
@@ -72,14 +68,13 @@ public class AuraContextFilter implements Filter {
     private static final EnumParam<Authentication> access = new EnumParam<>(AuraServlet.AURA_PREFIX
             + "access", false, Authentication.class);
 
+    private static final BooleanParam isActionParam = new BooleanParam(AuraServlet.AURA_PREFIX + "isAction", false);
     private static final StringParam app = new StringParam(AuraServlet.AURA_PREFIX + "app", 0, false);
     private static final StringParam num = new StringParam(AuraServlet.AURA_PREFIX + "num", 0, false);
     private static final StringParam contextConfig = new StringParam(AuraServlet.AURA_PREFIX + "context", 0, false);
+    protected static final StringParam pageURI = new StringParam(AuraServlet.AURA_PREFIX + "pageURI", 0, false);
     protected static final BooleanParam modulesParam = new BooleanParam(AuraServlet.AURA_PREFIX + "modules", false);
-
-    private String componentDir = null;
-
-    private static final Log LOG = LogFactory.getLog(AuraContextFilter.class);
+    protected static final BooleanParam compatParam = new BooleanParam(AuraServlet.AURA_PREFIX + "compat", false);
 
     private AuraTestFilter testFilter;
 
@@ -90,7 +85,7 @@ public class AuraContextFilter implements Filter {
     private DefinitionService definitionService;
     protected ConfigAdapter configAdapter;
     protected SerializationService serializationService;
-    private LocalizationAdapter localizationAdapter;
+    private BrowserCompatibilityService browserCompatibilityService;
 
     @Inject
     public void setContextService(ContextService service) {
@@ -134,9 +129,12 @@ public class AuraContextFilter implements Filter {
         this.testFilter = testFilter;
     }
 
+    public void setLocalizationAdapter(Object ignored) {
+    }
+
     @Inject
-    public void setLocalizationAdapter(LocalizationAdapter localizationAdapter) {
-        this.localizationAdapter = localizationAdapter;
+    public void setBrowserCompatibilityService(BrowserCompatibilityService browserCompatibilityService) {
+        this.browserCompatibilityService = browserCompatibilityService;
     }
 
     public AuraTestFilter getAuraTestFilter() {
@@ -147,17 +145,24 @@ public class AuraContextFilter implements Filter {
     public void doFilter(ServletRequest req, ServletResponse res, FilterChain chain) throws ServletException, IOException {
 
         if (contextService.isEstablished()) {
-            LOG.error("Aura context was not released correctly! New context will NOT be created.");
+            loggingService.error("Aura context was not released correctly! New context will NOT be created.");
             chain.doFilter(req, res);
             return;
         }
 
         try {
-            startContext(req, res, chain);
+            AuraContext context = startContext(req, res, chain);
             HttpServletRequest request = (HttpServletRequest) req;
             loggingService.setValue(LoggingService.REQUEST_METHOD, request.getMethod());
             loggingService.setValue(LoggingService.AURA_REQUEST_URI, request.getRequestURI());
             loggingService.setValue(LoggingService.AURA_REQUEST_QUERY, request.getQueryString());
+
+            loggingService.setValue(LoggingService.PAGE_URI, pageURI.get(request, request.getHeader("Referer")));
+            DefDescriptor<? extends BaseComponentDef> app = context.getApplicationDescriptor();
+            if (app != null) {
+                loggingService.setValue(LoggingService.APP, app.getDescriptorName());
+            }
+
             if (testFilter != null) {
                 testFilter.doFilter(req, res, chain);
             } else {
@@ -197,37 +202,21 @@ public class AuraContextFilter implements Filter {
 
         DefDescriptor<? extends BaseComponentDef> appDesc = getAppParam(request, configMap);
 
-        if (componentDir != null) {
-            System.setProperty("aura.componentDir", componentDir);
-        }
         //
         // FIXME: our usage of format should be revisited. Most URLs have
         // a fixed format, so we should have a way of getting that.
         //
         if (f == null) {
-            if ("GET".equals(request.getMethod())) {
+            if (AuraComponentDefinitionServlet.URI_DEFINITIONS_PATH.equals(request.getServletPath())) {
+                f = Format.JSON;
+            } else if ("GET".equals(request.getMethod()) && !isActionParam.get(request, false)) {
                 f = Format.HTML;
             } else {
                 f = Format.JSON;
             }
         }
 
-        List<Locale> requestedLocales = Collections.list(request.getLocales());
-
-        //
-        // When a context is starting, LocalizationAdapter does not have a valid
-        // context to get the requested locales to create appropriate
-        // AuraLocale.
-        // So, we pass the locales to LocalizationAdapter
-        //
-        localizationAdapter.setRequestedLocales(requestedLocales);
-
         AuraContext context = contextService.startContext(m, f, a, appDesc);
-
-        //
-        // Reset it after the context is started (created)
-        //
-        localizationAdapter.setRequestedLocales(null);
 
         String contextPath = request.getContextPath();
         // some appservers (like tomcat) use "/" as the root path, others ""
@@ -236,10 +225,14 @@ public class AuraContextFilter implements Filter {
         }
         context.setContextPath(contextPath);
         context.setNum(num.get(request));
-        context.setRequestedLocales(requestedLocales);
+        context.setRequestedLocales(Collections.list(request.getLocales()));
+        
         context.setClient(new Client(request.getHeader(HttpHeaders.USER_AGENT)));
-        context.setModulesEnabled(isModulesEnabled(request, configMap, m));
-        context.setUseCompatSource(useCompatSource(request, m));
+
+        context.setForceCompat(forceCompat(request, configMap, m));
+        context.setUseCompatSource(context.forceCompat() || useCompatSource(request, configMap, m));
+
+        context.setActionPublicCacheKey(getActionPublicCacheKey(configMap));
         if (configMap != null) {
             getLoaded(context, configMap.get("loaded"));
             @SuppressWarnings("unchecked")
@@ -264,6 +257,14 @@ public class AuraContextFilter implements Filter {
                     context.setGlobalValue(entry.getKey(), entry.getValue());
                 }
             }
+
+            if (configMap.containsKey("uad")) {
+                if (configMap.get("uad") instanceof Number) {
+                    context.setUriDefsEnabled(((Number)configMap.get("uad")).intValue() != 0);
+                } else if (configMap.get("uad") instanceof Boolean) {
+                    context.setUriDefsEnabled((Boolean) configMap.get("uad"));
+                }
+            }
         }
 
         return context;
@@ -281,7 +282,7 @@ public class AuraContextFilter implements Filter {
         }
         @SuppressWarnings("unchecked")
         Map<String, String> loaded = (Map<String, String>) loadedEntry;
-        Map<DefDescriptor<?>, String> clientLoaded = Maps.newHashMap();
+        Map<DefDescriptor<?>, String> clientLoaded = Maps.newHashMapWithExpectedSize(loaded.size() * 3/2);
 
         for (Map.Entry<String, String> entry : loaded.entrySet()) {
             String uid = entry.getValue();
@@ -300,9 +301,7 @@ public class AuraContextFilter implements Filter {
                         // see them, but, well, we don't have that now.
                     }
                     if (type != null) {
-                        DefDescriptor<?> ld = null;
-
-                        ld = definitionService.getDefDescriptor(defStr, type.getPrimaryInterface());
+                        DefDescriptor<?> ld = definitionService.getDefDescriptor(defStr, type.getPrimaryInterface());
                         clientLoaded.put(ld, uid);
                     }
                 }
@@ -320,7 +319,12 @@ public class AuraContextFilter implements Filter {
                 // Decode encoded context json. Serialized AuraContext json always starts with "{"
                 config = AuraTextUtil.urldecode(config);
             }
-            configMap = (Map<String, Object>) new JsonReader().read(config);
+            try {
+                configMap = (Map<String, Object>) new JsonReader().read(config);
+            } catch (Throwable throwable){
+                //config map was invalid. log the bad json and move on. Callers are protected against null.
+                loggingService.warn("aura.config was invalid JSON:" + config, throwable);
+            }
         }
         return configMap;
     }
@@ -329,8 +333,7 @@ public class AuraContextFilter implements Filter {
         // Get the passed in mode param.
         // Check the aura.mode param first then fall back to the mode value
         // embedded in the aura.context param
-        Mode m = null;
-        m = mode.get(request);
+        Mode m = mode.get(request);
         if (m == null && configMap != null && configMap.containsKey("mode")) {
             m = Mode.valueOf((String) configMap.get("mode"));
         }
@@ -358,55 +361,61 @@ public class AuraContextFilter implements Filter {
     }
 
     /**
-     * Whether modules should be enabled based on ConfigAdapter, URL param, or context config from URL
-     *
-     * @param request http request
-     * @param configMap context config from encoded url
-     * @param mode Aura context mode
-     * @return whether modules should be enabled
-     */
-    protected boolean isModulesEnabled(HttpServletRequest request, Map<String, Object> configMap, Mode mode) {
-        if (configMap != null) {
-            // configMap is present when processing requests with url encoded AuraContext ie app.js
-            if (configMap.containsKey("m")) {
-                // when m is present, it's a request to fetch module enabled content
-                // hence, this AuraContext should also be module enabled
-                String configValue = String.valueOf(configMap.get("m"));
-                return "1".equals(configValue);
-            } else {
-                return false;
-            }
-        }
-
-        if (mode != Mode.PROD) {
-            // DO NOT allow url param override in prod
-            String modulesEnabledParam = request.getParameter(AuraServlet.AURA_PREFIX + "modules");
-            if (modulesEnabledParam != null) {
-                // Uses BooleanParam which is true for "1", "true", "yes". Anything else is false.
-                return modulesParam.get(request);
-            }
-        }
-
-        return configAdapter.isModulesEnabled();
-    }
-
-    /**
-     * Whether compat module should be served based on ???
+     * Whether compat module should be served based on browser
      *
      * @param request http request
      * @param mode Aura context mode
      * @return whether compat module should be served
      */
-    protected boolean useCompatSource(HttpServletRequest request, Mode mode) {
-        // TODO: define when we want to serve compat module source
+    protected boolean useCompatSource(HttpServletRequest request, Map<String, Object> configMap, Mode mode) {
+        if (configMap != null) {
+            // when c is present, it's a request to fetch module compiled code in compatibility mode
+            return configMapContains("c", "1", configMap);
+        }
+
+        String uaHeader = request.getHeader(HttpHeaders.USER_AGENT);
+        return !this.browserCompatibilityService.isCompatible(uaHeader);
+    }
+
+    /**
+     * force compat mode
+     *
+     * @param request http request
+     * @param mode Aura context mode
+     * @return whether compat module should be served
+     */
+    protected boolean forceCompat(HttpServletRequest request, Map<String, Object> configMap, Mode mode) {
+        if (configMap != null) {
+            // when fc is present, it's a request to fetch module compiled code in compatibility mode
+            return configMapContains("fc", "1", configMap);
+        }
+
+        if (mode == Mode.DEV || mode == Mode.SELENIUM) {
+            // DO NOT allow url param override in prod
+            String forceCompatEnabledParam = request.getParameter(AuraServlet.AURA_PREFIX + "compat");
+            if (forceCompatEnabledParam != null) {
+                // Uses BooleanParam which is true for "1", "true", "yes". Anything else is false.
+                return compatParam.get(request);
+            }
+        }
+
         return false;
     }
 
+    private boolean configMapContains(@Nonnull String key, @Nonnull String value, @Nonnull Map<String, Object> configMap) {
+        // configMap is present when processing requests with url encoded AuraContext ie app.js
+        if (configMap.containsKey(key)) {
+            String configValue = String.valueOf(configMap.get(key));
+            return value.equals(configValue);
+        } else {
+            return false;
+        }
+    }
+
     private DefDescriptor<? extends BaseComponentDef> getAppParam(HttpServletRequest request, Map<String, Object> configMap) {
-        String appName = null;
+        String appName = app.get(request, null);
         String cmpName = null;
 
-        appName = app.get(request, null);
         if (appName == null && configMap != null) {
             appName = (String) configMap.get("app");
             if (appName == null) {
@@ -425,6 +434,17 @@ public class AuraContextFilter implements Filter {
         Map<String, Object> configMap = getConfigMap(request);
         return getMode(request, configMap);
     }
+    
+    protected String getActionPublicCacheKey(Map<String, Object> configMap) {
+        if (configMap != null) {
+            if (configMap.containsKey("apck")) {
+                return (String) configMap.get("apck");
+            } else {
+                return null;
+            }
+        }
+        return configAdapter.getActionPublicCacheKey();
+    }
 
     protected void endContext() {
         contextService.endContext();
@@ -437,10 +457,6 @@ public class AuraContextFilter implements Filter {
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
         processInjection(filterConfig);
-        String dirConfig = filterConfig.getInitParameter("componentDir");
-        if (!AuraTextUtil.isNullEmptyOrWhitespace(dirConfig)) {
-            componentDir = filterConfig.getServletContext().getRealPath("/") + dirConfig;
-        }
         if (testFilter != null) {
             testFilter.init(filterConfig);
         }

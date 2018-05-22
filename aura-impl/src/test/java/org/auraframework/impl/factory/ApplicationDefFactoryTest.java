@@ -23,7 +23,6 @@ import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.impl.util.AuraTestingUtil;
 import org.auraframework.impl.util.AuraTestingUtil.BundleEntryInfo;
 import org.auraframework.system.BundleSource;
-import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.test.annotation.XFailure;
 import org.junit.Test;
 
@@ -176,18 +175,6 @@ public class ApplicationDefFactoryTest extends BaseComponentDefFactoryTest<Appli
 
     @Test
     public void testInternalLocationChange() throws Exception {
-    }
-
-    /////////////////////////////////////////////////////////////////////////////
-    // one page (deprecated)
-    /////////////////////////////////////////////////////////////////////////////
-
-    @Test
-    public void testCustomOnePageNegative() throws Exception {
-    }
-
-    @Test
-    public void testInternalOnePageChange() throws Exception {
     }
 
 

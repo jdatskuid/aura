@@ -15,6 +15,18 @@
  */
 ({
     EMPTY_STRING : '',
+    currencySymbol: '',
+
+    setUp: function () {
+        // save the currency symbol
+        this.currencySymbol = $A.get('$Locale').currency;
+    },
+
+    tearDown: function () {
+        // restore the currency symbol.
+        $A.get('$Locale').currency = this.currencySymbol;
+    },
+
     /*
      * Pass nothing to component
      */
@@ -58,7 +70,7 @@
      * Test negative value
      */
     testNegativeCurrency: {
-        attributes: {value: -123},
+        attributes: {value: -123, format: '¤#,##0.00'},
         test: function (component) {
             this.assertCmpElemValues(component, -123, "-$123.00");
         }
@@ -68,7 +80,7 @@
      * Test currency formatted correctly.
      */
     testDefaultFormat: {
-        attributes: {value: 1234},
+        attributes: {value: 1234, format: '¤#,##0.00'},
         test: function (component) {
             this.assertCmpElemValues(component, 1234, "$1,234.00");
             $A.test.assertEquals("¤#,##0.00", component.get('v.format'),
@@ -126,7 +138,7 @@
         test: [function(component) {
             component.set('v.value', '56789');
         }, function(component) {
-            this.assertCmpElemValues(component, '56789', '$56,789.00');
+            this.assertCmpElemValues(component, 56789, '$56,789.00');
         }]
     },
 
@@ -292,6 +304,7 @@
      * Test input with a negative sign
      */
     testNegativeSign: {
+        attributes: {format: '¤#,##0.00'},
         test: [function(component) {
             this.inputValue(component, "-123");
         }, function(component) {
@@ -318,6 +331,7 @@
      * Leading decimal mark should be treated as "0."
      */
     testLeadingDecimalMark: {
+        attributes: {format: '¤#,##0.00'},
         test: [function(component) {
             this.inputValue(component, ".12");
         }, function(component) {
@@ -410,6 +424,181 @@
         }, function(component) {
             $A.test.assertEquals(component.get("v.value"), 1000);
         }]
+    },
+
+    /**
+     * Test to make sure some IME with compositional num keypad works correctly.
+     */
+    testIMEInput: {
+        test: [function(component) {
+            var inputElm = component.getElement();
+            inputElm.value = "123";
+            $A.test.fireDomEvent(inputElm, "compositionstart");
+            $A.test.fireDomEvent(inputElm, "input");
+        }, function(component) {
+            // v.value is undefined because we haven't triggered change event yet
+            this.assertCmpElemValues(component, undefined, "123");
+        }, function(component) {
+            var inputElm = component.getElement();
+            $A.test.fireDomEvent(inputElm, "input");
+            $A.test.fireDomEvent(inputElm, "compositionend");
+
+        // after compositionend, we should be able to modify the value as usual
+        }, function(component) {
+            var inputElm = component.getElement();
+            inputElm.value = "123456";
+            $A.test.fireDomEvent(inputElm, "input");
+            $A.test.fireDomEvent(inputElm, "blur");
+        }, function(component) {
+            // v.value is undefined because we haven't triggered change event yet
+            this.assertCmpElemValues(component, 123456, "$123,456.00");
+        }]
+    },
+
+    /**
+     * Test to make sure some IME with compositional num keypad works correctly.
+     * This test replaces compositionend with blur since some IME doesn't fire
+     * compositionend when user blurs away.
+     */
+    testIMEWithBlurAndNoCompositionEnd: {
+        test: [function(component) {
+            var inputElm = component.getElement();
+            inputElm.value = "123";
+            $A.test.fireDomEvent(inputElm, "compositionstart");
+            $A.test.fireDomEvent(inputElm, "input");
+        }, function(component) {
+            // v.value is undefined because we haven't triggered change event yet
+            this.assertCmpElemValues(component, undefined, "123");
+        }, function(component) {
+            var inputElm = component.getElement();
+            $A.test.fireDomEvent(inputElm, "blur");
+
+        // after blur, IME will try to insert the composed text, the cmp should
+        // revert the inserted text to prevent duplicated text
+        }, function(component) {
+            var inputElm = component.getElement();
+            inputElm.value = "123123"; // input + composed text
+            $A.test.fireDomEvent(inputElm, "focus");
+            $A.test.fireDomEvent(inputElm, "input");
+        }, function(component) {
+            // value shoud stay the same as the composed text is reverted
+            this.assertCmpElemValues(component, 123, "123.00");
+        }, function(component) {
+            // now we should be able to type normally again
+            var inputElm = component.getElement();
+            inputElm.value = "123456";
+            $A.test.fireDomEvent(inputElm, "input");
+            $A.test.fireDomEvent(inputElm, "blur");
+        }, function(component) {
+            this.assertCmpElemValues(component, 123456, "$123,456.00");
+        }]
+    },
+
+    /**
+     * test to make sure the currency of India (Rs.) with . in it being handled correctly.
+     */
+    testINRCurrencyWithDots: {
+        attributes: {
+            value: 0,
+            format: '¤#,##0.00'
+        },
+        test: [
+            function (component) {
+                $A.get('$Locale').currency = 'Rs.';
+                var inputElm = component.getElement();
+                inputElm.value = "123456";
+                $A.test.fireDomEvent(inputElm, "input");
+                $A.test.fireDomEvent(inputElm, "blur");
+            },
+            function (component) {
+                var inputElm = component.getElement();
+                $A.test.fireDomEvent(inputElm, "focus");
+                $A.test.fireDomEvent(inputElm, "blur");
+            },
+            function (component) {
+                this.assertCmpElemValues(component, 123456, "Rs.123,456.00");
+            }
+        ]
+    },
+
+    /**
+     * test to make sure the currency of Russia (дин.) with . in it being handled correctly.
+     */
+    testRSCurrencyWithDots: {
+        attributes: {
+            value: 0,
+            format: '¤#,##0.00'
+        },
+        test: [
+            function (component) {
+                $A.get('$Locale').currency = 'дин.‏';
+                var inputElm = component.getElement();
+                inputElm.value = "123456";
+                $A.test.fireDomEvent(inputElm, "input");
+                $A.test.fireDomEvent(inputElm, "blur");
+            },
+            function (component) {
+                var inputElm = component.getElement();
+                $A.test.fireDomEvent(inputElm, "focus");
+                $A.test.fireDomEvent(inputElm, "blur");
+            },
+            function (component) {
+                this.assertCmpElemValues(component, 123456, "дин.‏123,456.00");
+            }
+        ]
+    },
+
+    /**
+     * test to make sure the currency of Venezuela (Bs.F.‏) with . in it being handled correctly.
+     */
+    testVECurrencyWithDots: {
+        attributes: {
+            value: 0,
+            format: '¤#,##0.00'
+        },
+        test: [
+            function (component) {
+                $A.get('$Locale').currency = 'Bs.F.‏';
+                var inputElm = component.getElement();
+                inputElm.value = "123456";
+                $A.test.fireDomEvent(inputElm, "input");
+                $A.test.fireDomEvent(inputElm, "blur");
+            },
+            function (component) {
+                var inputElm = component.getElement();
+                $A.test.fireDomEvent(inputElm, "focus");
+                $A.test.fireDomEvent(inputElm, "blur");
+            },
+            function (component) {
+                this.assertCmpElemValues(component, 123456, "Bs.F.‏123,456.00");
+            }
+        ]
+    },
+
+    /**
+     * test to make sure the currency of United Arab Emirates (د.إ.‏) with . in it being handled correctly.
+     */
+    testAECurrencyWithDots: {
+        attributes: {
+            value: 0
+        },
+        test: [
+            function (component) {
+                $A.get('$Locale').currency = "د.إ.‏";
+                var inputElm = component.getElement();
+                inputElm.value = "123456";
+                $A.test.fireDomEvent(inputElm, "input");
+                $A.test.fireDomEvent(inputElm, "blur");
+            },
+            function (component) {
+                var inputElm = component.getElement();
+                $A.test.fireDomEvent(inputElm, "focus");
+                $A.test.fireDomEvent(inputElm, "blur");
+            },
+            function (component) {
+                this.assertCmpElemValues(component, 123456, "د.إ.‏123,456.00");
+            }
+        ]
     },
 
     /*****************

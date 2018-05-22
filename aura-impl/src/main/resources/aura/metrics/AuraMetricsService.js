@@ -31,6 +31,7 @@ Aura.Services.MetricsService = function MetricsService() {
     this.doneBootstrap             = false;
     this.pluginsInitialized        = false;
     this.clearCompleteTransactions = true; // In PTEST Mode this is set to false (see initialize method)
+    this.shouldLogBootstrap         = true;
     
     // Public constants used for flagging page transactions
     this["PAGE_IN_DOM"] = "PageInDOM";
@@ -181,7 +182,9 @@ Aura.Services.MetricsService.prototype.emitBootstrapTransaction = function () {
     var domReady = window.document && window.document.readyState;
     if (!this._emittedBootstrap && this.applicationReadyTime && domReady === "complete") {
         this._emittedBootstrap = true;
-
+        if (!this.shouldLogBootstrap) {
+            return;
+        }
         // We need a timeout because appCache events only fire after onload event
         setTimeout(function () {
             var bootstrap = this.getBootstrapMetrics();
@@ -847,6 +850,7 @@ Aura.Services.MetricsService.prototype.registerBeacon = function (beacon) {
 Aura.Services.MetricsService.prototype.summarizeResourcePerfInfo = function (r) {
     return {
         "name"            : r.name,
+        "initiatorType"   : r.initiatorType,
         "duration"        : parseInt(r.responseEnd - r.startTime, 10),
         "startTime"       : parseInt(r.startTime, 10),
         "fetchStart"      : parseInt(r.fetchStart, 10),
@@ -865,6 +869,15 @@ Aura.Services.MetricsService.prototype.summarizeResourcePerfInfo = function (r) 
 };
 
 /**
+ * Prevent the framework from logging the bootstrap transaction
+ * This will be handled by the calling app at some point in the future
+ * @export
+*/
+Aura.Services.MetricsService.prototype.skipBootstrapLogging = function () {
+    this.shouldLogBootstrap = false;
+};
+
+/**
  * Returns a JSON Object which contains the bootstrap metrics of the framework and the application
  * @public
  * @return {Object}
@@ -873,6 +886,7 @@ Aura.Services.MetricsService.prototype.summarizeResourcePerfInfo = function (r) 
 Aura.Services.MetricsService.prototype.getBootstrapMetrics = function () {
     var bootstrap = this.bootstrap;
     var pageStartTime = this.getPageStartTime();
+    var context = $A.getContext();
 
     for (var m in Aura["bootstrap"]) {
         bootstrap[m] = parseInt(Aura["bootstrap"][m], 10);
@@ -880,7 +894,8 @@ Aura.Services.MetricsService.prototype.getBootstrapMetrics = function () {
 
     // allow non-numerics
     bootstrap["visibilityStateStart"] = Aura["bootstrap"]["visibilityStateStart"];
-
+    bootstrap["cdnEnabled"] = context.isCDNEnabled();
+    bootstrap["mode"] = context.getMode();
 
     bootstrap["pageStartTime"] = pageStartTime;
 
@@ -959,6 +974,7 @@ Aura.Services.MetricsService.prototype.getBootstrapMetrics = function () {
             "requestBootstrapJs" : "bootstrap.js",
             "requestInlineJs"    : "inline.js",
             "requestAppCss"      : "app.css",
+            "requestAppCoreJs"   : "appcore.js",
             "requestAppJs"       : "app.js",
             "requestAuraJs"      : "/aura_"
         };
@@ -980,6 +996,14 @@ Aura.Services.MetricsService.prototype.getBootstrapMetrics = function () {
                     }
                 }
             }, this);
+        }
+        var navigator = window["navigator"];
+        var conn = navigator && navigator["connection"];
+        if (conn && !bootstrap["connection"]) {
+            bootstrap["connection"] = {
+                "rtt": conn["rtt"],
+                "downlink": conn["downlink"]
+            };
         }
     }
 

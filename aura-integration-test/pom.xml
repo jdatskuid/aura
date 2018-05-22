@@ -4,7 +4,7 @@
     <parent>
         <groupId>org.auraframework</groupId>
         <artifactId>aura-framework</artifactId>
-        <version>0.5636-SNAPSHOT</version>
+        <version>0.6000-SNAPSHOT</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
     <dependencies>
@@ -100,6 +100,16 @@
         <dependency>
             <groupId>org.seleniumhq.selenium</groupId>
             <artifactId>selenium-server</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.eclipse.jetty</groupId>
+                    <artifactId>jetty-io</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.eclipse.jetty</groupId>
+                    <artifactId>jetty-http</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
@@ -118,14 +128,10 @@
             <artifactId>ios-client</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>biz.aQute</groupId>
-            <artifactId>bnd</artifactId>
-        </dependency>
     </dependencies>
     <properties>
         <chromedriver.download.root.url>http://chromedriver.storage.googleapis.com</chromedriver.download.root.url>
-        <chromedriver.version>2.25</chromedriver.version>
+        <chromedriver.version>2.37</chromedriver.version>
         <jetty.spawn>true</jetty.spawn>
         <jetty.resources>${basedir}/../aura/src/main/webapp</jetty.resources>
         <aura.build.id />
@@ -142,6 +148,7 @@
         <webdriver.remote.server /> <!-- http://localhost:4444/wd/hub/ -->
         <webdriver.reusebrowser>true</webdriver.reusebrowser>
         <webdriver.browser.type>GOOGLECHROME</webdriver.browser.type> <!-- refer to org.auraframework.test.WebDriverUtil.BrowserType enums for valid values -->
+        <webdriver.browser.runheadless>true</webdriver.browser.runheadless>
 		<webdriver.timeout>60</webdriver.timeout>
         <sauce.record.video>false</sauce.record.video>
         <sauce.record.screenshots>false</sauce.record.screenshots>
@@ -231,10 +238,8 @@
                                 <failIfNoTests>false</failIfNoTests>
                                 <runOrder>random</runOrder>
                                 <trimStackTrace>false</trimStackTrace>
-                                <argLine>-Djava.io.tmpdir=${java.io.tmpdir}</argLine>
                                 <systemPropertyVariables>
                                     <config>${config}</config>
-                                    <java.io.tmpdir>${java.io.tmpdir}</java.io.tmpdir>
                                     <jetty.port>${jetty.port}</jetty.port>
                                     <jetty.resources>${jetty.resources}</jetty.resources>
                                     <jetty.spawn>${jetty.spawn}</jetty.spawn>
@@ -250,6 +255,7 @@
                                     <webdriver.remote.server>${webdriver.remote.server}</webdriver.remote.server>
                                     <webdriver.reusebrowser>${webdriver.reusebrowser}</webdriver.reusebrowser>
                                     <webdriver.browser.type>${webdriver.browser.type}</webdriver.browser.type>
+                                    <webdriver.browser.runheadless>${webdriver.browser.runheadless}</webdriver.browser.runheadless>
                                     <webdriver.timeout>${webdriver.timeout}</webdriver.timeout>
                                     <skipIntTests>${skipIntTests}</skipIntTests>
                                 </systemPropertyVariables>
@@ -636,10 +642,8 @@
                             <classpathDependencyExcludes>
                                 <classpathDependencyScopeExclude>compile</classpathDependencyScopeExclude>
                             </classpathDependencyExcludes>
-                            <argLine>-Djava.io.tmpdir=${java.io.tmpdir}</argLine>
                             <systemPropertyVariables>
                                 <config>${config}</config>
-                                <java.io.tmpdir>${java.io.tmpdir}</java.io.tmpdir>
                                 <jetty.port>${jetty.port}</jetty.port>
                                 <jetty.resources>${jetty.resources}</jetty.resources>
                                 <jetty.spawn>${jetty.spawn}</jetty.spawn>

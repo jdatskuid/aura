@@ -5,8 +5,8 @@
      */
 
     // LockerService not supported on IE
-    // TODO(W-3674741,W-3674751): FF and iOS browser versions in autobuilds are too far behind
-    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-FIREFOX", "-IPHONE", "-IPAD"],
+    // TODO(W-3674741, W-4446969): FF and LockerService disabled for iOS browser in 212
+    browsers: ["-IE8", "-IE9", "-IE10", "-IE11", "-SAFARI", "-IPHONE", "-IPAD"],
 
     setUp: function(cmp) {
         cmp.set("v.testUtils", $A.test);
@@ -46,6 +46,46 @@
         }
     },
 
+    testGetSetParamAndParams: {
+        test: function(cmp) {
+            cmp.testGetSetParamAndParams();
+        }
+    },
+
+    testSetParamFilter: {
+        test: function(cmp) {
+            cmp.addEventHandler("lockerTest:applicationEvent", function(event) {
+                var params = event.getParams();
+                $A.test.assertEquals("[object Window]", params.paramBag.data.toString(), "Expected raw object in system mode when passing secure object as event parameter");
+            });
+            cmp.testSetParamFilter();
+        }
+    },
+
+    testSetParamsFilter: {
+        test: function(cmp) {
+            cmp.addEventHandler("lockerTest:applicationEvent", function(event) {
+                var params = event.getParams();
+                $A.test.assertEquals("[object Window]", params.paramBag.data.toString(), "Expected raw object in system mode when passing secure object as event parameter");
+            });
+            cmp.testSetParamsFilter();
+        }
+    },
+
+    testGetParamFilter: {
+        test: function(cmp) {
+            cmp.testGetParamFilter();
+            $A.get("e.lockerTest:applicationEvent").setParams({paramBag: {data: window}}).fire();
+        }
+    },
+
+   testGetParamsFilter: {
+        test: function(cmp) {
+            cmp.testGetParamsFilter();
+            $A.get("e.lockerTest:applicationEvent").setParams({paramBag: {data: window}}).fire();
+        }
+    },
+
     testEventParamsFilteringNonLockerHandler: {
         test: function(cmp) {
             cmp.testEventParamsFilteringNonLockerHandler();
@@ -62,5 +102,11 @@
         test: function(cmp) {
             cmp.testEventParamsFilteringDifferentLocker();
         }
-    }
+    },
+
+    testGetSourceEvent: {
+        test: function(cmp) {        
+            cmp.testGetSourceEvent();
+        }        
+    },
 })

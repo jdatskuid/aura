@@ -32,6 +32,7 @@ import org.auraframework.impl.root.DefinitionReferenceImpl;
 import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import com.google.common.collect.Lists;
 
@@ -42,6 +43,7 @@ import com.google.common.collect.Lists;
 public class ModuleDefRefImpl extends DefinitionReferenceImpl<ModuleDef> implements ModuleDefRef {
 
     private static final long serialVersionUID = 2121381558446216947L;
+    private transient DefDescriptor<?> reference;
 
     protected ModuleDefRefImpl(Builder builder) {
         super(builder);
@@ -53,7 +55,7 @@ public class ModuleDefRefImpl extends DefinitionReferenceImpl<ModuleDef> impleme
         json.writeMapKey("componentDef");
 
         json.writeMapBegin();
-        json.writeMapEntry("descriptor", descriptor);
+        json.writeMapEntry("descriptor", reference);
         json.writeMapEntry("type", "module");
         json.writeMapEnd();
 
@@ -83,11 +85,13 @@ public class ModuleDefRefImpl extends DefinitionReferenceImpl<ModuleDef> impleme
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
-        ModuleDef def = descriptor.getDef();
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        ModuleDef def = validationContext.getAccessibleDefinition(descriptor);
         if (def == null) {
+            // not possible
             throw new DefinitionNotFoundException(descriptor);
         }
+        this.reference = def.getDescriptor();
     }
 
     @Override

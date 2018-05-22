@@ -16,12 +16,15 @@
 package org.auraframework.system;
 
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
-import org.auraframework.cache.Cache;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Sets;
 import org.auraframework.css.StyleContext;
 import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.DefDescriptor;
@@ -36,12 +39,12 @@ import org.auraframework.instance.InstanceStack;
 import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.javascript.directive.JavascriptGeneratorMode;
+import org.auraframework.service.CSPInliningService.InlineScriptMode;
+
+import com.google.common.base.Optional;
 import org.auraframework.util.json.Json;
 import org.auraframework.util.json.JsonSerializable;
 import org.auraframework.util.json.JsonSerializationContext;
-
-import com.google.common.base.Optional;
-import com.google.common.collect.ImmutableMap;
 
 /**
  * AuraContext public interface
@@ -190,6 +193,8 @@ public interface AuraContext {
         }
     }
 
+    void setScriptNonce(String nonce);
+
     /**
      * TODO: should have serialization contexts for any format, this shouldn't be tied to json
      *
@@ -332,6 +337,11 @@ public interface AuraContext {
     void addDynamicNamespace(String namespace);
 
     /**
+     * Set of namespaces that should only be served to authentication users.
+     */
+    Set<String> getRestrictedNamespaces();
+
+    /**
      * Set the incoming loaded descriptors.
      *
      * @param clientLoaded the set of loaded descriptors from the client.
@@ -433,7 +443,28 @@ public interface AuraContext {
     void setLoadingApplicationDescriptor(DefDescriptor<? extends BaseComponentDef> loadingAppDesc);
 
     /**
+     * Add the definitions that the client should already have.
+     *
+     * @param preloaded the additional set.
+     */
+    default void addPreloadedDefinitions(Set<DefDescriptor<?>> preloaded) {
+        // this implementation is inefficient. please override in your subclass!
+        Set<DefDescriptor<?>> current = getPreloadedDefinitions();
+        if (current == null) {
+            setPreloadedDefinitions(preloaded);
+        } else {
+            HashSet<DefDescriptor<?>> s = Sets.newHashSetWithExpectedSize(preloaded.size() + current.size());
+            s.addAll(preloaded);
+            s.addAll(current);
+            setPreloadedDefinitions(s);
+        }
+    }
+
+    /**
      * Set the definitions that the client should already have.
+     * 
+     * IMPORTANT: there was an old pattern where you would call getPreloadedDefinitions and copy that into a new set and then
+     * add to that set and then call setPreloadedDefinitions. That's super inefficient so don't do it! Call addPreloadedDefinitions instead. 
      *
      * @param preloaded the actual set.
      */
@@ -575,6 +606,7 @@ public interface AuraContext {
      */
     enum EncodingStyle {
         Bare, // ! Minimal context, no UIDs
+        AppResource, // ! Similar to Normal, except no FWUID and includes serializationVersion
         Normal, // ! Standard encoding, include UIDs
         Css, // ! Token UIDs, Client and StyleContext info included
         Full // ! Everything
@@ -703,7 +735,7 @@ public interface AuraContext {
     /**
      * Get the access check cache.
      */
-    Cache<String, String> getAccessCheckCache();
+    Map<String, String> getAccessCheckCache();
 
     /**
      * Get the set of registries associated with this context.
@@ -724,11 +756,77 @@ public interface AuraContext {
      */
     boolean isSystemMode();
 
-    void setModulesEnabled(boolean isModulesEnabled);
-
-    boolean isModulesEnabled();
-
     void setUseCompatSource(boolean useCompatSource);
+    void setForceCompat(boolean forceCompat);
 
     boolean useCompatSource();
+    boolean forceCompat();
+
+    /**
+     * add base 64 SHA256 hash of a script. This is used for CSP2 inline js
+     * @param hash the base 64 SHA256 hash of a script
+     */
+    void addScriptHash(String hash);
+
+    /**
+     * retrieve the list of known script hashes at this point
+     * @return a copy of the list of known hashes
+     */
+    ImmutableList<String> getScriptHashes();
+
+    /**
+     * get the nonce used for inlining script on a page
+     * @return the request scoped nonce
+     */
+    String getScriptNonce();
+
+    /**
+     * get a flag indicating whether app.js split is enabled
+     * @return true if split is enabled, false if only one app.js file is desired.
+     */
+    boolean isAppJsSplitEnabled();
+    
+    /**
+     * Get the action public cache key
+     * @return The action public cache key
+     */
+    String getActionPublicCacheKey();
+    
+    /**
+     * Set the action public cache key
+     * @param actionPublicCacheKey The action public cache key
+     */
+    void setActionPublicCacheKey(String actionPublicCacheKey);
+
+    /**
+     * Set the aura local store to a new value, returning the old one.
+     *
+     * This should not be needed if we do not access the local store outside of the linker during linking
+     *
+     * @param newStore the new store to set
+     * @return the old store.
+     */
+    AuraLocalStore setAuraLocalStore(AuraLocalStore newStore);
+
+    /**
+     * Get the current local store.
+     */
+    AuraLocalStore getAuraLocalStore();
+
+    /**
+     * URI-definitions enabled
+     * @param uriDefsEnabled
+     */
+    void setUriDefsEnabled(Boolean uriDefsEnabled);
+    Boolean getUriDefsEnabled();
+
+    /**
+     * Set the current mode for inline scripts.
+     */
+    public void setInlineScriptMode(InlineScriptMode mode);
+
+    /**
+     * Get the current mode for inline scripts.
+     */
+    public InlineScriptMode getInlineScriptMode();
 }

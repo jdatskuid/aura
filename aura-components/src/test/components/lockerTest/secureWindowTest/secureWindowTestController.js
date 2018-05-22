@@ -1,5 +1,5 @@
 ({
-    test$AExposedOnWindow: function(cmp) {
+    testDollarAExposedOnWindow: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
         testUtils.assertStartsWith("SecureAura", window.$A.toString(), "Expected $A to return SecureAura");
     },
@@ -34,7 +34,7 @@
     testLocationExposedOnWindow: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
         testUtils.assertDefined(window.location);
-        testUtils.assertEquals("/lockerTest/secureWindowTest.cmp", window.location.pathname, "window.location not pointing to the right url");
+        testUtils.assertEquals(cmp.get("v.expectedPath"), window.location.pathname, "window.location not pointing to the right url");
         testUtils.assertDefined(location, "location object not defined");
         testUtils.assertEquals(location, window.location);
     },
@@ -84,6 +84,28 @@
         clearTimeout(setTimeoutReturn);
     },
 
+    testArbitrarySchemes: function(cmp){
+        var testUtils = cmp.get("v.testUtils");
+        var scripts = [
+            "data:text/html,<h1>The URL restriction is bypassed!</h1>",
+            "\s\s\s\s\sdata:text/html,<h1>The URL restriction is bypassed!</h1>",
+            "file://usr/local/bin/blt",
+            "     file://usr/local/bin/blt",
+            "ftp://user@host/path/file",
+            "\n\tftp://user@host/path/file",
+            "telnet://user:secret@somehost.internet.com:35/",
+            "\btelnet://user:secret@somehost.internet.com:35/"
+        ];
+        scripts.forEach(function(script){
+            try {
+                window.open(script);
+                testUtils.fail("Expect to block arbitrary scheme execution using window.open():" +  script);
+            } catch (e) {
+                testUtils.assertEquals("SecureWindow.open supports http://, https:// schemes and relative urls.", e.message);
+            }
+        });
+    },
+
     testOpen_HttpsUrl: function(cmp){
         var testUtils = cmp.get("v.testUtils");
         var url = "https://google.com";
@@ -126,9 +148,20 @@
                 window.open(script);
                 testUtils.fail("Expect to block javascript execution using window.open():" +  script);
             } catch (e) {
-                testUtils.assertEquals("SecureWindow.open supports http://, https:// schemes and relative urls. It does not support javascript: scheme!", e.message);
+                testUtils.assertEquals("SecureWindow.open supports http://, https:// schemes and relative urls.", e.message);
             }
         });
+    },
+
+    testOpen_UrlRestrictionByPass: function(cmp){
+        var testUtils = cmp.get("v.testUtils");
+        var url = ["data:,The URL restriction is bypassed!"];
+        try {
+            window.open(url, "_self");
+            testUtils.fail("Expect to validate non-string arguments in window.open :" +  url);
+        } catch (e) {
+            testUtils.assertEquals("SecureWindow.open supports http://, https:// schemes and relative urls.", e.message);
+        }
     },
 
     // Automation for W-3547492
@@ -155,23 +188,6 @@
         // Verify the various properties of Blob
         testUtils.assertEquals(jsonString.length, blob.size);
         testUtils.assertEquals('application/json', blob.type);
-    },
-
-    testBlob_WithScriptTagsBlocked: function(cmp) {
-        var testUtils = cmp.get("v.testUtils");
-        var scripts = [
-            "<script>alert(window)</script>",
-            "<script  >alert(window)</script  >",
-            "<SCRIPT>alert(window)</SCRIPT>"
-        ];
-        scripts.forEach(function(script){
-            try {
-                var blob = new Blob([script], {type:'text/html'});
-                testUtils.fail("Expect to block script tags while creating Blob:"+script);
-            } catch (e) {
-                testUtils.assertEquals("Blob creation failed: <script> tags are blocked", e.message);
-            }
-        });
     },
 
     testFile: function(cmp) {
@@ -207,7 +223,41 @@
         var testUtils = cmp.get("v.testUtils");
         window.location.href = '#view';
         testUtils.assertEquals(location, window.location);
-        testUtils.assertEquals("/lockerTest/secureWindowTest.cmp", window.location.pathname);
+        testUtils.assertEquals(cmp.get("v.expectedPath"), window.location.pathname);
         testUtils.assertEquals("#view", window.location.hash);
-    }
+    },
+
+    testMediaStreamBlocked: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+        testUtils.assertUndefined(window["MediaStream"], "Expected 'undefined' on window['MediaStream'].");
+        testUtils.assertTrue(typeof MediaStream === "undefined", "Expected 'undefined' on typeof MediaStream.");
+    },
+
+    /**
+     * Attempts to use location.assign() to execute a block of Javascript using the javascript: scheme.
+     * This attempt should raise an exception from within lockerservice SecureLocation.js
+     */
+    testJavascriptPseudoScheme: function(component, event, helper) {
+        var testUtils = component.get('v.testUtils');
+        var errorMessage = '';
+
+        // attempt an invalid window.location.assign() call - it SHOULD be sanitized
+        try {
+          location.assign('javascript:console.log(new XMLHttpRequest())');
+        } catch (error) {
+          errorMessage = error.message;
+        }
+
+        testUtils.assertEquals(errorMessage, 'SecureLocation.assign only supports http://, https:// schemes.', 'a javascript: pseudo scheme was not correctly sanitized');
+    },
+
+    /**
+     * Attempts to use location.assign() to modify the current URL.
+     * This should be permitted and whitelisted by locker since the URL is valid.
+     */
+     testLocationAssign: function(component, event, helper) {
+         var testUtils = component.get('v.testUtils');
+         location.assign('#success');
+         testUtils.assertEquals('#success', location.hash, 'Failed to assign a new hash using location.assign()');
+     }
 })

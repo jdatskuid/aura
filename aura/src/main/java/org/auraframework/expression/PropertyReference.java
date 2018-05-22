@@ -16,11 +16,15 @@
 package org.auraframework.expression;
 
 import java.util.List;
+import org.auraframework.def.BaseComponentDef;
+import org.auraframework.def.DefDescriptor;
 
 /**
  * A reference to some property, i.e. a parsed list of strings separated by dots.
  */
 public interface PropertyReference extends Expression {
+    DefDescriptor<? extends BaseComponentDef> getTarget();
+    void setTarget(DefDescriptor<? extends BaseComponentDef> target);
 
     /**
      * @return a new PropertyReference representing the everything after the root
@@ -50,8 +54,12 @@ public interface PropertyReference extends Expression {
     String getLeaf();
 
     /**
+     * @return true if this is a 'by value' reference.
+     */
+    boolean isByValue();
+
+    /**
      * @return size of this PropertyReference path
      */
     int size();
-
 }

@@ -18,6 +18,7 @@ package org.auraframework.def;
 
 import org.auraframework.system.Location;
 import org.auraframework.throwable.quickfix.QuickFixException;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import java.io.Serializable;
 import java.util.Set;
@@ -53,24 +54,18 @@ public interface BaseXmlElement extends Serializable {
     void appendDependencies(Set<DefDescriptor<?>> dependencies);
 
     /**
-     * Adds all the descriptors for all definitions this depends on to the set.
-     * <p>
-     * This function MUST append descriptors for any dependencies that will be
-     * fetched in validateReferences(). If they are not appended here, an exception
-     * will be thrown during the compile.
-     * <p>
-     * This is always called before validateReferences.
+     * Get the set of dependencies for this element.
      *
-     * @param dependencies the set to which we should append.
-     * @param referenceDescriptor if provided will filter matched dependencies based on access when wildcard matches are used
+     * @return set of all descriptors that this element immediately depends upon
      */
-    default void appendDependencies(Set<DefDescriptor<?>> dependencies, BaseComponentDef referenceDescriptor) {
-        this.appendDependencies(dependencies);
-    }
+    Set<DefDescriptor<?>> getDependencySet();
 
     /**
      * Second pass validation, which validates any references to other
      * definitions which might not be in the cache yet.
+     * <p>
+     * As we refactor this call, we will no longer allow recursive calls into DefinitionService.
+     * Definitions that you need should be found in the validation context.
      * <p>
      * Any definitions needed can be fetched here, and arbitrary validation
      * may be performed. Anything referenced here must have been included
@@ -78,9 +73,10 @@ public interface BaseXmlElement extends Serializable {
      * does not need a recursive call to validateReferences, since the compile
      * will take care of that.
      *
+     * @param validationContext The context for marking errors and getting definitions.
      * @throws QuickFixException if there is a problem with a reference
      */
-    void validateReferences() throws QuickFixException;
+    void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException;
 
     /**
      * Final validation marker.
@@ -110,13 +106,6 @@ public interface BaseXmlElement extends Serializable {
      * @return the access permisions for this definition.
      */
     DefinitionAccess getAccess();
-
-    /**
-     * retrieve all labels needed by this definition. FIXME: this should be more
-     * like append dependencies so that we can build a set before retrieving
-     * any. that way we'd be much more efficient.
-     */
-    void retrieveLabels() throws QuickFixException;
 
     /**
      * Get a readable description of this definition.

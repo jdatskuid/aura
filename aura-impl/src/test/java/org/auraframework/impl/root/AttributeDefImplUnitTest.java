@@ -15,26 +15,26 @@
  */
 package org.auraframework.impl.root;
 
-import com.google.common.collect.Sets;
+import java.util.Set;
+
 import org.auraframework.def.AttributeDef;
 import org.auraframework.def.AttributeDef.SerializeToType;
 import org.auraframework.def.AttributeDefRef;
 import org.auraframework.def.DefDescriptor;
-import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.RootDefinition;
 import org.auraframework.def.TypeDef;
 import org.auraframework.impl.root.AttributeDefImpl.Builder;
 import org.auraframework.impl.system.DefinitionImplUnitTest;
 import org.auraframework.throwable.AuraRuntimeException;
-import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.util.json.JsonEncoder;
+import org.auraframework.validation.ReferenceValidationContext;
 import org.junit.Test;
 import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 
-import java.util.Set;
+import com.google.common.collect.Sets;
 
 public class AttributeDefImplUnitTest extends DefinitionImplUnitTest<AttributeDefImpl, AttributeDef, AttributeDef, Builder> {
 
@@ -96,9 +96,9 @@ public class AttributeDefImplUnitTest extends DefinitionImplUnitTest<AttributeDe
         JsonEncoder json = Mockito.mock(JsonEncoder.class);
         buildDefinition().serialize(json);
         InOrder inOrder = Mockito.inOrder(json);
-        inOrder.verify(json).writeMapBegin();
-        inOrder.verify(json).writeMapEntry("name", this.descriptor);
-        inOrder.verify(json).writeMapEnd();
+        inOrder.verify(json).writeLiteral("[");
+        inOrder.verify(json).writeValue(this.descriptor);
+        inOrder.verify(json).writeLiteral("]");
     }
 
     @Test
@@ -106,9 +106,9 @@ public class AttributeDefImplUnitTest extends DefinitionImplUnitTest<AttributeDe
         JsonEncoder json = Mockito.mock(JsonEncoder.class);
         buildDefinition().serialize(json);
         InOrder inOrder = Mockito.inOrder(json);
-        inOrder.verify(json).writeMapBegin();
-        inOrder.verify(json).writeMapEntry("type", this.typeDefDescriptor);
-        inOrder.verify(json).writeMapEnd();
+        inOrder.verify(json).writeLiteral("[");
+        inOrder.verify(json).writeValue(this.typeDefDescriptor);
+        inOrder.verify(json).writeLiteral("]");
     }
 
     @Test
@@ -118,9 +118,9 @@ public class AttributeDefImplUnitTest extends DefinitionImplUnitTest<AttributeDe
         AttributeDef def = buildDefinition();
 		def.serialize(json);
         InOrder inOrder = Mockito.inOrder(json);
-        inOrder.verify(json).writeMapBegin();
-        inOrder.verify(json).writeMapEntry("default", "Hello");
-        inOrder.verify(json).writeMapEnd();
+        inOrder.verify(json).writeLiteral("[");
+        inOrder.verify(json).writeValue("Hello");
+        inOrder.verify(json).writeLiteral("]");
     }
 
     @Test
@@ -130,9 +130,31 @@ public class AttributeDefImplUnitTest extends DefinitionImplUnitTest<AttributeDe
         JsonEncoder json = Mockito.mock(JsonEncoder.class);
         buildDefinition().serialize(json);
         InOrder inOrder = Mockito.inOrder(json);
-        inOrder.verify(json).writeMapBegin();
-        inOrder.verify(json).writeMapEntry("required", this.required);
-        inOrder.verify(json).writeMapEnd();
+        inOrder.verify(json).writeLiteral("[");
+        inOrder.verify(json).writeValue(this.required);
+        inOrder.verify(json).writeLiteral("]");
+    }
+    
+    /**
+     * Since We serialize attributes using the position of the array, it's very important we do not change the order of
+     * the attribute serialization without also changing the client parsing. If you did that, then change this test to match.
+     * @throws Exception
+     */
+    @Test
+    public void testAttributeSerializationOrder() throws Exception {
+    	this.defaultValue = new AttributeDefRefImpl.Builder().setValue("Hello").build();
+    	this.required = true;
+        JsonEncoder json = Mockito.mock(JsonEncoder.class);
+        AttributeDef def = buildDefinition();
+		def.serialize(json);
+        InOrder inOrder = Mockito.inOrder(json);
+        inOrder.verify(json).writeLiteral("[");
+        inOrder.verify(json).writeValue(this.descriptor);
+        inOrder.verify(json).writeValue(this.typeDefDescriptor);
+        inOrder.verify(json).writeValue(this.access.getAccessCode());
+        inOrder.verify(json).writeValue(this.required);
+        inOrder.verify(json).writeValue(this.defaultValue.getValue());
+        inOrder.verify(json).writeLiteral("]");
     }
 
     @Test
@@ -173,38 +195,29 @@ public class AttributeDefImplUnitTest extends DefinitionImplUnitTest<AttributeDe
     @Test
     public void testValidateReferencesDefaultValue() throws Exception {
         TypeDef typeDef = Mockito.mock(TypeDef.class);
-        Mockito.doReturn(typeDef).when(this.typeDefDescriptor).getDef();
+        ReferenceValidationContext rvc = Mockito.mock(ReferenceValidationContext.class);
+        Mockito.doReturn(typeDef).when(rvc).getAccessibleDefinition(this.typeDefDescriptor);
         AttributeDef attributeDef = buildDefinition();
         Mockito.verifyZeroInteractions(this.defaultValue);
-        attributeDef.validateReferences();
+        attributeDef.validateReferences(rvc);
         Mockito.verify(this.defaultValue).parseValue(typeDef);
-        Mockito.verify(this.defaultValue).validateReferences();
+        Mockito.verify(this.defaultValue).validateReferences(rvc);
     }
 
     @Test
-    public void testValidateReferencesReferenceThrowsClassNotFound() throws Exception {
-        Throwable t = new AuraRuntimeException(new ClassNotFoundException());
-        Mockito.doThrow(t).when(this.typeDefDescriptor).getDef();
-        Mockito.doReturn(DefType.ATTRIBUTE).when(this.typeDefDescriptor).getDefType();
-        Mockito.doReturn("something").when(this.typeDefDescriptor).getQualifiedName();
-        try {
-            buildDefinition().validateReferences();
-            fail("Expected a DefinitionNotFoundException if class not found for a reference");
-        } catch (Exception e) {
-            assertExceptionMessage(e, DefinitionNotFoundException.class, "No ATTRIBUTE named something found");
-        }
-    }
-
-    @Test
-    public void testValidateReferencesReferenceThrowsOtherException() throws Exception {
+    public void testValidateReferencesParseThrowsException() throws Exception {
+        TypeDef typeDef = Mockito.mock(TypeDef.class);
         Throwable expected = new AuraRuntimeException("");
-        Mockito.doThrow(expected).when(this.typeDefDescriptor).getDef();
+        Throwable actual = null;
+        ReferenceValidationContext rvc = Mockito.mock(ReferenceValidationContext.class);
+        Mockito.doReturn(typeDef).when(rvc).getAccessibleDefinition(this.typeDefDescriptor);
+        Mockito.doThrow(expected).when(this.defaultValue).parseValue(typeDef);
         try {
-            buildDefinition().validateReferences();
-            fail("Expected an exception for failed reference validation");
-        } catch (Exception actual) {
-            assertEquals(expected, actual);
+            buildDefinition().validateReferences(rvc);
+        } catch (Exception e) {
+            actual = e;
         }
+        assertEquals(expected, actual);
     }
 
     @Override

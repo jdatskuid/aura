@@ -15,13 +15,16 @@
  */
 package org.auraframework.impl.controller;
 
+import org.apache.commons.lang3.StringUtils;
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.ExceptionAdapter;
 import org.auraframework.def.ActionDef;
 import org.auraframework.impl.java.controller.JavaAction;
 import org.auraframework.impl.javascript.controller.JavascriptPseudoAction;
 import org.auraframework.instance.Action;
-import org.auraframework.service.*;
+import org.auraframework.service.ContextService;
+import org.auraframework.service.DefinitionService;
+import org.auraframework.service.InstanceService;
 
 /**
  * A Java exception representing a <em>Javascript</em> error condition, as
@@ -29,6 +32,10 @@ import org.auraframework.service.*;
  */
 public class AuraClientException extends Exception {
     private static final long serialVersionUID = -5884312216684971013L;
+
+    public enum Level {
+        ERROR, WARNING, INFO;
+    }
 
     private final Action action;
     private final String jsStack;
@@ -39,6 +46,8 @@ public class AuraClientException extends Exception {
     private String methodName;
     private String cmpStack;
     private String sourceCode;
+    private final String stacktraceIdGen;
+    private final Level level;
 
     public AuraClientException(
             String desc,
@@ -46,6 +55,8 @@ public class AuraClientException extends Exception {
             String message,
             String jsStack,
             String cmpStack,
+            String stacktraceIdGen,
+            Level level,
             InstanceService instanceService,
             ExceptionAdapter exceptionAdapter,
             ConfigAdapter configAdapter,
@@ -55,7 +66,8 @@ public class AuraClientException extends Exception {
         Action action = null;
         this.causeDescriptor = null;
         this.errorId = id;
-        if (desc != null) {
+        this.level = level;
+        if (!StringUtils.isEmpty(desc)) {
             try {
                 action = instanceService.getInstance(desc, ActionDef.class);
                 if (action instanceof JavascriptPseudoAction) {
@@ -71,7 +83,7 @@ public class AuraClientException extends Exception {
         }
 
         // use cause to track failing component markup if action is not sent.
-        if (this.causeDescriptor == null && desc != null && desc.contains("markup://")) {
+        if (this.causeDescriptor == null && desc != null) {
             this.causeDescriptor = desc;
         }
 
@@ -86,6 +98,7 @@ public class AuraClientException extends Exception {
         this.action = action;
         this.jsStack = jsStack;
         this.cmpStack = cmpStack;
+        this.stacktraceIdGen = stacktraceIdGen;
     }
 
     public Action getOriginalAction() {
@@ -145,17 +158,10 @@ public class AuraClientException extends Exception {
     }
 
     public String getStackTraceIdGen() {
-        String[] traces = jsStack.split("\n");
-        StringBuilder sb = new StringBuilder();
-        for (String trace : traces) {
-            // remove domain and url parts except filename
-            trace = trace.replaceAll("https?://([^/]*/)+", "");
-            // remove line and column number
-            trace = trace.replaceAll(":[0-9]+:[0-9]+", "");
-            // remove trailing part of filename
-            trace = trace.replaceAll("[.]js.+$", ".js");
-            sb.append(trace+'\n');
-        }
-        return sb.toString();
+        return this.stacktraceIdGen;
+    }
+
+    public Level getLevel() {
+        return this.level;
     }
 }

@@ -25,10 +25,7 @@ import org.auraframework.throwable.quickfix.QuickFixException;
  * RootDefinitions are the Definitions that can be defined at the top-level of markup. This includes things like
  * component, interface, and event. The common trait of all of these types is that they can include AttributeDefs.
  */
-public interface RootDefinition extends Definition, Versionable {
-    public enum SupportLevel {
-        PROTO, DEPRECATED, BETA, GA
-    }
+public interface RootDefinition extends PlatformDef, Versionable {
 
     @Override
     DefDescriptor<? extends RootDefinition> getDescriptor();
@@ -39,24 +36,11 @@ public interface RootDefinition extends Definition, Versionable {
     Map<DefDescriptor<AttributeDef>, AttributeDef> getDeclaredAttributeDefs();
 
     /**
-     * @return all the attributes for this component, including those inherited from a super component
-     * @throws QuickFixException
-     */
-    Map<DefDescriptor<AttributeDef>, AttributeDef> getAttributeDefs() throws QuickFixException;
-    
-    /**
      * @return all the required versions for this component
      * @throws QuickFixException
      */
     Map<DefDescriptor<RequiredVersionDef>, RequiredVersionDef> getRequiredVersionDefs();
 
-    /**
-     * @param name
-     * @return The named AttributeDef
-     * @throws QuickFixException
-     */
-    AttributeDef getAttributeDef(String name) throws QuickFixException;
-    
     /**
      * @param namespace
      * @return The RequiredVersionDef for the given namespace
@@ -82,14 +66,6 @@ public interface RootDefinition extends Definition, Versionable {
 
     ProviderDef getLocalProviderDef() throws QuickFixException;
 
-    SupportLevel getSupport();
-
     DocumentationDef getDocumentationDef() throws QuickFixException;
 
-    Map<DefDescriptor<?>, Definition> getBundledDefs();
-
-    /**
-     * Get a single def that is bundled into this root definition.
-     */
-    <X extends Definition> X getBundledDefinition(DefDescriptor<X> descriptor);
 }

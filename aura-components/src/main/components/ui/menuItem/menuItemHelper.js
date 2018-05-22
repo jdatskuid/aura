@@ -15,10 +15,10 @@
  */
 ({
     typeMap: {
-        "action": "ui:actionMenuItem",
-        "checkbox": "ui:checkboxMenuItem",
-        "radio": "ui:radioMenuItem",
-        "separator": "ui:menuItemSeparator"
+        "action": "markup://ui:actionMenuItem",
+        "checkbox": "markup://ui:checkboxMenuItem",
+        "radio": "markup://ui:radioMenuItem",
+        "separator": "markup://ui:menuItemSeparator"
     },
 
     addMenuItemDomEvents: function (component) {
@@ -37,7 +37,6 @@
         }
 
         var concreteComponent = component.getConcreteComponent();
-
         if (event.type === "mouseover") {
             concreteComponent.setFocus();
         } else if (event.type === "keydown") {
@@ -90,8 +89,10 @@
     }/*eslint-disable no-unused-vars*/,
 
     focus: function (component) {
-        if (component.getElement()) {
-            var anchors = component.getElement().getElementsByTagName("a");
+        var element = component.getElement();
+
+        if (element) {
+            var anchors = element.getElementsByTagName("a");
             if (anchors && anchors.length > 0) {
                 var anchor = anchors[0];
                 if (anchor && anchor.focus) {

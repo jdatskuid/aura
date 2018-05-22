@@ -36,6 +36,7 @@ import org.auraframework.def.EventDef;
 import org.auraframework.def.FlavorsDef;
 import org.auraframework.def.TokenDef;
 import org.auraframework.def.TokensDef;
+import org.auraframework.def.module.ModuleDef;
 import org.auraframework.expression.Expression;
 import org.auraframework.expression.Literal;
 import org.auraframework.expression.PropertyReference;
@@ -51,6 +52,7 @@ import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.Maps;
@@ -61,17 +63,17 @@ import com.google.common.collect.Maps;
  */
 public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> implements ApplicationDef {
 
-    private static final long serialVersionUID = 9044177107921912717L;
-    
+    private static final long serialVersionUID = 3967927701473071621L;
+
     private final DefDescriptor<EventDef> locationChangeEventDescriptor;
     private final List<DefDescriptor<ComponentDef>> trackedDependencies;
     private final Boolean isAppcacheEnabled;
     private final String additionalAppCacheURLs;
     private final String bootstrapPublicCacheExpiration;
     private final List<DefDescriptor<TokensDef>> tokenOverrides;
-    private final DefDescriptor<FlavorsDef> flavorOverrides;
-
-    private final Boolean isOnePageApp;
+    private final Set<DefDescriptor<ModuleDef>> moduleServices;
+    private FlavorsDef flavorOverrides;
+    private final DefDescriptor<FlavorsDef> externalFlavorOverrides;
 
     public static final DefDescriptor<ApplicationDef> PROTOTYPE_APPLICATION = new DefDescriptorImpl<>(
             "markup", "aura", "application", ApplicationDef.class);
@@ -83,21 +85,23 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
         this.trackedDependencies = AuraUtil.immutableList(builder.trackedDependency);
         this.isAppcacheEnabled = builder.isAppcacheEnabled;
         this.additionalAppCacheURLs = builder.additionalAppCacheURLs;
-        this.isOnePageApp = builder.isOnePageApp;
         this.bootstrapPublicCacheExpiration = builder.bootstrapPublicCacheExpiration;
         this.tokenOverrides = AuraUtil.immutableList(builder.tokenOverrides);
         this.flavorOverrides = builder.flavorOverrides;
+        this.externalFlavorOverrides = builder.externalFlavorOverrides;
+        this.moduleServices = builder.services;
     }
 
     public static class Builder extends BaseComponentDefImpl.Builder<ApplicationDef>implements ApplicationDefBuilder {
         public DefDescriptor<EventDef> locationChangeEventDescriptor;
         public List<DefDescriptor<ComponentDef>> trackedDependency;
         public Boolean isAppcacheEnabled;
-        public Boolean isOnePageApp;
         public String additionalAppCacheURLs;
         public String bootstrapPublicCacheExpiration;
         private List<DefDescriptor<TokensDef>> tokenOverrides;
-        private DefDescriptor<FlavorsDef> flavorOverrides;
+        private FlavorsDef flavorOverrides;
+        private DefDescriptor<FlavorsDef> externalFlavorOverrides;
+        private Set<DefDescriptor<ModuleDef>> services = Collections.emptySet();
 
         public Builder() {
             super(ApplicationDef.class);
@@ -115,7 +119,19 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
         }
 
         @Override
+        public BaseComponentDefBuilder<ApplicationDef> setModuleServices(Set<DefDescriptor<ModuleDef>> services) {
+            this.services = services;
+            return this;
+        }
+
+        @Override
         public BaseComponentDefBuilder<ApplicationDef> setFlavorOverrides(DefDescriptor<FlavorsDef> flavorOverrides) {
+            this.externalFlavorOverrides = flavorOverrides;
+            return this;
+        }
+
+        @Override
+        public BaseComponentDefBuilder<ApplicationDef> setFlavorOverrides(FlavorsDef flavorOverrides) {
             this.flavorOverrides = flavorOverrides;
             return this;
         }
@@ -173,9 +189,22 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
     }
 
     @Override
-    public DefDescriptor<FlavorsDef> getFlavorOverrides() throws QuickFixException {
+    public FlavorsDef getFlavorOverridesDef() throws QuickFixException {
         if (flavorOverrides != null) {
             return flavorOverrides;
+        } else if (getExtendsDescriptor() != null) {
+            return getExtendsDescriptor().getDef().getFlavorOverridesDef();
+        }
+        return null;
+    }
+
+    @Override
+    @Deprecated
+    public DefDescriptor<FlavorsDef> getFlavorOverrides() throws QuickFixException {
+        if (externalFlavorOverrides != null) {
+            return externalFlavorOverrides;
+        } else if (flavorOverrides != null) {
+            return flavorOverrides.getDescriptor();
         }
         if (getExtendsDescriptor() != null) {
             return getExtendsDescriptor().getDef().getFlavorOverrides();
@@ -186,9 +215,15 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
     @Override
     public List<DefDescriptor<?>> getBundle() {
         List<DefDescriptor<?>> ret = super.getBundle();
+        DefDescriptor<FlavorsDef> flavors = null;
         
-        if (flavorOverrides != null) {
-            ret.add(flavorOverrides);
+        if (externalFlavorOverrides != null) {
+            flavors = externalFlavorOverrides;
+        } else if (flavorOverrides != null) {
+            flavors = flavorOverrides.getDescriptor();
+        }
+        if (flavors != null) {
+            ret.add(flavors);
         }
         
         return ret;
@@ -198,14 +233,14 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
     protected void serializeFields(Json json) throws IOException, QuickFixException {
         DefDescriptor<EventDef> locationChangeEventDescriptor = getLocationChangeEventDescriptor();
         if (locationChangeEventDescriptor != null) {
-            json.writeMapEntry("locationChangeEventDef", locationChangeEventDescriptor.getDef());
+            json.writeMapEntry(Json.ApplicationKey.LOCATIONCHANGEEVENTDEF, locationChangeEventDescriptor.getDef());
         }
         Map<String,String> tokens = getTokens();
         if (tokens != null && !tokens.isEmpty()) {
-            json.writeMapEntry("tokens",tokens);
+            json.writeMapEntry(Json.ApplicationKey.TOKENS, tokens);
         }
         if (flavorOverrides != null) {
-            json.writeMapEntry("flavorOverrides", flavorOverrides.getDef());
+            json.writeMapEntry(Json.ApplicationKey.FLAVOROVERRIDES, flavorOverrides);
         }
     }
 
@@ -221,8 +256,12 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
             dependencies.addAll(tokenOverrides);
         }
 
-        if (flavorOverrides != null) {
-            dependencies.add(flavorOverrides);
+        if (externalFlavorOverrides != null) {
+            dependencies.add(externalFlavorOverrides);
+        }
+
+        if (moduleServices != null) {
+            dependencies.addAll(moduleServices);
         }
     }
 
@@ -259,26 +298,26 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
             AuraContext context = Aura.getContextService().getCurrentContext();
             Action previous = context.setCurrentAction(action);
             try {
+                action.setup();
                 action.run();
-            } finally {
+
+                @SuppressWarnings("unchecked")
+                List<String> additionalURLs = (List<String>) action.getReturnValue();
+                if (additionalURLs != null) {
+                    urls = additionalURLs;
+                }
+            }
+            finally {
+                action.cleanup();
                 context.setCurrentAction(previous);
             }
 
-            @SuppressWarnings("unchecked")
-            List<String> additionalURLs = (List<String>) action.getReturnValue();
-            if (additionalURLs != null) {
-                urls = additionalURLs;
-            }
+
         }
 
         return urls;
     }
 
-    @Override
-    public Boolean isOnePageApp() throws QuickFixException {
-        return isOnePageApp;
-    }
-    
     /**
      * Returns any configured public cache expiration (in seconds) for bootstrap.js, or null if not set.
      */
@@ -305,12 +344,15 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
                     AuraContext context = Aura.getContextService().getCurrentContext();
                     Action previous = context.setCurrentAction(action);
                     try {
+                        action.setup();
                         action.run();
+                        value = action.getReturnValue();
                     } finally {
+                        action.cleanup();
                         context.setCurrentAction(previous);
                     }
                     
-                    value = action.getReturnValue();
+
                 }
             }
 
@@ -331,14 +373,17 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
-        super.validateReferences();
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        super.validateReferences(validationContext);
 
         EventDef locationChangeDef = getLocationChangeEventDescriptor().getDef();
         if (!locationChangeDef.isInstanceOf(Aura.getDefinitionService().getDefDescriptor("aura:locationChange",
                 EventDef.class))) {
             throw new InvalidDefinitionException(String.format("%s must extend aura:locationChange",
                     locationChangeDef.getDescriptor()), getLocation());
+        }
+        if (externalFlavorOverrides != null && flavorOverrides == null) {
+            flavorOverrides = externalFlavorOverrides.getDef();
         }
     }
 
@@ -373,5 +418,10 @@ public class ApplicationDefImpl extends BaseComponentDefImpl<ApplicationDef> imp
                 tokens.put(token.getKey(), (String) token.getValue().getValue());
             }
         }
+    }
+
+    @Override
+    public Set<DefDescriptor<ModuleDef>> getModuleServices() throws QuickFixException{
+        return moduleServices;
     }
 }

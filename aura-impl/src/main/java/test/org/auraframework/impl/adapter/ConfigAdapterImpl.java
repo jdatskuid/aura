@@ -26,23 +26,22 @@ import java.io.StringReader;
 import java.net.MalformedURLException;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
+import java.util.Collections;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.concurrent.ConcurrentHashMap;
-
 import javax.annotation.PostConstruct;
 import javax.inject.Inject;
 import javax.servlet.http.HttpServletRequest;
 
-import com.google.common.collect.ImmutableMap;
 import org.apache.log4j.Logger;
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.ContentSecurityPolicy;
 import org.auraframework.adapter.DefaultContentSecurityPolicy;
-import org.auraframework.adapter.LocalizationAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.DefDescriptor;
@@ -50,11 +49,14 @@ import org.auraframework.def.DescriptorFilter;
 import org.auraframework.def.InterfaceDef;
 import org.auraframework.def.RootDefinition;
 import org.auraframework.expression.PropertyReference;
+import org.auraframework.http.CSPReporterServlet;
 import org.auraframework.impl.javascript.AuraJavascriptGroup;
 import org.auraframework.impl.source.AuraResourcesHashingGroup;
 import org.auraframework.impl.util.AuraImplFiles;
 import org.auraframework.impl.util.BrowserInfo;
 import org.auraframework.instance.BaseComponent;
+import org.auraframework.modules.ModuleNamespaceAlias;
+import org.auraframework.service.CSPInliningService;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.service.InstanceService;
@@ -64,7 +66,8 @@ import org.auraframework.system.DefRegistry;
 import org.auraframework.throwable.AuraError;
 import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.quickfix.QuickFixException;
-import org.auraframework.util.AuraLocale;
+import org.auraframework.tools.node.api.NodeLambdaFactory;
+import org.auraframework.tools.node.impl.sidecar.NodeLambdaFactorySidecar;
 import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.FileMonitor;
 import org.auraframework.util.IOUtil;
@@ -74,59 +77,17 @@ import org.auraframework.util.resource.FileGroup;
 import org.auraframework.util.resource.ResourceLoader;
 import org.auraframework.util.text.GlobMatcher;
 import org.auraframework.util.text.Hash;
+import org.springframework.beans.factory.annotation.Autowired;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedSet;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 @ServiceComponent
 public class ConfigAdapterImpl implements ConfigAdapter {
     Logger logger = Logger.getLogger(ConfigAdapterImpl.class);
-
-    private static final String SAFE_EVAL_HTML_URI = "/lockerservice/safeEval.html";
-
-    private static final ImmutableSortedSet<String> cacheDependencyExceptions = ImmutableSortedSet.of(
-            //
-            // FIXME: these following 16 lines (applauncher) should be removed ASAP. They are here because
-            // we do not detect file backed apex, and we probably don't really want to.
-            //
-            "apex://applauncher.accountsettingscontroller",
-            "apex://applauncher.applauncherapexcontroller",
-            "apex://applauncher.applauncherdesktopcontroller",
-            "apex://applauncher.applauncherheadercontroller",
-            "apex://applauncher.applaunchersetupdesktopcontroller",
-            "apex://applauncher.applaunchersetupreorderercontroller",
-            "apex://applauncher.applaunchersetuptilecontroller",
-            "apex://applauncher.appmenu",
-            "apex://applauncher.changepasswordcontroller",
-            "apex://applauncher.communitylogocontroller",
-            "apex://applauncher.employeeloginlinkcontroller",
-            "apex://applauncher.forgotpasswordcontroller",
-            "apex://applauncher.identityheadercontroller",
-            "apex://applauncher.loginformcontroller",
-            "apex://applauncher.selfregistercontroller",
-            "apex://applauncher.sociallogincontroller",
-
-            "apex://array",
-            "apex://aura.component",
-            "apex://blob",
-            "apex://boolean",
-            "apex://date",
-            "apex://datetime",
-            "apex://decimal",
-            "apex://double",
-            "apex://event",
-            "apex://id",
-            "apex://integer",
-            "apex://list",
-            "apex://long",
-            "apex://map",
-            "apex://object",
-            "apex://set",
-            "apex://string",
-            "apex://sobject",
-            "apex://time"
-            );
 
     private static final String TIMESTAMP_FORMAT_PROPERTY = "aura.build.timestamp.format";
     private static final String TIMESTAMP_PROPERTY = "aura.build.timestamp";
@@ -146,7 +107,7 @@ public class ConfigAdapterImpl implements ConfigAdapter {
 
     private final Set<String> CACHEABLE_PREFIXES = ImmutableSet.of("aura", "java", "compound");
 
-    private final Set<String> moduleNamespaces = Sets.newHashSet();
+    private final Map<String, String> moduleNamespaceAliases = Maps.newConcurrentMap();
 
     protected final Set<Mode> allModes = EnumSet.allOf(Mode.class);
     private JavascriptGroup jsGroup;
@@ -158,10 +119,7 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     private Long buildTimestamp;
     private String auraVersionString;
     private boolean lastGenerationHadCompilationErrors = false;
-    private boolean validateCss;
-
-    @Inject
-    private LocalizationAdapter localizationAdapter;
+    private Boolean validateCss;
 
     @Inject
     private DefinitionService definitionService;
@@ -170,10 +128,13 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     private InstanceService instanceService;
 
     @Inject
-    private ContextService contextService;
+    protected ContextService contextService;
 
     @Inject
     private FileMonitor fileMonitor;
+
+    @Inject
+    private CSPInliningService cspInliningService;
 
     private String resourceCacheDir;
 
@@ -187,11 +148,11 @@ public class ConfigAdapterImpl implements ConfigAdapter {
      */
     public ConfigAdapterImpl(final String resourceCacheDir) {
         this.resourceCacheDir = resourceCacheDir;
+        setupTempDirDelete();
     }
 
-    public ConfigAdapterImpl(String resourceCacheDir, LocalizationAdapter localizationAdapter, InstanceService instanceService, ContextService contextService, FileMonitor fileMonitor) {
+    public ConfigAdapterImpl(String resourceCacheDir, InstanceService instanceService, ContextService contextService, FileMonitor fileMonitor) {
         this.resourceCacheDir = resourceCacheDir;
-        this.localizationAdapter = localizationAdapter;
         this.instanceService = instanceService;
         this.contextService = contextService;
 
@@ -207,67 +168,53 @@ public class ConfigAdapterImpl implements ConfigAdapter {
             throw new AuraRuntimeException(e);
         }
 
-        // Framework JS
-        JavascriptGroup tempGroup = null;
-        try {
-            tempGroup = newAuraJavascriptGroup();
-            try {
-                tempGroup.parse();
-            } catch (IOException x) {
-                throw new AuraError("Unable to initialize aura client javascript", x);
+        contextService.registerGlobal("isVoiceOver", true, false);
+        contextService.registerGlobal("dynamicTypeSize", true, "");
+    }
+
+    private JavascriptGroup getJSGroup() {
+        synchronized (this) {
+            if (jsGroup != null) {
+                return jsGroup;
             }
-            tempGroup.postProcess();
-        } catch (IOException x) {
-            /*
-             * js source wasn't found, we must be in jar land, just let the files be accessed from there... however, we
-             * do want a hash. Question: hypothetically, could we have a hybrid with a subset of files as files, and the
-             * rest in jars? This wouldn't be accounted for here.
-             */
-            tempGroup = new CompiledGroup(AuraJavascriptGroup.GROUP_NAME, AuraJavascriptGroup.FILE_NAME);
+            // Framework JS
+            JavascriptGroup tempGroup = null;
+            try {
+                tempGroup = newAuraJavascriptGroup();
+                try {
+                    tempGroup.parse();
+                } catch (IOException x) {
+                    throw new AuraError("Unable to initialize aura client javascript", x);
+                }
+                tempGroup.postProcess();
+            } catch (IOException x) {
+                /*
+                 * js source wasn't found, we must be in jar land, just let the files be accessed from there...
+                 */
+                tempGroup = new CompiledGroup(AuraJavascriptGroup.GROUP_NAME, AuraJavascriptGroup.FILE_NAME);
+            }
+            jsGroup = tempGroup;
         }
-        jsGroup = tempGroup;
+        return jsGroup;
+    }
 
-        // Aura Resources
-        FileGroup tempResourcesGroup;
-        try {
-            tempResourcesGroup = newAuraResourcesHashingGroup();
-            tempResourcesGroup.getGroupHash();
-        } catch (IOException e) {
-            tempResourcesGroup = new CompiledGroup(AuraResourcesHashingGroup.GROUP_NAME,
-                    AuraResourcesHashingGroup.FILE_NAME);
+    private FileGroup getResourcesGroup() {
+        synchronized (this) {
+            if (resourcesGroup != null) {
+                return resourcesGroup;
+            }
+            // Aura Resources
+            FileGroup tempResourcesGroup;
+            try {
+                tempResourcesGroup = newAuraResourcesHashingGroup();
+                tempResourcesGroup.getGroupHash();
+            } catch (IOException e) {
+                tempResourcesGroup = new CompiledGroup(AuraResourcesHashingGroup.GROUP_NAME,
+                        AuraResourcesHashingGroup.FILE_NAME);
+            }
+            resourcesGroup = tempResourcesGroup;
         }
-        resourcesGroup = tempResourcesGroup;
-
-        Properties props = null;
-        try {
-            props = loadProperties();
-            auraVersionString = props.getProperty(VERSION_PROPERTY);
-        } catch (AuraError t) {
-            auraVersionString = "development";
-        }
-        if (props != null) {
-            buildTimestamp = readBuildTimestamp(props);
-        } else {
-            buildTimestamp = System.currentTimeMillis();
-        }
-
-        if (auraVersionString == null || auraVersionString.isEmpty()) {
-            throw new AuraError("Unable to read build version from version.prop file");
-        }
-
-        Properties config = loadConfig();
-        String validateCssString = config.getProperty(VALIDATE_CSS_CONFIG);
-        validateCss = AuraTextUtil.isNullEmptyOrWhitespace(validateCssString)
-                || Boolean.parseBoolean(validateCssString.trim());
-
-        contextService.registerGlobal("isVoiceOver", true, false);
-        contextService.registerGlobal("dynamicTypeSize", true, "");
-
-        if (!isProduction()) {
-            fileMonitor.start();
-        }
-        contextService.registerGlobal("isVoiceOver", true, false);
-        contextService.registerGlobal("dynamicTypeSize", true, "");
+        return resourcesGroup;
     }
 
     protected FileGroup newAuraResourcesHashingGroup() throws IOException {
@@ -335,7 +282,7 @@ public class ConfigAdapterImpl implements ConfigAdapter {
          * If we're missing source, jsGroup will be an AuraResourceGroup and isStale() is always false. If we're in
          * production, we're using the resources too. But if we have source, regenerate from it if it's changed:
          */
-        if (!isProduction() && jsGroup != null && (jsGroup.isStale() || lastGenerationHadCompilationErrors)) {
+        if (!isProduction() && (getJSGroup().isStale() || lastGenerationHadCompilationErrors)) {
             try {
                 logger.info("Regenerating framework javascript");
                 File dest = AuraImplFiles.AuraResourceJavascriptDirectory.asFile();
@@ -431,26 +378,15 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     }
 
     @Override
-    public String getCurrentTimezone() {
-        AuraLocale al = localizationAdapter.getAuraLocale();
-        return al.getTimeZone().getID();
-    }
-
-    @Override
     public String getAuraJSURL() {
         AuraContext context = contextService.getCurrentContext();
         String contextPath = context.getContextPath();
         String suffix = context.getMode().getJavascriptMode().getSuffix();
+        if (context.useCompatSource()) {
+            suffix = suffix + "_compat";
+        }
         String nonce = context.getFrameworkUID();
         return String.format("%s/auraFW/javascript/%s/aura_%s.js", contextPath, nonce, suffix);
-    }
-
-    @Override
-    public String getLockerWorkerURL() {
-        AuraContext context = contextService.getCurrentContext();
-        String contextPath = context.getContextPath();
-        String nonce = context.getFrameworkUID();
-        return String.format("%s/auraFW/resources/%s" + SAFE_EVAL_HTML_URI, contextPath, nonce);
     }
 
     /**
@@ -492,7 +428,7 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     @Override
     public long getAuraJSLastMod() {
         regenerateAuraJS();
-        return jsGroup != null ? jsGroup.getLastMod() : getBuildTimestamp();
+        return getJSGroup().getLastMod();
     }
 
     @Override
@@ -502,6 +438,15 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     @Override
     public boolean isProduction() {
         return Boolean.parseBoolean(System.getProperty("aura.production"));
+    }
+
+    @Override
+    public boolean isFileMonitorEnabled() {
+        String enableFileWatcher = System.getProperty("aura.enableFileMonitor");
+        if (enableFileWatcher == null) {
+            return  !isProduction();
+        }
+        return Boolean.parseBoolean(enableFileWatcher);
     }
 
     @Override
@@ -528,25 +473,37 @@ public class ConfigAdapterImpl implements ConfigAdapter {
         return this.isProduction() ? Mode.PROD : Mode.DEV;
     }
 
-    private Properties loadProperties() {
-
-        Properties props = new Properties();
-        try {
-            loadProperties("/version.prop", props);
-        } catch (IOException e) {
-            throw new AuraError("Could not read version.prop information");
+    private void loadProperties() {
+        if (auraVersionString == null) {
+            Properties props = new Properties();
+            try {
+                loadProperties("/version.prop", props);
+                auraVersionString = props.getProperty(VERSION_PROPERTY);
+                buildTimestamp = readBuildTimestamp(props);
+            } catch (IOException e) {
+                props = null;
+                auraVersionString = "development";
+                buildTimestamp = System.currentTimeMillis();
+            }
+            if (auraVersionString == null || auraVersionString.isEmpty()) {
+                throw new AuraError("Unable to read build version from version.prop file");
+            }
         }
-        return props;
     }
 
-    private Properties loadConfig() {
-        Properties props = new Properties();
-        try {
-            loadProperties("/aura.conf", props);
-        } catch (IOException e) {
-            // ignore
+    private void loadConfig() {
+        if (validateCss == null) {
+            Properties props = new Properties();
+            String validateCssString = null;
+            try {
+                loadProperties("/aura.conf", props);
+                validateCssString = props.getProperty(VALIDATE_CSS_CONFIG);
+            } catch (IOException e) {
+                // ignore
+            }
+            validateCss = AuraTextUtil.isNullEmptyOrWhitespace(validateCssString)
+                    || Boolean.parseBoolean(validateCssString.trim());
         }
-        return props;
     }
 
     private Properties loadProperties(String path, Properties props) throws IOException {
@@ -580,17 +537,23 @@ public class ConfigAdapterImpl implements ConfigAdapter {
 
     @Override
     public long getBuildTimestamp() {
+        if (buildTimestamp == null) {
+            loadProperties();
+        }
         return buildTimestamp;
     }
 
     @Override
     public String getAuraVersion() {
+        if (auraVersionString == null) {
+            loadProperties();
+        }
         return auraVersionString;
     }
 
     @Override
     public boolean isAuraJSStatic() {
-        return jsGroup == null;
+        return false;
     }
 
     /**
@@ -603,6 +566,9 @@ public class ConfigAdapterImpl implements ConfigAdapter {
 
     @Override
     public boolean validateCss() {
+        if (validateCss == null) {
+            loadConfig();
+        }
         return validateCss;
     }
 
@@ -611,7 +577,7 @@ public class ConfigAdapterImpl implements ConfigAdapter {
         regenerateAuraJS();
         try {
             // framework nonce now consists of Aura JS and resources files (CSS and JS) and if locker service is enabled
-            String jsHash = jsGroup.getGroupHash().toString();
+            String jsHash = getJSGroup().getGroupHash().toString();
             String resourcesHash = getAuraResourcesNonce();
 
             /*
@@ -646,10 +612,11 @@ public class ConfigAdapterImpl implements ConfigAdapter {
 
     private String getAuraResourcesNonce() {
         try {
-            if (!isProduction() && resourcesGroup != null && resourcesGroup.isStale()) {
-                resourcesGroup.reset();
+            FileGroup rg = getResourcesGroup();
+            if (!isProduction() && rg.isStale()) {
+                rg.reset();
             }
-            return resourcesGroup.getGroupHash().toString();
+            return rg.getGroupHash().toString();
         } catch (IOException e) {
             throw new AuraRuntimeException("Can't read Aura resources files", e);
         }
@@ -723,15 +690,9 @@ public class ConfigAdapterImpl implements ConfigAdapter {
             if ("APPLICATION".equals(defType) || "COMPONENT".equals(defType)) {
                 allowInline = !isLockerServiceEnabled();
             }
-        } else {
-            allowInline = isSafeEvalWorkerURI(request.getRequestURI());
         }
 
-        return new DefaultContentSecurityPolicy(allowInline);
-    }
-
-    public void setLocalizationAdapter(LocalizationAdapter adapter) {
-        this.localizationAdapter = adapter;
+        return new DefaultContentSecurityPolicy(allowInline, cspInliningService, this);
     }
 
     public void setContextService(ContextService service) {
@@ -753,6 +714,21 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     }
 
     @Override
+    public boolean isFrozenRealmEnabled() {
+        return true;
+    }
+
+    @Override
+    public boolean isBootstrapInliningEnabled() {
+        return true;
+    }
+
+    @Override
+    public boolean isBootstrapModelExclusionEnabled() {
+        return false;
+    }
+
+    @Override
     public boolean requireLocker(RootDefinition def) {
         boolean requireLocker = !isInternalNamespace(def.getDescriptor().getNamespace());
         if (!requireLocker) {
@@ -768,15 +744,6 @@ public class ConfigAdapterImpl implements ConfigAdapter {
         return requireLocker;
     }
 
-    @Override
-    public String getLockerServiceCacheBuster() {
-        return isLockerServiceEnabled() ? "Y" : "N";
-    }
-
-    protected boolean isSafeEvalWorkerURI(String uri) {
-        return uri.endsWith(SAFE_EVAL_HTML_URI);
-    }
-
     /**
      * Return true if the namespace of the provided descriptor supports caching.
      */
@@ -784,16 +751,6 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     public boolean isCacheable(DefRegistry registry, DefDescriptor<?> descriptor) {
         if (descriptor == null) {
             return false;
-        }
-        // test cacheDependencyExceptions (like static types in Apex)
-        String descriptorName = descriptor.getQualifiedName().toLowerCase();
-
-        // truncate array markers
-        if (descriptorName.endsWith("[]")) {
-            descriptorName = descriptorName.substring(0, descriptorName.length() - 2);
-        }
-        if (cacheDependencyExceptions.contains(descriptorName)) {
-            return true;
         }
         if (registry != null && !registry.isCacheable()) {
             return false;
@@ -857,22 +814,73 @@ public class ConfigAdapterImpl implements ConfigAdapter {
     }
 
     @Override
-    public boolean isModulesEnabled() {
+    public boolean cdnEnabled() {
+        return false;
+    }
+
+    @Override
+    public String getCDNDomain() {
+        return null;
+    }
+    
+    @Override
+    public boolean uriAddressableDefsEnabled() {
+        return true;	
+    }
+
+    @Override
+    public Map<String, String> getModuleNamespaceAliases() {
+        return ImmutableMap.copyOf(this.moduleNamespaceAliases);
+    }
+
+    @Autowired(required = false)
+    public void setModuleNamespaceAliases(List<ModuleNamespaceAlias> aliases) {
+        for(ModuleNamespaceAlias ns : aliases) {
+            this.moduleNamespaceAliases.put(ns.target(), ns.alias());
+        }
+    }
+
+    @Override
+    public boolean isAllowedModule(String namespace, String name) {
         return true;
     }
 
     @Override
-    public Set<String> getModuleNamespaces() {
-        return this.moduleNamespaces;
-    }
-
-    @Override
-    public void addModuleNamespaces(Set<String> namespaces) {
-        this.moduleNamespaces.addAll(namespaces);
-    }
-
-    @Override
-    public boolean cdnEnabled() {
+    public boolean isActionPublicCachingEnabled() {
         return false;
     }
+
+    @Override
+    public String getActionPublicCacheKey() {
+        return "";
+    }
+
+    @Override
+    public NodeLambdaFactory nodeServiceFactory() {
+        return NodeLambdaFactorySidecar.INSTANCE;
+    }
+
+    /**
+     * Force the delete of our temp dir.
+     *
+     * We allow override here to avoid conditions where we may end up not wanting to queue
+     * up a thread to run on system exit. In that case we don't properly clean up, but whoever
+     * overrides needs to ensure that their deployment does the right thing.
+     */
+    protected void setupTempDirDelete() {
+        IOUtil.markTempDirForDelete();
+    }
+
+    @Override
+    public boolean isSecureRequest(HttpServletRequest request) {
+        return request.isSecure();
+    }
+
+    @Override
+    public Set<String> getRequiredServices() {
+        return Collections.emptySet();
+    }
+
+    @Override
+    public String getCSPReportUri(){ return CSPReporterServlet.URL; }
 }

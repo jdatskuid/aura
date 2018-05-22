@@ -82,7 +82,9 @@ import org.auraframework.throwable.quickfix.InvalidExpressionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.json.Json;
+import org.auraframework.util.json.Json.ApplicationKey;
 import org.auraframework.util.json.JsonSerializationContext;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import com.google.common.base.Splitter;
 import com.google.common.collect.Lists;
@@ -92,10 +94,11 @@ import com.google.common.collect.Sets;
 public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         RootDefinitionImpl<T> implements BaseComponentDef, Serializable {
 
+    private static final long serialVersionUID = -5640566031972178622L;
+
     public static final DefDescriptor<InterfaceDef> ROOT_MARKER = new DefDescriptorImpl<>(
             "markup", "aura", "rootComponent", InterfaceDef.class);
 
-    private static final long serialVersionUID = -2485193714215681494L;
     private final boolean isAbstract;
     private final boolean isExtensible;
     private final boolean isTemplate;
@@ -152,6 +155,8 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
 
     private transient Boolean localDeps = null;
     private transient QuickFixException componentBuildError;
+    protected transient Map<String,String> serializedJSON;
+    protected final static String SERIALIZED_JSON_NO_FORMATTING_KEY = "no-format";
 
     private static <X extends Definition> DefDescriptor<X> getFirst(List<DefDescriptor<X>> list) {
         return (list != null && list.size() > 0) ? list.get(0) : null;
@@ -212,12 +217,13 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         } else {
             this.compoundControllerDescriptor = null;
         }
-		this.hashCode = AuraUtil.hashCode(super.hashCode(), events, controllerDescriptor, modelDescriptor,
-				extendsDescriptor, interfaces, methodDefs, providerDescriptor, rendererDescriptor, helperDescriptor,
-				imports, externalModelDescriptor, externalRendererDescriptor, externalControllerDescriptor,
-				externalHelperDescriptor, externalProviderDescriptor);
-        if (externalRendererDescriptor == null && externalHelperDescriptor == null && externalProviderDescriptor == null
-                && externalControllerDescriptor == null && externalModelDescriptor == null) {
+        this.hashCode = AuraUtil.hashCode(super.hashCode(), events, controllerDescriptor, modelDescriptor,
+                        extendsDescriptor, interfaces, methodDefs, providerDescriptor, rendererDescriptor, helperDescriptor,
+                        imports, externalModelDescriptor, externalRendererDescriptor, externalControllerDescriptor,
+                        externalHelperDescriptor, externalProviderDescriptor);
+        if (externalRendererDescriptor == null && externalHelperDescriptor == null
+                && externalProviderDescriptor == null && externalControllerDescriptor == null
+                && externalModelDescriptor == null) {
             try {
                 buildClass();
             } catch (QuickFixException qfe) {
@@ -321,28 +327,39 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
     @Override
     public boolean hasLocalDependencies() throws QuickFixException {
         if (localDeps == null) {
-            computeLocalDependencies();
+            hasLocalDependencies(Sets.newHashSet());
         }
-
         return localDeps == Boolean.TRUE;
     }
 
-    // JBUCH: TODO: This is sub-optimal and the entire concern needs to be revisited. Note the impl cast.
-    public boolean hasFacetLocalDependencies() throws QuickFixException {
-        if (!facets.isEmpty()) {
-            for (AttributeDefRef facet : facets) {
-                Object v = facet.getValue();
-                if (v instanceof ArrayList) {
-                    for (Object fl : ((ArrayList<?>) v)) {
-                        if (fl instanceof DefinitionReference) {
-                            DefinitionReference cdr = (DefinitionReference) fl;
-                            DefType defType = cdr.getDescriptor().getDefType();
-                            if (defType == DefType.APPLICATION || defType == DefType.COMPONENT) {
-                                BaseComponentDefImpl<?> def = (BaseComponentDefImpl<?>) cdr.getDescriptor().getDef();
-                                if (def.hasLocalDependencies() || def.hasFacetLocalDependencies()) {
-                                    return true;
-                                }
+    private boolean hasLocalDependencies(Set<DefDescriptor<?>> visited) throws QuickFixException {
+        if (localDeps == null) {
+            computeLocalDependencies(visited);
+        }
+        return localDeps == Boolean.TRUE;
+    }
+
+    private boolean probeReferenceLocalDependencies(AttributeDefRef facet, Set<DefDescriptor<?>> processed)
+            throws QuickFixException {
+        Object v = facet.getValue();
+        if (v instanceof ArrayList) {
+            for (Object fl : ((ArrayList<?>) v)) {
+                if (fl instanceof DefinitionReference) {
+                    DefinitionReference cdr = (DefinitionReference) fl;
+                    DefDescriptor<?> descriptor = cdr.getDescriptor();
+                    DefType defType = descriptor.getDefType();
+                    if (defType == DefType.APPLICATION || defType == DefType.COMPONENT) {
+                        if (!processed.contains(descriptor)) {
+                            processed.add(descriptor);
+                            BaseComponentDefImpl<?> def = (BaseComponentDefImpl<?>) descriptor.getDef();
+                            if (def.hasLocalDependencies(processed)) {
+                                return true;
                             }
+                        }
+                    }
+                    for (AttributeDefRef attrValue : cdr.getAttributeValueList()) {
+                        if (probeReferenceLocalDependencies(attrValue, processed)) {
+                            return true;
                         }
                     }
                 }
@@ -357,7 +374,8 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
      * Terminology: "remote" - a JavaScript provider or renderer "local" - a Java/Apex/server provider, renderer, or
      * model
      */
-    private synchronized void computeLocalDependencies() throws QuickFixException {
+    @SuppressWarnings("unchecked")
+    private synchronized void computeLocalDependencies(Set<DefDescriptor<?>> processed) throws QuickFixException {
         if (localDeps != null) {
             return;
         }
@@ -381,7 +399,6 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         // Walk the super component tree applying slightly different dependency rules.
         // For super defs, we only check for renderer or model dependencies.
         // This should die, somehow.
-        @SuppressWarnings("unchecked")
         BaseComponentDefImpl<T> superDef = (BaseComponentDefImpl<T>)getSuperDef();
         while (superDef != null) {
             if (superDef.modelDescriptor != null || superDef.clientModelDef != null
@@ -393,20 +410,29 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         }
 
         if (localDeps == null) {
+            if (!facets.isEmpty()) {
+                for (AttributeDefRef facet : facets) {
+                    if (probeReferenceLocalDependencies(facet, processed)) {
+                        localDeps = Boolean.TRUE;
+                    }
+                }
+            }
+        }
+        if (localDeps == null) {
             localDeps = Boolean.FALSE;
         }
     }
 
     @SuppressWarnings("unchecked")
     @Override
-    public void validateReferences() throws QuickFixException {
-        super.validateReferences();
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        super.validateReferences(validationContext);
         for (DependencyDef def : dependencies) {
-            def.validateReferences();
+            def.validateReferences(validationContext);
         }
 
         for (AttributeDef att : this.attributeDefs.values()) {
-            att.validateReferences();
+            att.validateReferences(validationContext);
         }
 
         AttributeDef facetAttributeDef;
@@ -427,12 +453,11 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
                     // }
                 }
             }
-            facet.validateReferences();
+            facet.validateReferences(validationContext);
         }
 
-        DefinitionService definitionService = Aura.getDefinitionService();
         if (templateDefDescriptor != null) {
-            BaseComponentDef template = definitionService.getDefinition(templateDefDescriptor);
+            BaseComponentDef template = validationContext.getAccessibleDefinition(templateDefDescriptor);
             if (!template.isTemplate()) {
                 throw new InvalidDefinitionException(String.format(
                         "Template %s must be marked as a template", templateDefDescriptor), getLocation());
@@ -444,7 +469,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         }
 
         if (extendsDescriptor != null) {
-            T parentDef = definitionService.getDefinition(extendsDescriptor);
+            T parentDef = validationContext.getAccessibleDefinition(extendsDescriptor);
 
             // This should never happen.
             if (parentDef == null) {
@@ -481,7 +506,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
             SupportLevel support = getSupport();
             DefDescriptor<T> extDesc = extendsDescriptor;
             while (extDesc != null) {
-                T extDef = definitionService.getDefinition(extDesc);
+                T extDef = validationContext.getAccessibleDefinition(extDesc);
                 if (support.ordinal() > extDef.getSupport().ordinal()) {
                     throw new InvalidDefinitionException(
                             String.format("%s cannot widen the support level to %s from %s's level of %s",
@@ -494,15 +519,15 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         }
 
         for (RegisterEventDef def : events.values()) {
-            def.validateReferences();
+            def.validateReferences(validationContext);
         }
 
         for (EventHandlerDef def : eventHandlers) {
-            def.validateReferences();
+            def.validateReferences(validationContext);
         }
 
         for (LibraryDefRef def : imports) {
-            def.validateReferences();
+            def.validateReferences(validationContext);
         }
 
         // have to do all sorts of craaaazy checks here for dupes and matches
@@ -510,7 +535,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         validateExpressionRefs();
 
         for (ClientLibraryDef def : this.clientLibraries) {
-            def.validateReferences();
+            def.validateReferences(validationContext);
         }
 
 
@@ -531,23 +556,23 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
             }
         }
         if (styleDefDescriptor != null) {
-            styleDef = styleDefDescriptor.getDef();
+            styleDef = validationContext.getAccessibleDefinition(styleDefDescriptor);
         }
         if (classCode == null) {
             if (externalModelDescriptor != null) {
-                clientModelDef = externalModelDescriptor.getDef();
+                clientModelDef = validationContext.getAccessibleDefinition(externalModelDescriptor);
             }
             if (externalRendererDescriptor != null) {
-                clientRendererDef = externalRendererDescriptor.getDef();
+                clientRendererDef = validationContext.getAccessibleDefinition(externalRendererDescriptor);
             }
             if (externalControllerDescriptor != null) {
-                clientControllerDef = externalControllerDescriptor.getDef();
+                clientControllerDef = validationContext.getAccessibleDefinition(externalControllerDescriptor);
             }
             if (externalHelperDescriptor != null) {
-                clientHelperDef = externalHelperDescriptor.getDef();
+                clientHelperDef = validationContext.getAccessibleDefinition(externalHelperDescriptor);
             }
             if (externalProviderDescriptor != null) {
-                clientProviderDef = externalProviderDescriptor.getDef();
+                clientProviderDef = validationContext.getAccessibleDefinition(externalProviderDescriptor);
             }
             buildClass();
         }
@@ -586,9 +611,14 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
     }
 
     @Override
-    public void retrieveLabels() throws QuickFixException {
-        super.retrieveLabels();
-        retrieveLabels(expressionRefs);
+    public Collection<PropertyReference> getPropertyReferences() {
+        Collection<PropertyReference> superRefs = super.getPropertyReferences();
+        if (superRefs != null) {
+            superRefs.addAll(expressionRefs);
+            return superRefs;
+        } else {
+            return expressionRefs;
+        }
     }
 
     @Override
@@ -608,17 +638,18 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
     public void appendDependencies(Set<DefDescriptor<?>> dependencies) {
         super.appendDependencies(dependencies);
 
+        // This is a hack. we should do this differently.
         if (styleDef != null) {
             dependencies.add(styleDef.getDescriptor());
         }
         if (styleDefDescriptor != null) {
             dependencies.add(styleDefDescriptor);
         }
-        
+
         if (flavoredStyle != null) {
             dependencies.add(flavoredStyle.getDescriptor());
         }
-        
+
         for (AttributeDefRef facet : this.facets) {
             facet.appendDependencies(dependencies);
         }
@@ -667,6 +698,21 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
 
         for (DependencyDef dep : this.dependencies) {
             dep.appendDependencies(dependencies, this);
+        }
+        if (externalModelDescriptor != null) {
+            dependencies.add(externalModelDescriptor);
+        }
+        if (externalRendererDescriptor != null) {
+            dependencies.add(externalRendererDescriptor);
+        }
+        if (externalControllerDescriptor != null) {
+            dependencies.add(externalControllerDescriptor);
+        }
+        if (externalHelperDescriptor != null) {
+            dependencies.add(externalHelperDescriptor);
+        }
+        if (externalProviderDescriptor != null) {
+            dependencies.add(externalProviderDescriptor);
         }
     }
 
@@ -902,6 +948,11 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         return interfaces;
     }
 
+    @Override
+    public Set<String> getTags() {
+        return tags;
+    }
+
     private Set<DefDescriptor<InterfaceDef>> getAllInterfaces() throws QuickFixException {
         Set<DefDescriptor<InterfaceDef>> interfaceDefs = Sets.newLinkedHashSet();
         for (DefDescriptor<InterfaceDef> interfaceDef : interfaces) {
@@ -967,6 +1018,28 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         return false;
     }
 
+    protected void serializeStyles(Json json) throws IOException {
+        json.writeMapEntry(ApplicationKey.STYLEDEF, getStyleDef());
+        if (flavoredStyle != null) {
+            json.writeMapEntry(ApplicationKey.FLAVOREDSTYLEDEF, flavoredStyle);
+        }
+    }
+    
+    protected void serializeContextDependencies(AuraContext context, Json json) throws IOException {
+        boolean preloading = context.isPreloading();
+        if (preloading) {
+            json.writeMapEntry(ApplicationKey.CSSPRELOADED, preloading);
+        }
+        
+        if(!context.getClientClassLoaded(descriptor)) {
+            boolean minify = context.getMode().minify();
+            String code = getCode(minify);
+            if (!AuraTextUtil.isNullEmptyOrWhitespace(code)) {
+                json.writeMapEntry(ApplicationKey.COMPONENTCLASS, code);
+            }
+        }
+    }
+    
     /**
      * Serialize this component to json. The output will include all of the attributes, events, and handlers inherited.
      * It doesn't yet include inherited ComponentDefRefs, but maybe it should.
@@ -979,124 +1052,122 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
             boolean preloaded = context.isPreloaded(getDescriptor());
             if (preloaded || serializationContext.isSerializing()) {
                 json.writeMapBegin();
-                json.writeMapEntry("descriptor", descriptor);
+                json.writeMapEntry(ApplicationKey.DESCRIPTOR, descriptor);
                 json.writeMapEnd();
             } else {
                 serializationContext.setSerializing(true);
                 json.writeMapBegin();
                 json.writeValue(getAccess());
-                json.writeMapEntry("descriptor", descriptor);
+                json.writeMapEntry(ApplicationKey.DESCRIPTOR, descriptor);
 
-                json.writeMapEntry("styleDef", getStyleDef());
-                if (flavoredStyle != null) {
-                    json.writeMapEntry("flavoredStyleDef", flavoredStyle);
-                }
-
+                serializeStyles(json);
+                
+                json.startCapturing();
                 ControllerDef controllerDef = getControllerDef();
                 if (controllerDef != null && hasServerAction(controllerDef)) {
-                    json.writeMapEntry("controllerDef", controllerDef);
+                    json.writeMapEntry(ApplicationKey.CONTROLLERDEF, controllerDef);
                 }
+                
+                json.writeMapEntry(ApplicationKey.MODELDEF, getModelDef());
 
-                json.writeMapEntry("modelDef", getModelDef());
-                json.writeMapEntry("superDef", getSuperDef());
-                boolean preloading = context.isPreloading();
-                if (preloading) {
-                    json.writeMapEntry("isCSSPreloaded", preloading);
+                if (getSuperDef() != null && !getSuperDef().getDescriptor().getQualifiedName().equals("markup://aura:component")) {
+                    json.writeMapEntry(ApplicationKey.SUPERDEF, getSuperDef().getDescriptor());
                 }
 
                 Collection<AttributeDef> attributeDefs = getAttributeDefs().values();
                 if (!attributeDefs.isEmpty()) {
-                    json.writeMapEntry("attributeDefs", attributeDefs);
+                    json.writeMapEntry(ApplicationKey.ATTRIBUTEDEFS, attributeDefs);
                 }
 
                 Collection<MethodDef> methodDefs = getMethodDefs().values();
                 if (!methodDefs.isEmpty()) {
-                    json.writeMapEntry("methodDefs", methodDefs);
+                    json.writeMapEntry(ApplicationKey.METHODDEFS, methodDefs);
                 }
 
                 Collection<RequiredVersionDef> requiredVersionDefs = getRequiredVersionDefs().values();
                 if (requiredVersionDefs != null && !requiredVersionDefs.isEmpty()) {
-                    json.writeMapEntry("requiredVersionDefs", requiredVersionDefs);
+                    json.writeMapEntry(ApplicationKey.REQUIREDVERSIONDEFS, requiredVersionDefs);
                 }
 
                 Set<DefDescriptor<InterfaceDef>> allInterfaces = getAllInterfaces();
                 if (allInterfaces != null && !allInterfaces.isEmpty()) {
-                    json.writeMapEntry("interfaces", allInterfaces);
+                    json.writeMapEntry(ApplicationKey.INTERFACES, allInterfaces);
                 }
 
                 Collection<RegisterEventDef> regevents = getRegisterEventDefs().values();
                 if (!regevents.isEmpty()) {
-                    json.writeMapEntry("registerEventDefs", regevents);
+                    json.writeMapEntry(ApplicationKey.REGISTEREVENTDEFS, regevents);
                 }
 
                 Collection<EventHandlerDef> handlers = getHandlerDefs();
                 if (!handlers.isEmpty()) {
-                    json.writeMapEntry("handlerDefs", handlers);
-                }
-
-                Collection<LibraryDefRef> imports = getImports();
-                if (!imports.isEmpty()) {
-                    json.writeMapEntry("imports", imports);
+                    json.writeMapEntry(ApplicationKey.HANDLERDEFS, handlers);
                 }
 
                 Map<String, LocatorDef> locatorDefs = getLocators();
                 if (locatorDefs!=null && !locatorDefs.isEmpty()) {
-                    json.writeMapEntry("locatorDefs", locatorDefs);
+                    json.writeMapEntry(ApplicationKey.LOCATORDEFS, locatorDefs);
                 }
 
                 if (!facets.isEmpty()) {
-                    json.writeMapEntry("facets", facets);
+                    json.writeMapEntry(ApplicationKey.FACETS, facets);
                 }
 
                 boolean local = hasLocalDependencies();
-                // For the client, hasRemoteDeps is true if the current definition or
-                // a definition in any of its facets has a local dependency.
-                if (!local) {
-                    local = hasFacetLocalDependencies();
-                }
 
                 if (local) {
-                    json.writeMapEntry("hasServerDeps", true);
+                    json.writeMapEntry(ApplicationKey.HASSERVERDEPENDENCIES, true);
                 }
 
                 if (isAbstract) {
-                    json.writeMapEntry("isAbstract", isAbstract);
+                    json.writeMapEntry(ApplicationKey.ABSTRACT, isAbstract);
                 }
 
                 if (subDefs != null) {
-                    json.writeMapEntry("subDefs", subDefs.values());
+                    json.writeMapEntry(ApplicationKey.SUBDEFS, subDefs.values());
                 }
 
                 String defaultFlavorToSerialize = getDefaultFlavorOrImplicit();
                 if (defaultFlavorToSerialize != null) {
-                    json.writeMapEntry("defaultFlavor", defaultFlavorToSerialize);
+                    json.writeMapEntry(ApplicationKey.DEFAULTFLAVOR, defaultFlavorToSerialize);
                 }
 
                 if (hasFlavorableChild) {
-                    json.writeMapEntry("hasFlavorableChild", true);
+                    json.writeMapEntry(ApplicationKey.FLAVORABLECHILD, true);
                 }
 
                 if (dynamicallyFlavorable) {
-                    json.writeMapEntry("dynamicallyFlavorable", dynamicallyFlavorable);
+                    json.writeMapEntry(ApplicationKey.DYNAMICALLYFLAVORABLE, dynamicallyFlavorable);
                 }
 
-                if(!context.getClientClassLoaded(descriptor)) {
-                    boolean minify = context.getMode().minify();
-                    String code = getCode(minify);
-                    if (!AuraTextUtil.isNullEmptyOrWhitespace(code)) {
-                        json.writeMapEntry("componentClass", "function(){" + code + "}");
-                    }
+                if(this.minVersion != null) {
+                    json.writeMapEntry(ApplicationKey.MINVERSION, this.minVersion);
                 }
 
                 serializeFields(json);
+                if (serializedJSON == null) {
+                    synchronized (this) {
+                        if (serializedJSON == null) {
+                            serializedJSON = new HashMap<>();
+                        }
+                    }
+                }
+                String indent = SERIALIZED_JSON_NO_FORMATTING_KEY;
+                if (json.getSerializationContext().format()) {
+                    indent = json.getIndent();
+                }
+                serializedJSON.put(indent, json.stopCapturing());
+                
+                serializeContextDependencies(context, json);
+                
                 json.writeMapEnd();
-
                 serializationContext.setSerializing(false);
             }
         } catch (QuickFixException e) {
             throw new AuraUnhandledException("unhandled exception", e);
         }
     }
+
 
     protected abstract void serializeFields(Json json) throws IOException, QuickFixException;
 
@@ -1117,7 +1188,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
 
         return js;
     }
-    
+
     /**
      * Return true if the definition is a component that needs to be locked.
      */
@@ -1169,11 +1240,10 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         out.append('"').append(clientDescriptor).append('"');
         out.append(");");
 
-        out.append("  var locker = $A.lockerService.createForDef(\n\"");
+        out.append("  return $A.lockerService.createForDef(\n\"");
         out.append(AuraTextUtil.escapeForJavascriptString(objectVariable));
         out.append("\", def);\n");
 
-        out.append("  return locker.returnValue;\n");
         out.append("});\n");
 
         return out.toString();
@@ -1249,9 +1319,9 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         }
 
         if (clientModelDef != null) {
-        	ret.add(clientModelDef.getDescriptor());
+            ret.add(clientModelDef.getDescriptor());
         }
-        
+
         if (extendsDescriptor != null) {
             ret.addAll(getSuperDef().getModelDefDescriptors());
         }
@@ -1372,7 +1442,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         private String classCode;
         private String minifiedClassCode;
         private boolean minifyEnabled;
-        
+
         @Override
         public Builder<T> setFacet(String key, Object value) {
             if (facets == null) {
@@ -1420,6 +1490,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
                 this.interfaces = Sets.newHashSet();
             }
             this.interfaces.add(interfaceDesc);
+            addTag(interfaceDesc.getDescriptorName());
             return this;
         }
 
@@ -1671,6 +1742,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
             return found;
         }
 
+        @SuppressWarnings("unchecked")
         @Override
         public void finish() {
             if (render == null) {
@@ -1710,7 +1782,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
             }
             externalRendererDef = checkForExternalJs(rendererDescriptors,
                     (clientRendererDef != null ? clientRendererDef.getDescriptor() : null));
-            if (modelDefDescriptor != null 
+            if (modelDefDescriptor != null
                     && (clientModelDef == null || !modelDefDescriptor.equals(clientModelDef.getDescriptor()))
                     && modelDefDescriptor.getPrefix() != null
                     && modelDefDescriptor.getPrefix().equals(DefDescriptor.JAVASCRIPT_PREFIX)) {
@@ -1853,7 +1925,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
         }
 
         boolean ret = false;
-        
+
         ret |= (clientRendererDef == null || (rendererDescriptor != null));
 
         // If we've gotten this far, let's check for remote providers
@@ -1874,9 +1946,7 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
 
         // If we've gotten this far, let's spider dependencies.
         if (ret) {
-            Set<DefDescriptor<?>> deps = Sets.newLinkedHashSet();
-
-            appendDependencies(deps);
+            Set<DefDescriptor<?>> deps = getDependencySet();
             for (DefDescriptor<?> dep : deps) {
                 if (!already.contains(dep)) {
                     already.add(dep);
@@ -1891,6 +1961,9 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
                     } else if (dep.getDefType() == DefType.INTERFACE) {
                         InterfaceDefImpl depDef = (InterfaceDefImpl) dep.getDef();
                         ret = ret && depDef.isInConcreteAndHasLocalProvider();
+                    } else if (dep.getDefType() == DefType.MODULE) {
+                        // modules must be client rendered
+                        return false;
                     }
                 }
             }
@@ -1945,4 +2018,5 @@ public abstract class BaseComponentDefImpl<T extends BaseComponentDef> extends
     public DefDescriptor<SVGDef> getSVGDefDescriptor() {
         return svgDef != null ? svgDef.getDescriptor() : null;
     }
+
 }

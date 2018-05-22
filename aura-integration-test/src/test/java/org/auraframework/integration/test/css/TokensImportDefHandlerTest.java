@@ -23,7 +23,7 @@ import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.TokensDef;
 import org.auraframework.def.TokensImportDef;
 import org.auraframework.impl.css.StyleTestCase;
-import org.auraframework.impl.factory.XMLParser;
+import org.auraframework.impl.factory.XMLParserBase;
 import org.auraframework.impl.root.parser.handler.TokensImportDefHandler;
 import org.auraframework.impl.source.StringSource;
 import org.auraframework.service.DefinitionService;
@@ -41,9 +41,9 @@ public class TokensImportDefHandlerTest extends StyleTestCase {
     private TokensImportDef source(String src) throws Exception {
         DefDescriptor<TokensImportDef> desc = definitionService.getDefDescriptor("test", TokensImportDef.class);
         StringSource<TokensImportDef> ss = new StringSource<>(desc, src, "myID", Format.XML);
-        XMLStreamReader xmlReader = XMLParser.createXMLStreamReader(ss.getHashingReader());
+        XMLStreamReader xmlReader = XMLParserBase.createXMLStreamReader(ss.getReader());
         xmlReader.next();
-        TokensImportDefHandler<TokensDef> handler = new TokensImportDefHandler<>(null, xmlReader, ss, true,
+        TokensImportDefHandler handler = new TokensImportDefHandler(null, xmlReader, ss, true,
                 definitionService, configAdapter, definitionParserAdapter);
         return handler.getElement();
     }

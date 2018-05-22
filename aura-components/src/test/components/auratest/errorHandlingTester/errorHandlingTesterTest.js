@@ -1,9 +1,10 @@
 ({
+    browsers : [ "GOOGLECHROME" ],
+
     /**
      * Verify that error message box displays in the auraErrorMask div and can be dismissed using the close button.
      */
-    // disable because test is run with Chrome/49.0.2623.112
-    _testErrorMessageDisplayAndClose: {
+    testErrorMessageDisplayAndClose: {
         test: [
             function(cmp) {
                 var iframeSrc = "/auratest/errorHandlingApp.app";
@@ -30,8 +31,7 @@
      * Verify that error message box displays via $A.error.
      * Test coverage for deprecated API.
      */
-    // disable because test is run with Chrome/49.0.2623.112
-    _testErrorMessageDisplayAndCloseViaAError: {
+    testErrorMessageDisplayAndCloseViaAError: {
         test: [
             function(cmp) {
                 var iframeSrc = "/auratest/errorHandlingApp.app";
@@ -53,8 +53,8 @@
             }
         ]
     },
-    // disable because test is run with Chrome/49.0.2623.112
-    _testErrorFromContainedCmpRender: {
+
+    testErrorFromContainedCmpRender: {
         test: function(cmp) {
             var iframeSrc = "/auratest/errorHandlingApp.app?throwErrorFromContainedCmpRender=true";
             this.loadIframe(iframeSrc, cmp, "iframeContainer");
@@ -68,14 +68,14 @@
                 $A.test.assertTrue($A.test.contains(errorMsg, originalErrorMsg),
                         "Failed to find original error message. Expected message: " + originalErrorMsg + "; Actual: " + errorMsg);
 
-                var failingDescriptor = "Failing descriptor: {markup://auratest:errorHandling}";
+                var failingDescriptor = "Failing descriptor: {auratest:errorHandling}";
                 $A.test.assertTrue($A.test.contains(errorMsg, failingDescriptor),
                         "The error message has incorrect failing descriptor. Expected descriptor: " + failingDescriptor + "; Actual: " + errorMsg);
             });
         }
     },
-    // disable because test is run with Chrome/49.0.2623.112
-    _testErrorFromContainedCmpAfterRender: {
+
+    testErrorFromContainedCmpAfterRender: {
         test: function(cmp) {
             var iframeSrc = "/auratest/errorHandlingApp.app?throwErrorFromContainedCmpAfterRender=true";
             this.loadIframe(iframeSrc, cmp, "iframeContainer");
@@ -85,18 +85,18 @@
             this.waitForErrorMaskVisibleInIframe(iframe, function() {
                 var errorMsg = that.getErrorMessageFromIframe(iframe);
 
-                var originalErrorMsg = "Error from component afterrender";
+                var originalErrorMsg = "Error from component afterRender";
                 $A.test.assertTrue($A.test.contains(errorMsg, originalErrorMsg),
                         "Failed to find original error message. Expected message: " + originalErrorMsg + "; Actual: " + errorMsg);
 
-                var failingDescriptor = "Failing descriptor: {markup://auratest:errorHandling}";
+                var failingDescriptor = "Failing descriptor: {auratest:errorHandling}";
                 $A.test.assertTrue($A.test.contains(errorMsg, failingDescriptor),
                         "The error message has incorrect failing descriptor. Expected descriptor: " + failingDescriptor + "; Actual: " + errorMsg);
             });
         }
     },
-    // disable because test is run with Chrome/49.0.2623.112
-    _testErrorFromContainedCmpRerender: {
+
+    testErrorFromContainedCmpRerender: {
         test: [
             function(cmp) {
                 var iframeSrc = "/auratest/errorHandlingApp.app";
@@ -115,15 +115,15 @@
                     $A.test.assertTrue($A.test.contains(errorMsg, originalErrorMsg),
                             "Failed to find original error message. Expected message: " + originalErrorMsg + "; Actual: " + errorMsg);
 
-                    var failingDescriptor = "Failing descriptor: {markup://auratest:errorHandling}";
+                    var failingDescriptor = "Failing descriptor: {auratest:errorHandling}";
                     $A.test.assertTrue($A.test.contains(errorMsg, failingDescriptor),
                             "The error message has incorrect failing descriptor. Expected descriptor: " + failingDescriptor + "; Actual: " + errorMsg);
                 });
             }
         ]
     },
-    // disable because test is run with Chrome/49.0.2623.112
-    _testErrorFromSuperCmpAfterRender: {
+
+    testErrorFromSuperCmpAfterRender: {
         test: function(cmp) {
             var iframeSrc = "/auratest/errorHandlingExtend.cmp?throwErrorFromSuperAfterRender=true&requiredAttribute=true";
             this.loadIframe(iframeSrc, cmp, "iframeContainer");
@@ -133,19 +133,19 @@
             this.waitForErrorMaskVisibleInIframe(iframe, function() {
                 var errorMsg = that.getErrorMessageFromIframe(iframe);
 
-                var originalErrorMsg = "Error from component afterrender";
+                var originalErrorMsg = "Error from component afterRender";
                 $A.test.assertTrue($A.test.contains(errorMsg, originalErrorMsg),
                         "Failed to find original error message. Expected message: " + originalErrorMsg + "; Actual: " + errorMsg);
 
                 // FIXME? should show the cmp with error renderer? seems the stacktrace gives right point.
-                var failingDescriptor = "Failing descriptor: {markup://auratest:errorHandlingExtend}";
+                var failingDescriptor = "Failing descriptor: {auratest:errorHandlingExtend}";
                 $A.test.assertTrue($A.test.contains(errorMsg, failingDescriptor),
                         "The error message has incorrect failing descriptor. Expected descriptor: " + failingDescriptor + "; Actual: " + errorMsg);
             });
         }
     },
-    // disable because test is run with Chrome/49.0.2623.112
-    _testErrorFromSuperCmpUnrender: {
+
+    testErrorFromSuperCmpUnrender: {
         test: [
             function(cmp) {
                 var iframeSrc = "/auratest/errorHandlingExtend.cmp?requiredAttribute=true";
@@ -166,7 +166,7 @@
                             "Failed to find original error message. Expected message: " + originalErrorMsg + "; Actual: " + errorMsg);
 
                     // FIXME? same as above
-                    var failingDescriptor = "Failing descriptor: {markup://auratest:errorHandlingExtend}";
+                    var failingDescriptor = "Failing descriptor: {auratest:errorHandlingExtend}";
                     $A.test.assertTrue($A.test.contains(errorMsg, failingDescriptor),
                             "The error message has incorrect failing descriptor. Expected descriptor: " + failingDescriptor + "; Actual: " + errorMsg);
                 });
@@ -177,8 +177,9 @@
     /**
      * Verify Aura default error handler can handle systemError event when there is a component which misses required attribute.
      */
-    // disable because test is run with Chrome/49.0.2623.112
-    _testErrorFromRequiredAttributeMissingComponent: {
+    testErrorFromRequiredAttributeMissingComponent: {
+        // marking as flapper due to intermittent failure; refer to work item W-4517775
+        labels : ["flapper"],
         test: function(cmp) {
             var iframeSrc = "/auratest/errorHandlingApp.app?addAttributeMissingComponent=true";
             this.loadIframe(iframeSrc, cmp, "iframeContainer");
@@ -200,8 +201,7 @@
      * if a cmp/app contains custom error handler. When error is thrown from render(), $A is not initialized, so the
      * event has to be handled by default handler.
      */
-    // disable because test is run with Chrome/49.0.2623.112
-    _testDefaultHandleErrorFromAppRenderWhenMarkEventHandled: {
+    testDefaultHandleErrorFromAppRenderWhenMarkEventHandled: {
         test: function(cmp) {
             var iframeSrc = "/auratest/errorHandlingApp.app?throwErrorFromRender=true&handleSystemError=true";
             this.loadIframe(iframeSrc, cmp, "iframeContainer");
@@ -215,14 +215,14 @@
                 $A.test.assertTrue($A.test.contains(errorMsg, expectedMsg),
                         "Failed to find original error message. Expected message: " + expectedMsg + "; Actual: " + errorMsg);
 
-                var failingDescriptor = "Failing descriptor: {markup://auratest:errorHandlingApp}";
+                var failingDescriptor = "Failing descriptor: {auratest:errorHandlingApp}";
                 $A.test.assertTrue($A.test.contains(errorMsg, failingDescriptor),
                         "The error message has incorrect failing descriptor. Expected descriptor: " + failingDescriptor + "; Actual: " + errorMsg);
             });
         }
     },
-    // disable because test is run with Chrome/49.0.2623.112
-    _testErrorFromAuraAssertContainsStacktraceInDevMode: {
+
+    testErrorFromAuraAssertContainsStacktraceInDevMode: {
         test: [
             function(cmp) {
                 var iframeSrc = "/auratest/errorHandlingApp.app";
@@ -241,6 +241,23 @@
                 });
             }
         ]
+    },
+
+    testDefaultHandleErrorInModelWhenSerialize: {
+        test: function(cmp) {
+            var iframeSrc = "/auratest/errorHandlingErrorModelApp.app";
+            this.loadIframe(iframeSrc, cmp, "iframeContainer");
+
+            var that = this;
+            var iframe = this.getIframe();
+            this.waitForErrorMaskVisibleInIframe(iframe, function() {
+                var errorMsg = that.getErrorMessageFromIframe(iframe);
+
+                var expectedMsg = "TestModelThrowsInGetter.badThing: intentional exception for bad thing";
+                $A.test.assertTrue($A.test.contains(errorMsg, expectedMsg),
+                        "Failed to find expected error message. Expected message: " + expectedMsg + "; Actual: " + errorMsg);
+            });
+        }
     },
 
     isErrorMaskIsNotVisibleInIframe: function(iframe) {

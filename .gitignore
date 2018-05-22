@@ -15,9 +15,15 @@ pom.xml.releaseBackup
 *.iml
 *.ipr
 *.iws
+.vscode/*
 version.properties
 *~
 tags
 aura-impl/src/test/eslint/
 node
 node_modules
+rebel.xml
+
+# Best framework specifics
+__benchmarks_results__
+**/performanceBenchmark/public/libs/js/aura*

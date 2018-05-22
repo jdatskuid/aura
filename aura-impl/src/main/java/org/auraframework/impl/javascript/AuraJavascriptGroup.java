@@ -15,17 +15,17 @@
  */
 package org.auraframework.impl.javascript;
 
-import org.auraframework.def.DefDescriptor;
+import java.io.File;
+import java.io.IOException;
+import java.util.EnumSet;
+
+import org.auraframework.impl.source.AuraResourcesHashingGroup;
 import org.auraframework.impl.util.AuraImplFiles;
 import org.auraframework.system.SourceListener;
 import org.auraframework.util.FileMonitor;
 import org.auraframework.util.javascript.directive.DirectiveBasedJavascriptGroup;
 import org.auraframework.util.javascript.directive.DirectiveTypes;
 import org.auraframework.util.javascript.directive.JavascriptGeneratorMode;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.EnumSet;
 
 /**
  * the aura javascript. starts at Force.js
@@ -36,6 +36,8 @@ public class AuraJavascriptGroup extends DirectiveBasedJavascriptGroup implement
     // file name of properties file that contains compiled version info
     public static final String FILE_NAME = "aurafwuid.properties";
     public static final File ROOT_DIR = AuraImplFiles.AuraJavascriptSourceDirectory.asFile();
+    public static final File ENGINE_DIR = AuraImplFiles.EngineSourceDirectory.asFile();
+    public static final File AURALOCKER_DIR = AuraImplFiles.AuraLockerSourceDirectory.asFile();
     private boolean isStale = true;
 
     public AuraJavascriptGroup(FileMonitor fileMonitor) throws IOException {
@@ -46,7 +48,9 @@ public class AuraJavascriptGroup extends DirectiveBasedJavascriptGroup implement
         this(ROOT_DIR);
         if (monitor) {
             fileMonitor.subscribeToChangeNotification(this);
-            fileMonitor.addDirectory(ROOT_DIR.getPath());
+            fileMonitor.addDirectory(ROOT_DIR.getPath(), null);
+            fileMonitor.addDirectory(ENGINE_DIR.getPath(), null);
+            fileMonitor.addDirectory(AURALOCKER_DIR.getPath(), null);
         }
     }
 
@@ -83,15 +87,17 @@ public class AuraJavascriptGroup extends DirectiveBasedJavascriptGroup implement
         super.regenerate(destRoot);
     }
 
-
     @Override
-    public void onSourceChanged(DefDescriptor<?> source, SourceMonitorEvent event, String filePath) {
-        if (filePath != null) {
+    public void onSourceChanged(SourceMonitorEvent event, String filePath) {
+        if (filePath != null && (filePath.startsWith(ROOT_DIR.getPath()) || filePath.startsWith(ENGINE_DIR.getPath()) || filePath.startsWith(AURALOCKER_DIR.getPath()))) {
             File updatedFile = new File(filePath);
-            if (filePath.startsWith(ROOT_DIR.getPath()) && JS_FILTER.accept(updatedFile)) {
+            if (JS_FILTER.accept(updatedFile)) {
                 isStale = true;
+
+                if (filePath.startsWith(ENGINE_DIR.getPath()) || filePath.startsWith(AURALOCKER_DIR.getPath())) {
+                    AuraResourcesHashingGroup.updateResource(updatedFile, resourceLoader);
+                }
             }
         }
     }
-
 }

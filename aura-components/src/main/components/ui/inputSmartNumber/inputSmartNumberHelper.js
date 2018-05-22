@@ -56,7 +56,6 @@
           , lib              = this.inputNumberLibrary.number
           , formatter        = cmp.get('v.format')
           , number           = cmp.get('v.inputValue');
-
         number = lib.isNumber(number) ? number : lib.unFormatNumber(number, formatter);
 
         return number <= MAX_SAFE_INTEGER && number >= MIN_SAFE_INTEGER;
@@ -82,7 +81,11 @@
         return lib.formatNumber(lib.unFormatNumber(string, formatter), formatter) === string;
     },
     isPercentStyle : function (cmp) {
-        return cmp.get('v.format').indexOf('%') !== -1;
+        var format = cmp.get('v.format');
+        if (typeof format === 'string') {
+            return format.indexOf('%') !== -1;
+        }
+        return false;
     },
     hasInputElementFocus : function (cmp) {
        return this.getElementInput(cmp) ===  document.activeElement;
@@ -101,7 +104,6 @@
         var lib = this.inputNumberLibrary.number;
         var formatter = cmp.get('v.format');
         var value = cmp.get('v.value');
-
         if ($A.util.isUndefinedOrNull(value)) {
             cmp.set('v.inputValue','');
             this.updateLastInputValue(cmp);
@@ -114,12 +116,16 @@
                 cmp.set('v.value',lib.unFormatNumber(value,formatter));
                 return;
             }
+            //Framework allows attribute of type Decimal to set to String number
+            if (typeof value === "string" && !$A.util.isEmpty(value)){
+                cmp.set("v.value", Number(value));
+            }
 
             this.formatInputValue(cmp);
             this.updateLastInputValue(cmp);
         } else {
             this.setValueEmpty(cmp);
-            $A.logger.warning('Invalid value was passed(' + value + ')');
+            $A.warning('Invalid value was passed(' + value + ')');
         }
     },
     setValueEmpty : function (cmp) {
@@ -183,19 +189,39 @@
     hasChangedValue : function (cmp) {
         var value = String(cmp.get('v.value'));
         var inputValue = cmp.get("v.inputValue");
-        
+
         // convertInputValueToInternalValue() returns 0 whenever inputValue is ""
-        return String(this.convertInputValueToInternalValue(cmp)) !== value || (inputValue === "" && value === "0");
+        return String(this.convertInputValueToInternalValue(cmp)) !== value
+            || (inputValue === '' && value === '0');
     },
     removeSymbols : function (string) {
+
         var decimalSeparator  = $A.get("$Locale.decimal");
         var groupingSeparator = $A.get("$Locale.grouping");
+        var currencySymbol = $A.get("$Locale.currency");
 
+        // remove currency symbol from the string
+        string = string.replace(currencySymbol, '');
         // case where parenthesis means negative
         string = string.replace(/(^\()(.+)(\)$)/,'-$2');
 
         var reg = '[^\\' + groupingSeparator + '\\' + decimalSeparator +'\\d\+\-]';
             reg = new RegExp(reg,'g');
-        return string.replace(reg,'');
+        return string.replace(reg, '');
+    },
+    isCompositionStart : function (cmp) {
+        return cmp.get('v.compositionState') === 'start';
+    },
+    isCompositionEnd : function (cmp) {
+        return cmp.get('v.compositionState') === 'end';
+    },
+    startComposition : function (cmp) {
+        cmp.set('v.compositionState', 'start');
+    },
+    endComposition : function (cmp) {
+        cmp.set('v.compositionState', 'end');
+    },
+    resetCompositionState : function (cmp) {
+        cmp.set('v.compositionState', '');
     }
 });

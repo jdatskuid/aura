@@ -20,8 +20,10 @@ import java.util.Map;
 
 import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.def.DefDescriptor;
+import org.auraframework.def.DocumentationDef;
+import org.auraframework.def.SVGDef;
 import org.auraframework.def.TokensDef;
-import org.auraframework.def.StyleDef;
+import org.auraframework.def.design.DesignDef;
 import org.auraframework.impl.source.BundleSourceImpl;
 import org.auraframework.impl.system.DefDescriptorImpl;
 import org.auraframework.system.BundleSource;
@@ -35,18 +37,8 @@ import com.google.common.collect.Maps;
 public class TokensDefFileBundleBuilder implements FileBundleSourceBuilder {
 
     @Override
-    public boolean isBundleMatch(File base) {
-        if (new File(base, base.getName()+".tokens").exists()) {
-            return true;
-        }
-        String name = base.getName()+".tokens";
-        for (File content : base.listFiles()) {
-            if (name.equalsIgnoreCase(content.getName())) {
-                // ERROR!!!
-                return true;
-            }
-        }
-        return false;
+    public String getExtension() {
+        return ".tokens";
     }
 
     @Override
@@ -61,7 +53,7 @@ public class TokensDefFileBundleBuilder implements FileBundleSourceBuilder {
             DefDescriptor<?> descriptor = null;
             Format format = null;
             String fname = file.getName();
-            if (fname.startsWith(name) || fname.toLowerCase().startsWith(name.toLowerCase())) {
+            if (fname.startsWith(name)) {
                 String postName = fname.substring(len);
                 switch (postName) {
                 case ".tokens":
@@ -69,20 +61,22 @@ public class TokensDefFileBundleBuilder implements FileBundleSourceBuilder {
                     format = Format.XML;
                     break;
                 case ".auradoc":
-                    descriptor = new DefDescriptorImpl<>("markup", namespace, name, StyleDef.class);
+                    descriptor = new DefDescriptorImpl<>("markup", namespace, name, DocumentationDef.class);
                     format = Format.XML;
                     break;
                 case ".design":
-                    descriptor = new DefDescriptorImpl<>("markup", namespace, name, StyleDef.class);
+                    descriptor = new DefDescriptorImpl<>("markup", namespace, name, DesignDef.class);
                     format = Format.XML;
                     break;
                 case ".svg":
-                    descriptor = new DefDescriptorImpl<>("markup", namespace, name, StyleDef.class);
+                    descriptor = new DefDescriptorImpl<>("markup", namespace, name, SVGDef.class);
                     format = Format.SVG;
                     break;
                 default:
                     break;
                 }
+            } else if (fname.toLowerCase().startsWith(name.toLowerCase())) {
+                throw new RuntimeException("Files in bundle must case-sensitively match the folder they are in: " + name + "/" + fname);
             }
             if (descriptor != null) {
                 sourceMap.put(descriptor, new FileSource<>(descriptor, file, format));
@@ -90,6 +84,6 @@ public class TokensDefFileBundleBuilder implements FileBundleSourceBuilder {
                 // error
             }
         }
-        return new BundleSourceImpl<TokensDef>(tokensDesc, sourceMap, true);
+        return new BundleSourceImpl<>(tokensDesc, sourceMap, true);
     }
 }

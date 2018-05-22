@@ -21,10 +21,6 @@
         if(dataProvider && dataProvider.getModel()) {
             component.set("v.items", dataProvider.get("m.items"));
         }
-        var items = component.get("v.items");
-        if (items && items.length > 0) {
-            component.set("v.privateItems", items);
-        }
     },
 
     fetchData: function (component, event, helper) {

@@ -15,15 +15,11 @@
  */
 package org.auraframework.integration.test.components.ui.pillContainerAutoComplete;
 
-import java.net.MalformedURLException;
-import java.net.URISyntaxException;
-import java.util.List;
-
 import org.auraframework.integration.test.util.WebDriverTestCase;
-import org.openqa.selenium.By;
-import org.openqa.selenium.WebDriver;
-import org.openqa.selenium.WebElement;
+import org.openqa.selenium.*;
 import org.openqa.selenium.support.ui.ExpectedCondition;
+
+import java.util.List;
 
 public class BasePillContainerAutoComplete extends WebDriverTestCase {
 
@@ -41,11 +37,11 @@ public class BasePillContainerAutoComplete extends WebDriverTestCase {
      * Bug: W-2628705
      */
     @Flapper
-    public void testAutoCompleteListContentVisible() throws MalformedURLException, URISyntaxException, InterruptedException {
+    public void testAutoCompleteListContentVisible() throws Exception {
         open(CMP_URL);
         WebElement input = findDomElement(By.cssSelector(INPUT));
         input.sendKeys("khDmXpDDmALzDqhYeCvJgqEmjUPJqV");
-        getAuraUITestingUtil().pressEnter(input);
+        input.sendKeys(Keys.ENTER);
         verifyAutoCompleteListPresent("Auto complete List Content should not be visible", false);
         input.sendKeys("test");
         verifyAutoCompleteListPresent("Auto complete List Content should be visible", true);
@@ -59,11 +55,11 @@ public class BasePillContainerAutoComplete extends WebDriverTestCase {
      * on the option in autocomplete list
      * Bug: W-2641156
      */
-    public void testLossOfFocusVerification() throws MalformedURLException, URISyntaxException, InterruptedException {
+    public void testLossOfFocusVerification() throws Exception {
         open(CMP_URL);
         WebElement input = findDomElement(By.cssSelector(INPUT));
         input.sendKeys("khDmXpDDmALzDqhYeCvJgqEmjUPJqV");
-        getAuraUITestingUtil().pressEnter(input);
+        input.sendKeys(Keys.ENTER);
         verifyAutoCompleteListPresent("Auto complete List Content should not be visible", false);
         input.sendKeys("test");
         verifyAutoCompleteListPresent("Auto complete List Content should be visible", true);

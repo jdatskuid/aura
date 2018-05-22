@@ -15,6 +15,8 @@
  */
 package org.auraframework.impl.util;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.Collection;
@@ -33,8 +35,8 @@ import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.Definition;
 import org.auraframework.impl.source.BundleSourceImpl;
 import org.auraframework.impl.source.StringSource;
-import org.auraframework.impl.system.DefDescriptorImpl;
 import org.auraframework.impl.source.StringSourceLoaderImpl.DescriptorInfo;
+import org.auraframework.impl.system.DefDescriptorImpl;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.AuraContext;
@@ -51,6 +53,7 @@ import org.auraframework.test.source.StringSourceLoader;
 import org.auraframework.test.source.StringSourceLoader.NamespaceAccess;
 import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.quickfix.QuickFixException;
+import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.FileMonitor;
 import org.auraframework.util.json.JsonEncoder;
 
@@ -176,8 +179,9 @@ public class AuraTestingUtil {
      * @param desc definition descriptor of the resource
      * @param content new content for the descriptor
      */
-    public void updateSource(final DefDescriptor<?> desc, String content) {
+    public void updateSource(DefDescriptor<?> desc, String content) {
         Source<?> src = getSource(desc);
+        final String expectedName = desc.getQualifiedName();
 
         if (src == null) {
             throw new RuntimeException("unable to find "+desc);
@@ -185,8 +189,8 @@ public class AuraTestingUtil {
         final Semaphore updated = new Semaphore(0);
         SourceListener changeListener = new SourceListener() {
             @Override
-            public void onSourceChanged(DefDescriptor<?> source, SourceMonitorEvent event, String filePath) {
-                if (desc.equals(source)) {
+            public void onSourceChanged(SourceMonitorEvent event, String filePath) {
+                if (expectedName.equals(filePath)) {
                     updated.release();
                 }
             }
@@ -296,7 +300,12 @@ public class AuraTestingUtil {
      */
     public <T extends Definition> DefDescriptor<T> addSourceAutoCleanup(DefDescriptor<T> descriptor, String contents,
             NamespaceAccess access) {
-        stringSourceLoader.putSource(descriptor, contents, false, access);
+        return addSourceAutoCleanup(descriptor, contents, access, false);
+    }
+
+    public <T extends Definition> DefDescriptor<T> addSourceAutoCleanup(DefDescriptor<T> descriptor, String contents,
+                NamespaceAccess access, Boolean overwrite) {
+        stringSourceLoader.putSource(descriptor, contents, overwrite, access);
         markForCleanup(descriptor);
         return descriptor;
     }
@@ -327,6 +336,7 @@ public class AuraTestingUtil {
             throws QuickFixException {
         AuraContext ctxt = contextService.startContext(mode, format, Authentication.AUTHENTICATED, desc);
         ctxt.setFrameworkUID(configAdapter.getAuraFrameworkNonce());
+        ctxt.setActionPublicCacheKey(configAdapter.getActionPublicCacheKey());
 
         // start debug block
         DefRegistry registry = ctxt.getRegistries().getRegistryFor(desc);
@@ -392,16 +402,26 @@ public class AuraTestingUtil {
 
     public String buildContextForPost(Mode mode, DefDescriptor<? extends BaseComponentDef> app)
             throws QuickFixException {
-        return buildContextForPost(mode, app, null, null, null, null);
+        return buildContentForXHR(mode, app, null, null, null, null, null);
     }
 
     public String buildContextForPost(Mode mode, DefDescriptor<? extends BaseComponentDef> app,
             Map<DefDescriptor<?>, String> extraLoaded, List<String> dn) throws QuickFixException {
-        return buildContextForPost(mode, app, null, null, extraLoaded, dn);
+        return buildContentForXHR(mode, app, null, null, extraLoaded, dn, null);
+    }
+
+    public String buildContextForPost(Mode mode, DefDescriptor<? extends BaseComponentDef> app, String appUid,
+            String fwuid, Map<DefDescriptor<?>, String> extraLoaded, List<String> dn) throws QuickFixException {
+        return buildContentForXHR(mode, app, appUid, fwuid, extraLoaded, dn, null);
+    }
+    
+    public String buildContextForPublicCacheableXHR(Mode mode, DefDescriptor<? extends BaseComponentDef> app, 
+    		String actionPublicCacheKey) throws QuickFixException{
+    	return AuraTextUtil.urlencode(buildContentForXHR(mode, app, null, null, null, null, actionPublicCacheKey));
     }
 
     /**
-     * Serialize a context for a post.
+     * Serialize a context for an XHR.
      *
      * This must remain in sync with AuraContext.js
      *
@@ -417,8 +437,9 @@ public class AuraTestingUtil {
      * });
      * </code>
      */
-    public String buildContextForPost(Mode mode, DefDescriptor<? extends BaseComponentDef> app, String appUid,
-            String fwuid, Map<DefDescriptor<?>, String> extraLoaded, List<String> dn) throws QuickFixException {
+    private String buildContentForXHR(Mode mode, DefDescriptor<? extends BaseComponentDef> app, String appUid,
+            String fwuid, Map<DefDescriptor<?>, String> extraLoaded, List<String> dn, 
+            String actionPublicCacheKey) throws QuickFixException {
         StringBuffer sb = new StringBuffer();
         JsonEncoder json = new JsonEncoder(sb, false);
         Map<String, String> loaded = Maps.newHashMap();
@@ -459,6 +480,9 @@ public class AuraTestingUtil {
             json.writeMapEntry("dn", dn);
             json.writeMapEntry("fwuid", fwuid);
             json.writeMapEntry("test", "undefined");
+            if (actionPublicCacheKey != null) {
+                json.writeMapEntry("apck", actionPublicCacheKey);
+            }
             json.writeMapEnd();
         } catch (IOException ioe) {
             // you can't get an io exception writing to a stringbuffer.....
@@ -603,6 +627,49 @@ public class AuraTestingUtil {
     }
 
     /**
+     * Build a single text source with a static name and static prefix (only for templateCss?).
+     *
+     * This is intended for unit testing, or submodule testing. The source provided here is not registered
+     * anywhere and cannot be looked up by aura. This means that it can only be used for sub-unit testing.
+     *
+     * Preferably use the version without the name.
+     *
+     * @param namespace the namespace (should be one of the provided ones here) - specifies internal/priveleged/custom
+     * @param namespace the name
+     * @param defClass the class of the source.
+     * @param prefixOverride the prefix override
+     * @param contents the contents for the source.
+     */
+    public <D extends Definition> TextSource<D> buildTextSource(String namespace, String name, Class<D> defClass,
+            String prefixOverride, String contents, Parser.Format fmt) {
+        DefDescriptor<D> descriptor = new DefDescriptorImpl<>(prefixOverride, namespace, name, defClass);
+        return new StringSource<D>(descriptor, contents, descriptor.getQualifiedName(), fmt);
+    }
+
+    /**
+     * Build a single text source with a static name and bundle.
+     *
+     * This is intended for unit testing, or submodule testing. The source provided here is not registered
+     * anywhere and cannot be looked up by aura. This means that it can only be used for sub-unit testing.
+     *
+     * Preferably use the version without the name.
+     *
+     * @param namespace the namespace (should be one of the provided ones here) - specifies internal/priveleged/custom
+     * @param namespace the name
+     * @param defClass the class of the source.
+     * @param contents the contents for the source.
+     * @param bundle the bundle for the descriptor.
+     */
+    public <D extends Definition> TextSource<D> buildTextSource(String namespace, String name, Class<D> defClass,
+            String contents, DefDescriptor<?> bundle) {
+        DefType type = DefType.getDefType(defClass);
+        DefDescriptor<D> descriptor = new DefDescriptorImpl<>(prefixMap.get(type), namespace, name, defClass, bundle);
+        return new StringSource<>(descriptor, contents, descriptor.getQualifiedName(), formatMap.get(type));
+    }
+
+
+
+    /**
      * Build a single text source with a static name.
      *
      * This is intended for unit testing, or submodule testing. The source provided here is not registered
@@ -617,9 +684,7 @@ public class AuraTestingUtil {
      */
     public <D extends Definition> TextSource<D> buildTextSource(String namespace, String name, Class<D> defClass,
             String contents) {
-        DefType type = DefType.getDefType(defClass);
-        DefDescriptor<D> descriptor = new DefDescriptorImpl<>(prefixMap.get(type), namespace, name, defClass);
-        return new StringSource<>(descriptor, contents, descriptor.getQualifiedName(), formatMap.get(type));
+        return buildTextSource(namespace, name, defClass, contents, null);
     }
 
     /**
@@ -634,7 +699,23 @@ public class AuraTestingUtil {
      */
     public <D extends Definition> TextSource<D> buildTextSource(String namespace, Class<D> defClass,
             String contents) {
-        return buildTextSource(namespace, "name"+random.nextLong(), defClass, contents);
+        return buildTextSource(namespace, "name"+random.nextLong(), defClass, contents, null);
+    }
+
+    /**
+     * Build a single text source with a bundle.
+     *
+     * This is intended for unit testing, or submodule testing. The source provided here is not registered
+     * anywhere and cannot be looked up by aura. This means that it can only be used for sub-unit testing.
+     *
+     * @param namespace the namespace (should be one of the provided ones here) - specifies internal/priveleged/custom
+     * @param defClass the class of the source.
+     * @param contents the contents for the source.
+     * @param bundle the bundle for the descriptor.
+     */
+    public <D extends Definition> TextSource<D> buildTextSource(String namespace, Class<D> defClass,
+            String contents, DefDescriptor<?> bundle) {
+        return buildTextSource(namespace, "name"+random.nextLong(), defClass, contents, bundle);
     }
 
     /**
@@ -695,5 +776,27 @@ public class AuraTestingUtil {
     public <D extends Definition> BundleSource<D> buildBundleSource(String namespace, Class<D> defClass,
             Collection<BundleEntryInfo> contents) {
         return buildBundleSource(namespace, "name"+random.nextLong(), defClass, contents);
+    }
+
+    /**
+     * Creates a bundle-like folder structure with file as specified
+     *
+     * will create a file and make directories in the format:
+     *   <directory>/<name>/<name><extension>
+     *
+     * @param directory directory to create the folder / file
+     * @param name name of folder and file
+     * @param extension file extension of the file
+     * @param contents stuff for the file
+     * @throws Exception
+     */
+    public void makeFile(File directory, String name, String extension, String contents) throws Exception {
+        File dir = new File(directory, name);
+        File file = new File(dir, name+extension);
+        dir.mkdirs();
+        try (FileOutputStream fos = new FileOutputStream(file)) {
+            fos.write(contents.getBytes("UTF-8"));
+            fos.close();
+        }
     }
 }

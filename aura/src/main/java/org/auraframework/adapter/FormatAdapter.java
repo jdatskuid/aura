@@ -16,9 +16,6 @@
 package org.auraframework.adapter;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.Reader;
-import java.util.Collection;
 import java.util.Map;
 
 import org.auraframework.throwable.quickfix.QuickFixException;
@@ -30,19 +27,10 @@ import org.auraframework.throwable.quickfix.QuickFixException;
  * {@link javax.annotation.concurrent.ThreadSafe ThreadSafe} to make sure future
  * modifications are aware of this requirement.
  */
-public interface FormatAdapter<T> extends AuraAdapter {
+public interface FormatAdapter<T> {
     String getFormatName();
 
     Class<?> getType();
 
-    T read(Reader in) throws IOException, QuickFixException;
-
-    Collection<T> readCollection(Reader in) throws IOException, QuickFixException;
-
     void write(T value, Map<String, Object> attributes, Appendable out) throws IOException, QuickFixException;
-
-    void writeBinary(T value, Map<String, Object> attributes, OutputStream out) throws IOException,
-            QuickFixException;
-
-    void writeCollection(Collection<? extends T> values, Appendable out) throws IOException, QuickFixException;
 }

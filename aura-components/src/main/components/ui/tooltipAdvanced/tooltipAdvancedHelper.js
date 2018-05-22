@@ -19,9 +19,9 @@
 	},
 
 	initStyle: function(component) {
-		this.ttLib.tooltip.computeTooltipStyle(component);     
+		this.ttLib.tooltip.computeTooltipStyle(component);
 	},
-	
+
 	setStyle: function(component) {
 	    var tooltip = component.find("tooltip");
         var tooltipStyle = component.get("v.tooltipStyle");
@@ -29,14 +29,20 @@
 	},
 
 	show: function(cmp) {
+		var target = $A.getComponent(cmp.get('v.target'));
+		if (!target) {
+			// the target its invalid, so, nothing to show
+			return;
+		}
+
 		var classList = this.ttLib.tooltip.getClassList(cmp);
 
 		classList.push('transition-start');
 
 		cmp.set('v.classList', classList.join(' '));
-		this.position(cmp);
+		var isValidPosition = this.position(cmp);
 		requestAnimationFrame($A.getCallback(function() {
-			if(!cmp.isValid()) {
+			if(!cmp.isValid() || isValidPosition === false) {
 				return;
 			}
 
@@ -51,19 +57,24 @@
 		if(cmp.isValid()) {
 			cmp.set('v.classList', this.ttLib.tooltip.getClassList(cmp).join(' '));
 		}
-		
+
 	},
 
 	position: function(component) {
 		var FLIP_THRESHOLD = 50;
 		var node = component.find('tooltip').getElement();
-		var direction = component.get('v.direction');
 		var ttbodyNode = component.find('tooltipbody').getElement();
 		var ttWrapper = component.find('tooltipwrapper').getElement();
-		var classList = component.get('v.classList');
-		
-		var pointer = node.querySelector('.pointer');
 		var target = $A.getComponent(component.get('v.target')).getElement();
+
+		if (!component.isValid() || !node || !ttbodyNode || !ttWrapper || !target) {
+			return false;
+		}
+
+		var direction = component.get('v.direction');
+		var classList = component.get('v.classList');
+
+		var pointer = node.querySelector('.pointer');
 
 		var allowFlips = $A.util.getBooleanValue(component.get('v.allowFlips'));
 		var boundingRect = target.getBoundingClientRect();
@@ -82,7 +93,7 @@
 			boundingElement = document.querySelector(boundingElementSelector);
 			if(!boundingElement) {
 				boundingElement = window;
-				$A.logger.warning('boundingElementSelector "'+ boundingElementSelector +'" matched no elements, falling back to window');
+				$A.warning('boundingElementSelector "'+ boundingElementSelector +'" matched no elements, falling back to window');
 			}
 		}
 
@@ -92,7 +103,7 @@
 			direction = 'north';
 		}
 
-		
+
 		classArr = classArr.filter(function(item) {
 			if(item.match(/north|east|west|south/)) {
 				return false;
@@ -101,7 +112,7 @@
 			}
 		});
 
-		
+
 		classArr.push(direction);
 		component.set('v.direction', direction);
 		component.set('v.classList', classArr.join(' '));
@@ -145,7 +156,7 @@
 
 		component.originalDirection = direction;
 		/*
-		
+
 		IMPORTANT. The order in which constraints
 		are applied matters. The last constraint applied
 		has the highest priority.
@@ -177,7 +188,7 @@
 		});
 
 		for(thisConstraint in constraintMap) {
-		
+
 			component.constraints[thisConstraint + '_pointer'] = lib.createRelationship({
 				element:pointer,
 				target:target,
@@ -190,7 +201,7 @@
 		}
 
 
-	       
+
 
 		for(thisConstraint in constraintMap) {
 
@@ -215,7 +226,7 @@
 				pad: 0
 
 			});
-		
+
 		}
 
 		component.constraints.eastPointerOverlap = lib.createRelationship({

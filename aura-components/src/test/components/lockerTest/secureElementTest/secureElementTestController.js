@@ -10,6 +10,8 @@
         attrs.setNamedItem(attr);
 
         testUtils.assertEquals(origLength + 1, attrs.length, "Unexpected attribute length after adding new attribute");
+        testUtils.assertEquals("data-foo", attrs.getNamedItem("data-foo").name, "Unexpected attribute name from new attribute");
+        testUtils.assertEquals("data-foo", attrs[origLength].name, "Unexpected attribute accessed at last index");
         testUtils.assertEquals("bar", attrs.getNamedItem("data-foo").value, "Unexpected attribute value from new attribute");
         testUtils.assertEquals(null, attrs.getNamedItem("does-notExist"), "Unexpected return trying to get attribute that doesn't exist");
     },
@@ -157,9 +159,9 @@
         }
 
         element.addEventListener("click", function oneTimeClicker() {
-                counter += 1;
-                element.removeEventListener("click", oneTimeClicker, useCapture);
-            }, useCapture);
+            counter += 1;
+            element.removeEventListener("click", oneTimeClicker, useCapture);
+        }, useCapture);
 
         testUtils.clickOrTouch(element);
         // the event listener has been removed
@@ -173,12 +175,12 @@
 
         var svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.innerHTML = '<defs> <text id="text" x="50" y="50">SVG</text> </defs>' +
-                        '<use xlink:href="#text"></use>';
+            '<use xlink:href="#text"></use>';
 
         var actual = svg.innerHTML;
         // partially matching the tag, since browsers may insert attributes in the tag
         testUtils.assertTrue(actual.indexOf('xlink:href="#text"></use>') > -1,
-                "use tag should not be removed by DOMPurify: " + actual);
+            "use tag should not be removed by DOMPurify: " + actual);
     },
 
     testTextContent: function(cmp) {
@@ -211,6 +213,28 @@
 
         element.innerHTML = "innerHTML content";
         testUtils.assertEquals("innerHTML content", element.innerHTML);
+    },
+
+    testOuterHTML: function(cmp, event) {
+        var testUtils = cmp.get("v.testUtils");
+        var targetElement = event.getParam("arguments").targetElement;
+        var element;
+        var parent = document.querySelector('.titleWrapper');
+        var expectedCount;
+        if(targetElement === "ExistingElement") {
+            element = document.querySelector('.title');
+            expectedCount = 1;
+        } else if (targetElement === "CreatedElement") {
+            element = document.createElement('div');
+            parent.appendChild(element);
+            expectedCount = 2;
+        }
+
+        element.outerHTML = "<p>outerHTML content</p>";
+
+        testUtils.assertNull(element.parentElement);
+        testUtils.assertEquals(expectedCount, parent.childNodes.length);
+        testUtils.assertEquals("<p>outerHTML content</p>", parent.querySelector(':last-child').outerHTML);
     },
 
     testInsertAdjacentHTML: function(cmp, event) {
@@ -262,18 +286,99 @@
         testUtils.assertEquals(1.3, counter);
     },
 
+    testAddEventListenerFunctionListener: function(cmp, event, helper) {        
+        var testUtils = cmp.get("v.testUtils");
+        var element = cmp.find("title").getElement();
+
+        var handlerClicked = false;
+        var listener = function(ev) {
+            testUtils.assertEquals(this, element, "Execution scope for function listener must be element");
+            handlerClicked = true;
+        }
+        element.addEventListener('click', listener);
+        testUtils.addWaitForWithFailureMessage(
+            true,
+            function() { return handlerClicked; },
+            "Event handler was not called"
+        );
+        testUtils.clickOrTouch(element);
+        element.removeEventListener('click', listener);
+    },
+
+    testAddEventListenerObjectListener: function(cmp, event, help) {
+        var testUtils = cmp.get("v.testUtils");
+        var element = cmp.find("title").getElement();
+
+        var handlerClicked = false;
+        var listener = {
+            handleEvent: function(ev) {
+                testUtils.assertEquals(this, listener, "Execution scope for function listener must be listener object");
+                handlerClicked = true;    
+            }
+        };
+        
+        element.addEventListener('click', listener);
+        testUtils.addWaitForWithFailureMessage(
+            true,
+            function() { return handlerClicked; },
+            "Event handler was not called"
+        );
+        testUtils.clickOrTouch(element);
+        element.removeEventListener('click', listener);
+    },
+
+    testAddEventListenerStaticMethod: function(cmp, event, helper) {
+        var testUtils = cmp.get("v.testUtils");
+        var element = cmp.find("title").getElement();
+
+        var handlerClicked = false;
+        var listener = function() {
+            testUtils.assertEquals(this, element, "Execution scope for function listener must be element");
+            handlerClicked = true;
+        };
+        listener.handleEvent = function() {
+            handlerClicked = false;
+        }
+              
+        element.addEventListener('click', listener);
+        testUtils.addWaitForWithFailureMessage(
+            true,
+            function() { return handlerClicked; },
+            "Event handler was not called"
+        );
+        testUtils.clickOrTouch(element);
+        element.removeEventListener('click', listener);
+    },
+
+    testAddEventListenerThrowsInvalidListener: function(cmp, event, helper) {
+        var testUtils = cmp.get("v.testUtils");        
+        var element = cmp.find("title").getElement();
+
+        try {
+            element.addEventListener('click', 1);
+        } catch(e) {
+            testUtils.assertEquals(
+                e.message, 
+                "Failed to execute 'addEventListener' on 'EventTarget': The callback provided as parameter 2 is not an object.",
+                "Invalid error message was thrown"
+            );
+            testUtils.assertTrue(e instanceof TypeError, "Error type must be TypeError");
+        }
+    },
+
     testSvgGetBBox: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
         var expected = {
-                "x": 20,
-                "y": 30,
-                "height": 40,
-                "width": 50
+            "x": 20,
+            "y": 30,
+            "height": 40,
+            "width": 50
         };
 
         var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-        svg.width = 400;
-        svg.height = 400;
+        // These properties are read-only, and JS throws in strict mode.
+        // svg.width = 400;
+        // svg.height = 400;
         document.body.appendChild(svg);
 
         var rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -301,22 +406,22 @@
     testTableAPI: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
 
-		// Call addRow() with the ID of a table
-		var table = document.createElement("table");
+        // Call addRow() with the ID of a table
+        var table = document.createElement("table");
 
-		// Insert a row in the table at row index 0
-		var newRow = table.insertRow(0);
-		testUtils.assertEquals("TR", newRow.tagName);
+        // Insert a row in the table at row index 0
+        var newRow = table.insertRow(0);
+        testUtils.assertEquals("TR", newRow.tagName);
 
-		// Insert a cell in the row at index 0
-		var newCell = newRow.insertCell(0);
-		testUtils.assertEquals("TD", newCell.tagName);
+        // Insert a cell in the row at index 0
+        var newCell = newRow.insertCell(0);
+        testUtils.assertEquals("TD", newCell.tagName);
 
-		// Append a text node to the cell
-		var newText = document.createTextNode('New top row');
-		newCell.appendChild(newText);
+        // Append a text node to the cell
+        var newText = document.createTextNode('New top row');
+        newCell.appendChild(newText);
 
-		testUtils.assertEquals("<tbody><tr><td>New top row</td></tr></tbody>", table.innerHTML);
+        testUtils.assertEquals("<tbody><tr><td>New top row</td></tr></tbody>", table.innerHTML);
     },
 
     testElementCache: function(cmp, event, helper) {
@@ -353,8 +458,8 @@
         var testUtils = cmp.get("v.testUtils");
 
         var title = document.getElementById("title");
-        // go up 3 levels since we will have access to first 2 levels
-        var greatGrandParentNode = title.parentNode.parentNode.parentNode.parentNode;
+        // go up 4 levels since we will have access to first 3 levels
+        var greatGrandParentNode = title.parentNode.parentNode.parentNode.parentNode.parentNode;
 
         testUtils.assertEquals(null, greatGrandParentNode, "Element.parentNode should return null when it is not accessible");
     },
@@ -448,7 +553,7 @@
 
             // verify API on Node
             testUtils.assertStartsWith("SecureDocument", textNode.ownerDocument.toString(), "Node.ownerDocument should" +
-                    " return a SecureDocument");
+                " return a SecureDocument");
 
             // verify API on Text
             testUtils.assertEquals(expectedText, textNode.wholeText, "Text.wholeText returned unexpected results");
@@ -483,11 +588,19 @@
         var testUtils = cmp.get("v.testUtils");
         // Verify that warning messages. There should be 3 of these, verifying just 1 for sanity check
         testUtils.expectAuraWarning('SecureElement: [object HTMLButtonElement]{ key: {"namespace":"lockerTest"} } does not allow getting/setting the href attribute, ignoring!');
-
         var button = document.createElement("button");
         testUtils.assertNull(button.getAttribute("href"), "Should have got null when trying to access invalid attributes");
         testUtils.assertUndefined(button.setAttribute("href", "/foo"), "Should return undefined when trying to set invalid attributes on dom element");
         testUtils.assertNull(button.getAttribute("href"), "Accessing invalid attribute values should continue to return undefined");
+    },
+
+    testGetSetValueAttributeOnNonInputElement: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+        testUtils.expectAuraWarning('SecureElement: javascript:void(0);{ key: {"namespace":"lockerTest"} } does not allow getting/setting the value attribute, ignoring!');
+        var aTag = document.getElementById("anchorWithValue");
+        testUtils.assertNull(aTag.getAttribute("value"), "");
+        testUtils.assertUndefined(aTag.setAttribute("value", "New Value"), "Should return undefined when trying to set invalid attributes on dom element");
+        testUtils.assertNull(aTag.getAttribute("value"), "Accessing invalid attribute values should continue to return null");
     },
 
     testLabelForInput: function(cmp) {
@@ -504,6 +617,39 @@
         // Negative test case to verify that "for" attribute cannot be read from other dom element types
         testUtils.expectAuraWarning('SecureElement: [object HTMLDivElement]{ key: {"namespace":"lockerTest"} } does not allow getting/setting the for attribute, ignoring!');
         testUtils.assertNull(cmp.find("title").getElement().getAttribute("for"), "Should have got null when trying to access 'for' attributes on a div");
+    },
+
+    testPropertyMeta: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+
+        var meta = document.createElement("meta");
+        meta.setAttribute("property", "og:title");
+        meta.setAttribute("content", "The Rock");
+        document.head.appendChild(meta);
+
+        var el = document.querySelector("meta"); // there should be only one we have access to
+        testUtils.assertEquals("og:title", el.getAttribute("property"));
+        testUtils.assertEquals("The Rock", el.getAttribute("content"));
+    },
+
+    testPropertyAttributeAllowedOnMetaOnly: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+        // Negative test case to verify that "property" attribute cannot be read from other dom element types
+        testUtils.expectAuraWarning('SecureElement: [object HTMLDivElement]{ key: {"namespace":"lockerTest"} } does not allow getting/setting the property attribute, ignoring!');
+        testUtils.assertNull(cmp.find("title").getElement().getAttribute("property"), "Should have got null when trying to access 'property' attributes on a div");
+    },
+
+    testPropertyAttributeBlockedOnMeta: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+
+        var meta = document.createElement("meta");
+        meta.setAttribute("http-equiv", "refresh");
+        meta.setAttribute("content", "200");
+        document.head.appendChild(meta);
+
+        var el = document.querySelector("meta");
+        testUtils.assertEquals(null, el.getAttribute("http-equiv"));
+        testUtils.assertEquals("200", el.getAttribute("content"));
     },
 
     // Verify that element can traverse up the dom hierarchy using parentNode property
@@ -524,5 +670,84 @@
 
         testUtils.assertTrue(div.contains(insideDiv), "Expected Node.contains() to return true for <p> inside <div>");
         testUtils.assertFalse(div.contains(outsideDiv), "Expected Node.contains() to return false for <p> outsidse <div>");
+    },
+
+    testElementObjectProperties: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+
+        var div = document.getElementById("title");
+        var link = cmp.find("link").getElement();
+
+        // The method "hasOwnProperty" checks if the object which you have owns the property,
+        // but not if it has inherited a method/property from another object!
+        testUtils.assertFalse(Object.getPrototypeOf(div).hasOwnProperty("hasOwnProperty"),
+            "Expected element <div> to return false for object having property 'hasOwnProperty'");
+        testUtils.assertTrue("hasOwnProperty" in Object.getPrototypeOf(div),
+            "Expected element <div> to return true for object having property 'hasOwnProperty'");
+        testUtils.assertFalse(Object.getPrototypeOf(link).hasOwnProperty("propertyIsEnumerable"),
+            "Expected element <a> to return false for object having property 'hasOwnProperty'");
+        testUtils.assertTrue("propertyIsEnumerable" in Object.getPrototypeOf(link),
+            "Expected element <a> to return true for object having property 'hasOwnProperty'");
+
+        testUtils.assertFalse(link.hasOwnProperty("id"),
+            "Expected false for property lookup. Elements inherit properties and should not have any properties on their own");
+    },
+
+    testHasChildNodes: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+        // positive test cases
+        testUtils.assertTrue(document.body.hasChildNodes(), "Expected shared elements to return true for hasChildNodes()");
+        var elementWithChildNodes = document.getElementById("nodeApiTester");
+        testUtils.assertTrue(elementWithChildNodes.hasChildNodes(), "Expected element to have child nodes");
+        testUtils.assertTrue(document.getElementById("insideFacet").hasChildNodes(), "Expected a deep inner facet element to have child nodes");
+
+        // negative test cases
+        var elementWOChildNodes = document.getElementById("insideDiv");
+        testUtils.assertFalse(elementWOChildNodes.hasChildNodes(), "Expected deep inner element to not have child nodes");
+        testUtils.assertFalse(document.getElementById("outsideDiv").hasChildNodes(), "Expected a root level facet element to not have child nodes");
+
+        // Root level element which includes a facet from a different namespace
+        var elementWithInaccessibleChildNodes = document.getElementById("outsideFacet");
+        testUtils.assertFalse(elementWithInaccessibleChildNodes.hasChildNodes());
+    },
+
+    testSetAttributeXlinkHref: function(cmp) {
+        var testUtils = cmp.get('v.testUtils');
+        var element = document.createElement('img');
+
+        testUtils.expectAuraWarning('SecureElement: [object HTMLImageElement]{ key: {"namespace":"lockerTest"} } does not allow getting/setting the xlink:href attribute, ignoring!');
+
+        element.setAttribute('xlink:href', 'http://www.google.com');
+        document.body.appendChild(element);
+    },
+
+    testSetAttributeNSXlinkHref: function(cmp) {
+        var testUtils = cmp.get('v.testUtils');
+        var element = document.createElement('img');
+
+        testUtils.expectAuraWarning('SecureElement: [object HTMLImageElement]{ key: {"namespace":"lockerTest"} } does not allow getting/setting the xlink:href attribute, ignoring!');
+
+        element.setAttributeNS('https://www.w3.org/2000/svg', 'xlink:href', 'http://www.google.com');
+        document.body.appendChild(element);
+    },
+
+    testSetAttributeNodeXlinkHref: function(cmp) {
+      var testUtils = cmp.get('v.testUtils');
+      var element = document.createElement('img');
+      var xlink = document.createAttribute('xlink:href');
+
+      testUtils.expectAuraWarning('SecureElement: [object HTMLImageElement]{ key: {"namespace":"lockerTest"} } does not allow getting/setting the xlink:href attribute, ignoring!');
+
+      element.setAttributeNode(xlink);
+    },
+
+    testSetAttributeNodeNSXlinkHref: function(cmp) {
+      var testUtils = cmp.get('v.testUtils');
+      var element = document.createElement('img');
+      var xlink = document.createAttribute('xlink:href');
+
+      testUtils.expectAuraWarning('SecureElement: [object HTMLImageElement]{ key: {"namespace":"lockerTest"} } does not allow getting/setting the xlink:href attribute, ignoring!');
+
+      element.setAttributeNodeNS('https://www.w3.org/2000/svg', xlink);
     }
 })

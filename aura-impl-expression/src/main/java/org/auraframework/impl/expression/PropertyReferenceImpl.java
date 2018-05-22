@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Set;
 
 import org.auraframework.Aura;
+import org.auraframework.def.BaseComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.TypeDef;
 import org.auraframework.expression.ExpressionType;
@@ -45,6 +46,8 @@ public class PropertyReferenceImpl implements PropertyReference {
     private final List<String> pieces;
     private final Location l;
     private boolean byValue=false;
+    private final String stringValue;
+    private DefDescriptor<? extends BaseComponentDef> target;
 
     public PropertyReferenceImpl(String expr, Location l) {
         // TODO: delete this constructor, splitting should be done by the parser
@@ -58,11 +61,22 @@ public class PropertyReferenceImpl implements PropertyReference {
     protected PropertyReferenceImpl(List<String> pieces, Location l) {
         this.pieces = pieces;
         this.l = l;
+        this.stringValue = String.join(".", pieces);
     }
 
     @Override
     public final Location getLocation() {
         return l;
+    }
+
+    @Override
+    public final DefDescriptor<? extends BaseComponentDef> getTarget(){
+        return this.target;
+    }
+
+    @Override
+    public void setTarget(DefDescriptor<? extends BaseComponentDef> target){
+        this.target=target;
     }
 
     @Override
@@ -90,12 +104,7 @@ public class PropertyReferenceImpl implements PropertyReference {
         out.append(root.startsWith("$") ? JS_GLOBAL_GET : JS_LOCAL_GET);        
         out.append("(");
         out.append('"');
-		for (int index = 0; index < pieces.size(); index++) {
-			if (index > 0) {
-	        	out.append(".");
-			}
-        	out.append(pieces.get(index));
-		}
+        out.append(stringValue);
         out.append('"');
         out.append(")");
     }
@@ -150,13 +159,13 @@ public class PropertyReferenceImpl implements PropertyReference {
     }
 
     @Override
-    public String toString() {
-        return toString(false);
+    public boolean isByValue(){
+        return this.byValue;
     }
 
-    public String toString(boolean curlies) {
-        char curlyType=this.byValue?'#':'!';
-        return AuraTextUtil.collectionToString(pieces, ".", null, curlies ? "{" + curlyType : null, curlies ? "}" : null);
+    @Override
+    public String toString() {
+        return stringValue;
     }
 
     @Override
@@ -169,14 +178,14 @@ public class PropertyReferenceImpl implements PropertyReference {
     @Override
     public boolean equals(Object o) {
         if (o instanceof PropertyReferenceImpl) {
-            return pieces.equals(((PropertyReferenceImpl) o).pieces);
+            return stringValue.equals(((PropertyReferenceImpl) o).stringValue);
         }
         return false;
     }
 
     @Override
     public int hashCode() {
-        return pieces.hashCode();
+        return stringValue.hashCode();
     }
 
     public static final Serializer SERIALIZER = new Serializer();
@@ -184,7 +193,14 @@ public class PropertyReferenceImpl implements PropertyReference {
     private static class Serializer extends NoneSerializer<PropertyReferenceImpl> {
         @Override
         public void serialize(Json json, PropertyReferenceImpl value) throws IOException {
-            json.writeString(value.toString(true));
+            json.writeMapBegin();
+            json.writeMapEntry("exprType", value.getExpressionType());
+            json.writeMapEntry("byValue", value.byValue);
+            if(value.target!=null){
+                json.writeMapEntry("target", value.target.getDescriptorName());
+            }
+            json.writeMapEntry("path", AuraTextUtil.collectionToString(value.pieces, ".", null));
+            json.writeMapEnd();
         }
     }
 }

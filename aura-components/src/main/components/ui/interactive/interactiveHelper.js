@@ -44,6 +44,10 @@
      */
     addDomHandler : function(component, event) {
         var element = component.getElement();
+        if (element === null) {
+            $A.warning("Can't add handler to component because didn't have valid html element. Component was " + JSON.stringify(component));
+            return ;
+        }
         var elementId = this.getUid(element) || this.newUid(element);
 
         var handler = $A.getCallback(this.domEventHandler);
@@ -70,7 +74,7 @@
      * Get the unique ID on the dom element. Does not add a unique ID if one does not exist.
      */
     getUid: function(element) {
-        return element.getAttribute(this.DATA_UID_KEY);
+        return element ? element.getAttribute(this.DATA_UID_KEY) : null;
     },
 
     /**
@@ -208,15 +212,17 @@
      */
     setEventParams : function(e, DOMEvent) {
         // set parameters if there is any
-        var attributeDefs = e.getDef().getAttributeDefs();
+        var attributeDefs = e.getDef().getAttributeDefs().getNames();
+        var attribute;
         var params = {};
-        for (var key in attributeDefs) {
-            if (key === "domEvent") {
-                params[key] = DOMEvent;
-            } else if (key === "keyCode") { // we need to re-visit this keyCode madness soon
-                params[key] = DOMEvent.which || DOMEvent.keyCode;
+        for (var c=0,length=attributeDefs.length;c<length;c++) {
+            attribute = attributeDefs[c];
+            if (attribute === "domEvent") {
+                params[attribute] = DOMEvent;
+            } else if (attribute === "keyCode") { // we need to re-visit this keyCode madness soon
+                params[attribute] = DOMEvent.which || DOMEvent.keyCode;
             } else {
-                params[key] = DOMEvent[key];
+                params[attribute] = DOMEvent[attribute];
             }
         }
         e.setParams(params);

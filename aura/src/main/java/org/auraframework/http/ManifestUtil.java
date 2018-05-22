@@ -62,13 +62,6 @@ public class ManifestUtil {
     }
 
     /**
-     * Check to see if we allow appcache on the current request.
-     */
-    public boolean isManifestEnabled(HttpServletRequest request) {
-        return isManifestEnabled();
-    }
-
-    /**
      * Is AppCache allowed by the current configuration?
      */
     public boolean isManifestEnabled() {
@@ -83,10 +76,13 @@ public class ManifestUtil {
             @SuppressWarnings("unchecked")
             DefDescriptor<ApplicationDef> appDefDesc = (DefDescriptor<ApplicationDef>)desc;
             try {
-                Boolean useAppcache = definitionService.getUnlinkedDefinition(appDefDesc).isAppcacheEnabled();
-                if (useAppcache != null) {
-                    return useAppcache.booleanValue();
-                }
+            	ApplicationDef appDef = definitionService.getUnlinkedDefinition(appDefDesc);
+            	if(appDef != null) {
+	                Boolean useAppcache = appDef.isAppcacheEnabled();
+	                if (useAppcache != null) {
+	                    return useAppcache.booleanValue();
+	                }
+            	}
                 return false;
             } catch (QuickFixException e) {
                 return false;

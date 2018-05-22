@@ -15,6 +15,7 @@
  */
 package org.auraframework.integration.test;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -25,16 +26,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Logger;
 
-import junit.framework.Test;
-import junit.framework.TestCase;
-import junit.framework.TestResult;
-import junit.framework.TestSuite;
-
 import org.auraframework.integration.test.util.TestExecutor;
 import org.auraframework.integration.test.util.TestExecutor.TestRun;
 import org.auraframework.test.util.WebDriverProvider;
 import org.auraframework.throwable.AuraRuntimeException;
-import org.auraframework.util.AuraUtil;
 import org.auraframework.util.ServiceLocator;
 import org.auraframework.util.test.perf.PerfUtil;
 import org.auraframework.util.test.util.TestInventory;
@@ -42,6 +37,11 @@ import org.auraframework.util.test.util.TestInventory.Type;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+
+import junit.framework.Test;
+import junit.framework.TestCase;
+import junit.framework.TestResult;
+import junit.framework.TestSuite;
 
 /**
  * Run all integration tests.
@@ -56,7 +56,7 @@ public class AuraIntegrationTests extends TestSuite {
     public static final int TEST_ITERATIONS;
     private static final Logger logger = Logger.getLogger(AuraIntegrationTests.class.getName());
 
-    private final String nameFragment;
+    private final String[] namesFragment;
     private static final boolean RUN_PERF_TESTS = System.getProperty("runPerfTests") != null;
 
     private final List<String> skipTests;
@@ -77,9 +77,9 @@ public class AuraIntegrationTests extends TestSuite {
     private AuraIntegrationTests() {
         String frag = System.getProperty("testNameContains");
         if (frag != null && !frag.trim().equals("")) {
-            nameFragment = frag.toLowerCase();
+            namesFragment = frag.toLowerCase().split("\\s*,\\s*");
         } else {
-            nameFragment = null;
+            namesFragment = null;
         }
 
         // comma-delimited list of fully qualified test classes (case-insensitive), e.g. my.test.TestClass
@@ -92,8 +92,8 @@ public class AuraIntegrationTests extends TestSuite {
     @Override
     public void run(final TestResult masterResult) {
         logger.info("Building test inventories");
-        if (nameFragment != null) {
-            logger.info("Filtering by test names containing: " + nameFragment);
+        if (namesFragment != null) {
+            logger.info("Filtering by test names containing: " + Arrays.toString(namesFragment));
         }
         if (RUN_PERF_TESTS) {
             logger.info("Filtering only test annotated with @PerfTest");
@@ -120,7 +120,7 @@ public class AuraIntegrationTests extends TestSuite {
             throw new AuraRuntimeException("TEST RUN INTERRUPTED", e);
         } finally {
             executor.shutdown();
-            WebDriverProvider provider = AuraUtil.get(WebDriverProvider.class);
+            WebDriverProvider provider = ServiceLocator.get().get(WebDriverProvider.class);
             if (provider != null) {
                 logger.info("Releasing WebDriver resources");
                 provider.release();
@@ -153,8 +153,15 @@ public class AuraIntegrationTests extends TestSuite {
             }
         } else if (test instanceof TestCase) {
             String testName = test.getClass().getName().toLowerCase() + "." + ((TestCase) test).getName().toLowerCase();
-            if (nameFragment != null) {
-                if (!testName.contains(nameFragment)) {
+            if (namesFragment != null) {
+                boolean nameMatch = false;
+                for (String nameFragment: namesFragment) {
+                    if (testName.contains(nameFragment)) {
+                        nameMatch = true;
+                        continue;
+                    }
+                }
+                if (!nameMatch) {
                     return;
                 }
             } else if (!skipTests.isEmpty() && skipTests.contains(testName)) {

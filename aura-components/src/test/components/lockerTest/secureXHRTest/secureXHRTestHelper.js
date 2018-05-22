@@ -4,8 +4,11 @@
             testUtils.assertStartsWith("SecureDOMEvent", event.toString(), "Expected event to be a SecureDOMEvent");
             testUtils.assertStartsWith("SecureXMLHttpRequest", this.toString(), "Expected this to return SecureXMLHttpRequest");
 
-            if (this.readyState == 4 && this.status == 200) {
-                testUtils.assertStartsWith("<!DOCTYPE html><html><head><title>Aura</title>",  this.responseText.trim());
+            if (this.readyState === 4 && this.status === 200) {
+                var regex = new RegExp('^<!DOCTYPE html><html lang="[^"]*"><head><title>Aura</title>');
+                testUtils.assert(regex.test(this.responseText.trim()));
+            } else {
+                throw new Error('Invalid XHR Response!');
             }
 
             cmp.set("v.completed", true);
@@ -18,7 +21,7 @@
         var xhr = new XMLHttpRequest();
         testUtils.assertStartsWith("SecureXMLHttpRequest", xhr.toString(), "Expected new XMLHttpRequest() to return SecureXMLHttpRequest");
 
-        xhr.open("GET", "/lockerTest/secureXHRTest.cmp", true);
+        xhr.open("GET", "/resources/qa/testDocument.xml", true);
 
         wireUpEventHandler(xhr, testUtils);
 

@@ -16,8 +16,6 @@
 
 -->
 <aura:component>
-    <aura:attribute name="attribute" type="String"/>
-
     <aura:attribute name="cmpDefRefs" type="Aura.ComponentDefRef[]">
         <ui:button label="hi"/>
     </aura:attribute>

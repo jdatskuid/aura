@@ -32,16 +32,20 @@
     <aura:method name="testCookiesAddRemove" />
     <aura:method name="testDocumentTitle"/>
     <aura:method name="testQuerySelectorAllReturnsSecureNodeList"/>
-    <aura:method name="testDocumentBodyConstructorNotExposed"/>
+    <aura:method name="testDocumentBodyConstructorNotInvocable"/>
     <aura:method name="testCreateElementCoersionExploit"/>
     <aura:method name="testCreateElementNSForSVGElement"/>
     <aura:method name="testGetElementsByTagNameForScriptTag"/>
     <aura:method name="testCreateEvent"/>
     <aura:method name="testDefaultView"/>
-    <aura:method name="testDocumentImplementationHTMLDocumentCreation"/>
     <aura:method name="testDocumentElementHasNonZeroPropertyValues"/>
     <aura:method name="testDocumentConstructorPassesInstanceOf"/>
-
+    <aura:method name="testBlockedApis"/>
+    <aura:method name="testJavascriptPseudoScheme"/>
+    <aura:method name="testLocationAssign"/>
+    <aura:method name="testCreateHTMLStyleTag"/>
+    <aura:method name="testCreateSVGStyleTag"/>
+    
     <div id="title">SecureDocument test</div>
 
     <div aura:id="content"/>

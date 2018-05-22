@@ -21,7 +21,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 
 import org.auraframework.def.ApplicationDef;
@@ -54,7 +53,6 @@ import org.auraframework.def.TypeDef;
 import org.auraframework.expression.PropertyReference;
 import org.auraframework.impl.DefinitionAccessImpl;
 import org.auraframework.impl.clientlibrary.ClientLibraryDefImpl;
-import org.auraframework.impl.css.token.TokensDefImpl;
 import org.auraframework.impl.css.util.Flavors;
 import org.auraframework.impl.root.AttributeDefImpl;
 import org.auraframework.impl.root.AttributeDefRefImpl;
@@ -82,9 +80,11 @@ import org.auraframework.system.SubDefDescriptor;
 import org.auraframework.throwable.quickfix.InvalidAccessValueException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 /**
  * Utility to easily get aura objects.
@@ -189,6 +189,11 @@ public class AuraImplUnitTestingUtil {
             }
 
             @Override
+            public Set<DefDescriptor<?>> getDependencySet() {
+                return Sets.newHashSet();
+            }
+
+            @Override
             public DefDescriptor<TypeDef> getDescriptor() {
                 return definitionService.getDefDescriptor("String", TypeDef.class);
             }
@@ -208,7 +213,7 @@ public class AuraImplUnitTestingUtil {
             }
 
             @Override
-            public void validateReferences() {
+            public void validateReferences(ReferenceValidationContext validationContext) {
             }
 
             @Override
@@ -264,14 +269,6 @@ public class AuraImplUnitTestingUtil {
             @Override
             public <D extends Definition> D getSubDefinition( SubDefDescriptor<D, ?> descriptor) {
                 return null;
-            }
-
-            @Override
-            public void retrieveLabels() {
-            }
-
-            @Override
-            public void appendDependencies(Object instance, Set<DefDescriptor<?>> deps) {
             }
 
             @Override
@@ -393,8 +390,8 @@ public class AuraImplUnitTestingUtil {
         builder = new DependencyDefImpl.Builder();
         builder.setParentDescriptor(parentDescriptor);
         builder.setResource(resource);
-        builder.setType(type);
         builder.setLocation(location);
+        builder.setType(type);
         return builder.build();
     }
 
@@ -940,18 +937,6 @@ public class AuraImplUnitTestingUtil {
         }
         builder.setAccess(access);
         builder.setLocation((location == null) ? getLocation() : location);
-        return builder.build();
-    }
-
-    public TokensDef makeTokensDef(Map<String, String> variables) {
-        TokensDefImpl.Builder builder = new TokensDefImpl.Builder();
-        for (Entry<String, String> entry : variables.entrySet()) {
-            AttributeDefRefImpl value = makeAttributeDefRef(entry.getKey(), entry.getValue(), null);
-            AttributeDefImpl attr = makeAttributeDef(entry.getKey(),
-                    definitionService.getDefDescriptor("String", TypeDef.class), value, false, null, null);
-            builder.addAttributeDef(attr.getDescriptor(), attr);
-        }
-
         return builder.build();
     }
 

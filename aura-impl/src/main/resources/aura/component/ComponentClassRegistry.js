@@ -28,13 +28,13 @@ function ComponentClassRegistry () {
     this.classConstructors = {};
 }
 
-/** 
+/**
  * By default all components will use Aura.Component.Component as the constructor.
  * This wires up all the features a component might need.
- * Some rootComponents are moving into the framework with custom Component extensions. 
+ * Some rootComponents are moving into the framework with custom Component extensions.
  * This map defines the constructor they use in buildConstructor
  */
-ComponentClassRegistry.prototype.customConstructorMap = { 
+ComponentClassRegistry.prototype.customConstructorMap = {
     /*eslint-disable no-undef*/
     "aura$text":TextComponent,
     "aura$html":HtmlComponent,
@@ -91,7 +91,12 @@ ComponentClassRegistry.prototype.getComponentClass = function(descriptor, def) {
 };
 
 ComponentClassRegistry.prototype.buildInteropComponentClass = function(descriptor, def) {
-    var interopCmpClass = this.buildConstructor({ "interopClass" : def.interopClass }, def.interopClassName, Aura.Component.InteropComponent);
+    var interopClass = Aura.Component.InteropComponent;
+    if (typeof def.interopClass !== 'function') {
+        // module library is object. component is function
+        interopClass = Aura.Component.InteropModule;
+    }
+    var interopCmpClass = this.buildConstructor({ "interopClass" : def.interopClass }, def.interopClassName, interopClass);
     this.classConstructors[descriptor] = interopCmpClass;
     return interopCmpClass;
 };
@@ -155,7 +160,16 @@ ComponentClassRegistry.prototype.buildLibraries = function(componentProperties) 
     if (componentImports) {
         var helper = componentProperties["helper"];
         for (var property in componentImports) {
-            helper[property] = $A.componentService.getLibrary(componentImports[property]);
+            var descriptor = componentImports[property];
+            var library = $A.componentService.getLibrary(descriptor);
+            if (!library) {
+                try {
+                    library = $A.componentService.evaluateModuleDef(descriptor);
+                } catch (e) {
+                    // ignore module not found
+                }
+            }
+            helper[property] = library;
         }
         componentProperties["helper"] = helper;
     }
@@ -183,11 +197,10 @@ ComponentClassRegistry.prototype.buildConstructor = function(componentProperties
     //#end
 
     //#if {"excludeModes" : ["PRODUCTION", "PRODUCTIONDEBUG"]}
-    componentConstructor = $A.util.globalEval("(function " + className + "(config) { Ctor.call(this, config); })", {
-        "Ctor": Ctor
-    });
+    var createConstructor = $A.util.globalEval("function(Ctor) {return function " + className + "(config) { Ctor.call(this, config); }}");
+    componentConstructor = createConstructor(Ctor);
     //#end
-    
+
     // Extends from Component (and restore constructor).
     componentConstructor.prototype = Object.create(Ctor.prototype);
     componentConstructor.prototype.constructor = componentConstructor;

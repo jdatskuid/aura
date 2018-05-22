@@ -1,6 +1,6 @@
 ({
     // IndexedDB has problems in Safari and is not supported in older IE
-    browsers:["-IE7", "-IE8", "-IE9", "-SAFARI", "-IPAD", "-IPHONE"],
+    browsers:["-IE8", "-IE9", "-SAFARI", "-IPAD", "-IPHONE"],
 
     // Test modifies/deletes the persistent database
     labels : [ "threadHostile" ],
@@ -412,10 +412,10 @@
             function addItemToStorage(cmp) {
                 var targetStorage = cmp._iframeLib.getIframeRootCmp()._storage;
 
-                return targetStorage.set("key1", cmp._expected);
-            },
-            function reloadIframe(cmp) {
-                return cmp._iframeLib.reloadIframe(cmp, false, "first reload");
+                return targetStorage.set("key1", cmp._expected)
+                                    .then(function() {
+                                       return cmp._iframeLib.reloadIframe(cmp, false, "first reload");
+                                    });
             },
             function getItemFromStorage(cmp) {
                 var targetStorage = cmp._iframeLib.getIframeRootCmp()._storage;

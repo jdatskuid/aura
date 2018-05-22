@@ -21,6 +21,8 @@ import org.auraframework.def.TypeDef;
 import org.auraframework.def.ValueDef;
 import org.auraframework.impl.system.DefinitionImpl;
 import org.auraframework.impl.util.AuraUtil;
+import org.auraframework.throwable.quickfix.InvalidDefinitionException;
+import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
 
 import java.io.IOException;
@@ -39,6 +41,9 @@ public class JavaActionDef extends DefinitionImpl<ActionDef> implements ActionDe
     private final Method method;
     private final boolean background;
     private final boolean caboose;
+    private String actionGroup;
+    private final boolean publicCachingEnabled;
+    private final int publicCachingExpiration;
 
     protected JavaActionDef(Builder builder) {
         super(builder);
@@ -49,6 +54,9 @@ public class JavaActionDef extends DefinitionImpl<ActionDef> implements ActionDe
         this.method = builder.method;
         this.background = builder.background;
         this.caboose = builder.caboose;
+        this.actionGroup = builder.actionGroup;
+        this.publicCachingEnabled = builder.publicCachingEnabled;
+        this.publicCachingExpiration = builder.publicCachingExpiration;
     }
 
     @Override
@@ -85,24 +93,53 @@ public class JavaActionDef extends DefinitionImpl<ActionDef> implements ActionDe
     }
     
     public boolean isBackground() {
-    	return background;
+        return background;
     }
 
     public boolean isCaboose() {
-    	return caboose;
+        return caboose;
+    }
+    
+    public String getActionGroup() {
+        return this.actionGroup;
+    }
+
+    public boolean isPublicCachingEnabled() {
+        return publicCachingEnabled;
+    }
+
+    public int getPublicCachingExpiration() {
+        return publicCachingExpiration;
     }
 
     @Override
     public void serialize(Json json) throws IOException {
         json.writeMapBegin();
-        json.writeMapEntry("name", getName());
-        json.writeMapEntry("descriptor", getDescriptor());
-        json.writeMapEntry("actionType", getActionType());
-        json.writeMapEntry("returnType", getReturnType());
-        json.writeMapEntry("background", isBackground());
-        json.writeMapEntry("caboose", isCaboose());
-        json.writeMapEntry("params", params);
+        json.writeMapEntry(Json.ApplicationKey.NAME, getName());
+        json.writeMapEntry(Json.ApplicationKey.DESCRIPTOR, getDescriptor());
+        json.writeMapEntry(Json.ApplicationKey.ACTIONTYPE, getActionType());
+        json.writeMapEntry(Json.ApplicationKey.RETURNTYPE, getReturnType());
+        json.writeMapEntry(Json.ApplicationKey.BACKGROUND, isBackground());
+        json.writeMapEntry(Json.ApplicationKey.CABOOSE, isCaboose());
+        String ag = getActionGroup();
+        if (ag != null) {
+            json.writeMapEntry(Json.ApplicationKey.ACTIONGROUP, ag);
+        }
+        json.writeMapEntry(Json.ApplicationKey.PARAMS, params);
+        if (isPublicCachingEnabled()) {
+            json.writeMapEntry(Json.ApplicationKey.PUBLICCACHINGENABLED, true);
+            json.writeMapEntry(Json.ApplicationKey.PUBLICCACHINGEXPIRATION, getPublicCachingExpiration());
+        }
         json.writeMapEnd();
+    }
+    
+    @Override
+    public void validateDefinition() throws QuickFixException {
+    	super.validateDefinition();
+    	
+        if (this.isPublicCachingEnabled() && this.getPublicCachingExpiration() <= 0) {
+            throw new InvalidDefinitionException("When public caching is enabled, public caching expiration time must be greater than 0.", location);
+    	}
     }
 
     public static class Builder extends DefinitionImpl.BuilderImpl<ActionDef> {
@@ -118,6 +155,9 @@ public class JavaActionDef extends DefinitionImpl<ActionDef> implements ActionDe
         private Method method;
         private boolean background = false;
         private boolean caboose = false;
+        private String actionGroup;
+        private boolean publicCachingEnabled = false;
+        private int publicCachingExpiration = -1;
 
         @Override
         public JavaActionDef build() {
@@ -170,6 +210,18 @@ public class JavaActionDef extends DefinitionImpl<ActionDef> implements ActionDe
 
         public void setCaboose(boolean caboose) {
             this.caboose = caboose;
+        }
+        
+        public void setActionGroup(String actionGroup) {
+            this.actionGroup = actionGroup;
+        }
+
+        public void setPublicCachingEnabled(boolean publicCachingEnabled) {
+            this.publicCachingEnabled = publicCachingEnabled;
+        }
+
+        public void setPublicCachingExpiration(int publicCachingExpiration) {
+            this.publicCachingExpiration = publicCachingExpiration;
         }
     }
 }

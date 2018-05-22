@@ -24,7 +24,6 @@ import org.junit.Assert;
 import org.openqa.selenium.Dimension;
 import org.openqa.selenium.Platform;
 import org.openqa.selenium.chrome.ChromeOptions;
-import org.openqa.selenium.firefox.FirefoxProfile;
 import org.openqa.selenium.internal.BuildInfo;
 import org.openqa.selenium.remote.DesiredCapabilities;
 
@@ -44,7 +43,7 @@ public final class WebDriverUtil {
                     	BrowserType.IPAD,
                     	BrowserType.ANDROID_PHONE,
                     	BrowserType.ANDROID_TABLET);
-    public static Set<BrowserType> DESKTOP = 
+    public static Set<BrowserType> DESKTOP =
     		EnumSet.of(BrowserType.IE9,
                     	BrowserType.IE10,
     					BrowserType.IE11,
@@ -84,7 +83,6 @@ public final class WebDriverUtil {
         IE10(DesiredCapabilities.internetExplorer(), "10", "Windows 2012"),
         IE9(DesiredCapabilities.internetExplorer(), "9", "Windows 7"),
         IE8(DesiredCapabilities.internetExplorer(), "8", Platform.WINDOWS),
-        IE7(DesiredCapabilities.internetExplorer(), "7", Platform.WINDOWS),
         GOOGLECHROME(DesiredCapabilities.chrome(), "34", Platform.ANY, ExtraCapability.DISABLE_POPUP_BLOCKING),
         SAFARI(DesiredCapabilities.safari(), "7", "OS X 10.9"),
         ANDROID_PHONE(DesiredCapabilities.android(), "4", "Linux", ExtraCapability.PHONE, ExtraCapability.PORTRAIT),
@@ -92,17 +90,19 @@ public final class WebDriverUtil {
         IPAD(DesiredCapabilities.ipad()),
         IPHONE(DesiredCapabilities.iphone());
         private final DesiredCapabilities capability;
+        private final ExtraCapability[] extraCapabilities;
         private final String version;
 
         private BrowserType(DesiredCapabilities capabilities, String version, ExtraCapability... extraCapabilities) {
             this.capability = capabilities;
             this.version = version;
-            initExtraCapabilities(extraCapabilities);
+            this.extraCapabilities = extraCapabilities;
         }
 
         private BrowserType(DesiredCapabilities capabilities, ExtraCapability... extraCapabilities) {
             this.capability = capabilities;
             this.version = "";
+            this.extraCapabilities = extraCapabilities;
 
             String browser = capabilities.getBrowserName();
             if (browser.equalsIgnoreCase("iphone") || browser.equalsIgnoreCase("ipad")) {
@@ -121,8 +121,6 @@ public final class WebDriverUtil {
                     SauceUtil.setIOSAppiumCapabilities(this.capability, "Safari", deviceName, platformVersion);
                 }
             }
-
-            initExtraCapabilities(extraCapabilities);
         }
 
         private BrowserType(DesiredCapabilities capabilities, String version, String platform,
@@ -143,13 +141,7 @@ public final class WebDriverUtil {
 
         private void initExtraCapabilities(ExtraCapability... extraCapabilities) {
             for (ExtraCapability extra : extraCapabilities) {
-                // newer versions of firefox no longer support native events
-                if (extra.getCapabilityName().equals(ExtraCapability.DISABLE_NATIVE_EVENTS.getCapabilityName())
-                        && this.capability.getBrowserName().equals("firefox")) {
-                    FirefoxProfile firefoxProfile = new FirefoxProfile();
-                    firefoxProfile.setEnableNativeEvents(Boolean.parseBoolean(extra.getValue()));
-                    this.capability.setCapability("firefox_profile", firefoxProfile);
-                } else if (extra.equals(ExtraCapability.DISABLE_POPUP_BLOCKING)
+                if (extra.equals(ExtraCapability.DISABLE_POPUP_BLOCKING)
                         && this.capability.getBrowserName().equals("chrome")
                         && extra.getValue().equals("true")) {
                     // Disable pop-up blocking in google chrome
@@ -164,6 +156,9 @@ public final class WebDriverUtil {
         }
 
         public DesiredCapabilities getCapability() {
+            if (extraCapabilities != null) {
+                initExtraCapabilities(extraCapabilities);
+            }
             return new DesiredCapabilities(this.capability);
         }
 
@@ -238,7 +233,7 @@ public final class WebDriverUtil {
         return SELENIUM_VERSION;
     }
 
-    public static synchronized ChromeOptions addChromeOptions(DesiredCapabilities capabilities, Dimension windowSize) {
+    public static synchronized ChromeOptions addChromeOptions(DesiredCapabilities capabilities, Dimension windowSize, boolean runHeadless) {
         ChromeOptions options = new ChromeOptions();
         List<String> arguments = Lists.newArrayList();
         arguments.add("--ignore-gpu-blacklist");
@@ -248,6 +243,9 @@ public final class WebDriverUtil {
         }
         if (windowSize != null) {
             arguments.add("window-size=" + windowSize.width + ',' + windowSize.height);
+        }
+        if (runHeadless) {
+            arguments.add("--headless");
         }
         options.addArguments(arguments);
         // To remove message "You are using an unsupported command-line flag: --ignore-certificate-errors.

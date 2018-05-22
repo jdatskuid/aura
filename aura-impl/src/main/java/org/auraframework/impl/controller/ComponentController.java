@@ -32,43 +32,53 @@ import org.auraframework.def.Definition;
 import org.auraframework.def.EventDef;
 import org.auraframework.def.RootDefinition;
 import org.auraframework.def.module.ModuleDef;
-import org.auraframework.ds.servicecomponent.Controller;
+import org.auraframework.ds.servicecomponent.GlobalController;
 import org.auraframework.instance.Application;
+import org.auraframework.instance.AuraValueProviderType;
 import org.auraframework.instance.BaseComponent;
 import org.auraframework.instance.Component;
 import org.auraframework.instance.Instance;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.service.InstanceService;
+import org.auraframework.service.LoggingService;
+import org.auraframework.system.Annotations.ActionGroup;
 import org.auraframework.system.Annotations.AuraEnabled;
+import org.auraframework.system.Annotations.CabooseAction;
 import org.auraframework.system.Annotations.Key;
 import org.auraframework.system.AuraContext;
+import org.auraframework.system.Location;
+import org.auraframework.throwable.AuraRuntimeException;
+import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 
 import com.google.common.collect.Lists;
 
 @ServiceComponent
-public class ComponentController implements Controller {
+public class ComponentController implements GlobalController {
+    private static final String NAME = "aura://ComponentController";
 
     private InstanceService instanceService;
     private ExceptionAdapter exceptionAdapter;
     private DefinitionService definitionService;
     private ContextService contextService;
     private ConfigAdapter configAdapter;
+    private LoggingService loggingService;
+
+    @Override
+    public String getQualifiedName() {
+        return NAME;
+    }
 
     @AuraEnabled
+    @ActionGroup(value = "aura")
     public Boolean loadLabels() throws QuickFixException {
         AuraContext ctx = contextService.getCurrentContext();
         Map<DefDescriptor<? extends Definition>, Definition> defMap;
 
         definitionService.getDefinition(ctx.getApplicationDescriptor());
         defMap = ctx.filterLocalDefs(null);
-        for (Map.Entry<DefDescriptor<? extends Definition>, Definition> entry : defMap.entrySet()) {
-            Definition def = entry.getValue();
-            if (def != null) {
-                def.retrieveLabels();
-            }
-        }
+        definitionService.populateGlobalValues(AuraValueProviderType.LABEL.getPrefix(), defMap);
         return Boolean.TRUE;
     }
 
@@ -76,7 +86,13 @@ public class ComponentController implements Controller {
     T getBaseComponent(Class<T> type, Class<D> defType, String name,
                        Map<String, Object> attributes, Boolean loadLabels) throws QuickFixException {
 
-        DefDescriptor<D> desc = definitionService.getDefDescriptor(name, defType);
+        DefDescriptor<D> desc;
+        try {
+            desc = definitionService.getDefDescriptor(name, defType);
+        } catch (AuraRuntimeException invalid) {
+            // FIXME: W-3979409 we should return an error to the client.
+            throw new InvalidDefinitionException("Invalid descriptor: "+name, new Location("getComponent", 0L));
+        }
         definitionService.updateLoaded(desc);
         T component = instanceService.getInstance(desc, attributes);
         if (Boolean.TRUE.equals(loadLabels)) {
@@ -92,12 +108,12 @@ public class ComponentController implements Controller {
 
     @SuppressWarnings({ "rawtypes", "unchecked" })
     @AuraEnabled
+    @ActionGroup(value = "aura")
     public Instance getComponent(@Key(value = "name", loggable = true) String name,
                                  @Key("attributes") Map<String, Object> attributes,
                                  @Key(value = "chainLoadLabels", loggable = true) Boolean loadLabels) throws QuickFixException {
-        DefDescriptor<ModuleDef> moduleDesc = definitionService.getDefDescriptor(name, ModuleDef.class);
-        if (contextService.getCurrentContext().isModulesEnabled() &&
-                configAdapter.getModuleNamespaces().contains(moduleDesc.getNamespace()) && moduleDesc.exists()) {
+            DefDescriptor<ModuleDef> moduleDesc = definitionService.getDefDescriptor(name, ModuleDef.class);
+        if (moduleDesc.exists()) {
             definitionService.updateLoaded(moduleDesc);
             return instanceService.getInstance(moduleDesc, attributes);
         }
@@ -105,6 +121,7 @@ public class ComponentController implements Controller {
     }
 
     @AuraEnabled
+    @ActionGroup(value = "aura")
     public Application getApplication(@Key(value = "name", loggable = true) String name,
                                       @Key("attributes") Map<String, Object> attributes,
                                       @Key(value = "chainLoadLabels", loggable = true) Boolean loadLabels) throws QuickFixException {
@@ -115,30 +132,67 @@ public class ComponentController implements Controller {
      * Called when the client-side code encounters a failed client-side action, to allow server-side
      * record of the code error.
      *
-     * @param desc The name of the client action failing
-     * @param id The id of the client error
-     * @param error The javascript error message of the failure
-     * @param stack Not always available (it's browser dependent), but if present, a browser-dependent
-     *      string describing the Javascript stack for the error.  Some frames may be obfuscated,
+     * @param desc - The name of the client action failing
+     * @param id - The id of the client error
+     * @param error - The JavaScript error message of the failure
+     * @param stack - Not always available (it's browser dependent), but if present, a browser-dependent
+     *      string describing the JavaScript stack for the error.  Some frames may be obfuscated,
      *      anonymous, omitted after inlining, etc., but it may help diagnosis.
-     * @param componentStack Not always available (it's context dependent), but if present, a
+     * @param componentStack - Not always available (it's context dependent), but if present, a
      *      string describing the component hierarchy stack for the error.
+     * @param stacktraceIdGen - Stack trace generation string
+     * @param level - Error reporting level
      */
     @AuraEnabled
-    public void reportFailedAction(@Key(value = "failedAction") String desc, @Key("failedId") String id,
-                                   @Key("clientError") String error, @Key("clientStack") String stack, @Key("componentStack") String componentStack) {
+    @ActionGroup(value = "aura")
+    public void reportFailedAction(
+            @Key(value = "failedAction") String desc,
+            @Key("failedId") String id,
+            @Key("clientError") String error,
+            @Key("clientStack") String stack,
+            @Key("componentStack") String componentStack,
+            @Key("stacktraceIdGen") String stacktraceIdGen,
+            @Key("level") String level) {
+
+        AuraClientException.Level reportingLevel = null;
+
+        if (level == null) {
+            reportingLevel = AuraClientException.Level.ERROR;
+        } else {
+            try {
+                reportingLevel = AuraClientException.Level.valueOf(level);
+            } catch(IllegalArgumentException e) {
+                // if the level value is invalid, falls back to default value
+                reportingLevel = AuraClientException.Level.ERROR;
+            }
+        }
+
         // Error reporting (of errors in prior client-side actions) are handled specially
-        AuraClientException ace = new AuraClientException(desc, id, error, stack, componentStack, instanceService, exceptionAdapter, configAdapter, contextService, definitionService);
+        AuraClientException ace = new AuraClientException(
+                                    desc,
+                                    id,
+                                    error,
+                                    stack,
+                                    componentStack,
+                                    stacktraceIdGen,
+                                    reportingLevel,
+                                    instanceService,
+                                    exceptionAdapter,
+                                    configAdapter,
+                                    contextService,
+                                    definitionService);
         exceptionAdapter.handleException(ace, ace.getOriginalAction());
     }
 
     @AuraEnabled
+    @ActionGroup(value = "aura")
     public ComponentDef getComponentDef(@Key(value = "name", loggable = true) String name) throws QuickFixException {
         DefDescriptor<ComponentDef> desc = definitionService.getDefDescriptor(name, ComponentDef.class);
         return definitionService.getDefinition(desc);
     }
 
     @AuraEnabled
+    @ActionGroup(value = "aura")
     public List<RootDefinition> getDefinitions(@Key(value = "names", loggable = true) List<String> names) throws QuickFixException {
         if (names == null) {
             return Collections.emptyList();
@@ -155,6 +209,7 @@ public class ComponentController implements Controller {
     }
 
     @AuraEnabled
+    @ActionGroup(value = "aura")
     public EventDef getEventDef(@Key(value = "name", loggable = true) String name) throws QuickFixException {
         final String descriptorName = name.replace("e.", "");
         DefDescriptor<EventDef> desc = definitionService.getDefDescriptor(descriptorName, EventDef.class);
@@ -162,6 +217,7 @@ public class ComponentController implements Controller {
     }
 
     @AuraEnabled
+    @ActionGroup(value = "aura")
     public ApplicationDef getApplicationDef(@Key(value = "name", loggable = true) String name) throws QuickFixException {
         DefDescriptor<ApplicationDef> desc = definitionService.getDefDescriptor(name, ApplicationDef.class);
         return definitionService.getDefinition(desc);
@@ -169,6 +225,7 @@ public class ComponentController implements Controller {
 
     @SuppressWarnings("rawtypes")
     @AuraEnabled
+    @ActionGroup(value = "aura")
     public List<Instance> getComponents(@Key("components") List<Map<String, Object>> components)
             throws QuickFixException {
         List<Instance> ret = Lists.newArrayList();
@@ -180,6 +237,15 @@ public class ComponentController implements Controller {
             ret.add(getComponent(descriptor, attributes, Boolean.FALSE));
         }
         return ret;
+    }
+
+    @CabooseAction
+    @AuraEnabled
+    @ActionGroup(value = "aura")
+    public void reportDeprecationUsages(@Key("usages") Map<String, List<String>> usages) {
+        if (usages != null) {
+            this.loggingService.logDeprecationUsages(usages);
+        }
     }
 
     @Inject
@@ -205,5 +271,10 @@ public class ComponentController implements Controller {
     @Inject
     public void setConfigAdapter(ConfigAdapter configAdapter) {
         this.configAdapter = configAdapter;
+    }
+
+    @Inject
+    public void setLoggingService(LoggingService loggingService) {
+        this.loggingService = loggingService;
     }
 }

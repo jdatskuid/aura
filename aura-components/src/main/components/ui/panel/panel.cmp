@@ -25,7 +25,6 @@
     <aura:attribute name="class" type="String" description="CSS class" />
     <aura:attribute name="titleDisplay" type="Boolean" default="true" description="If true, the title of the window can be shown/hidden for accessibility. The default is true." />
     <aura:attribute name="titleTruncate" type="Boolean" default="false" description="If true, allows for truncation of long titles." />
-    <aura:attribute name="startOfDialogLabel" type="String" default="Start of Dialog" description="Accessibility label that indicates the start of the dialog" />
     <aura:attribute name="closeOnClickOut" type="Boolean" default="false" description="If true, adds a listener to close the dialog when a user clicks outside the dialog. The default is false." />
     <aura:attribute name="closeAction" type="Object" description="Overrides default close action (which is destroy) on click outside, tab out and Esc key press. The action is called with two parameters: panel component and one of 'closeOnEsc', 'closeOnTabOut' or 'closeOnClickOut'"/>
     <aura:attribute name="showCloseButton" type="Boolean" default="true" description="If true, adds a close button in top right corner of the dialog. The default is true." />
@@ -47,6 +46,7 @@
     <aura:attribute name="boxDirectionPad" type="Integer" default="5" description="The box direction padding in pixels. The default is 5px." />
     <aura:attribute name="classNames" type="String" default="" description="The extra classname can be added to panel." />
     <aura:attribute name="trapFocus" type="Boolean" default="false" description="Indicates if we should trap the focus inside the panel. If true, the esc key always closes the current panel which has focus. If false, the esc key and tab out closes the panel. The default is false."/>
+    <aura:attribute name="scopeScrollables" type="Boolean" default="true" description="Indicates if we should scope the scrollable elements in the body of the panel or allow the panel to scroll with the page scroll"/>
 
     <aura:handler name="init" value="{!this}" action="{!c.init}" />
     <aura:handler name="notify" event="ui:notify" action="{!c.onNotify}" description="Enables panel manager and panels to communicate"/>
@@ -73,7 +73,6 @@
          aura:flavorable="true">
 
         <div aura:id="content" class="{! join(' ',$Browser.isIOS ? 'IOS' : '','container') }">
-            <span class="assistiveText">{!v.startOfDialogLabel}</span>
 
             <aura:if isTrue="{! v.header.length || !empty(v.title) || v.showCloseButton}">
                 <div class="panel-header">

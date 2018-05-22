@@ -16,7 +16,10 @@
 package org.auraframework.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+
+import javax.annotation.Nonnull;
 
 import org.auraframework.Aura;
 import org.auraframework.def.BaseComponentDef;
@@ -25,6 +28,8 @@ import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.Definition;
 import org.auraframework.def.DescriptorFilter;
+import org.auraframework.def.InterfaceDef;
+import org.auraframework.expression.PropertyReference;
 import org.auraframework.system.Source;
 import org.auraframework.throwable.ClientOutOfSyncException;
 import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
@@ -153,6 +158,32 @@ public interface DefinitionService extends AuraService {
     Set<DefDescriptor<?>> find(DescriptorFilter matcher, BaseComponentDef referenceDescriptor);
 
     /**
+     * Find the set of components that have a tag.
+     *
+     * For a component to be returned here, it must implement the PlatformDef interface
+     * and have one of the tags passed in.
+     *
+     * @param tags the set of requested tags (any tag suffices)
+     * @return the set of descriptors for defs that match.
+     * @deprecated use #findByTags(null, tags)
+     */
+    @Nonnull
+    default Set<DefDescriptor<?>> findByTags(@Nonnull Set<String> tags) { return findByTags(null, tags);};
+
+    /**
+     * Find the set of components that have a tag.
+     *
+     * For a component to be returned here, it must implement the PlatformDef interface
+     * and have one of the tags passed in.
+     *
+     * @param namespace a set of namespaces by which to filter the search, null means do not filter.
+     * @param tags the set of requested tags (any tag suffices)
+     * @return the set of descriptors for defs that match.
+     */
+    @Nonnull
+    Set<DefDescriptor<?>> findByTags(Set<String> namespaces, @Nonnull Set<String> tags);
+
+    /**
      * Given a string that contains search patterns or wildcards, return a set
      * of Descriptors for all existing Definitions who have source that exists.
      * Does not compile the definitions if they were not already compiled, and
@@ -207,6 +238,25 @@ public interface DefinitionService extends AuraService {
     List<ClientLibraryDef> getClientLibraries(String uid);
 
     /**
+     * Get a usage map for a global value provider based on the uid.
+     *
+     * @param uid the UID for the definition (must have called {@link #getUid(String, DefDescriptor<?>)}).
+     * @param root the root for the global value provider.
+     * @return a usage map.
+     */
+    Set<PropertyReference> getGlobalReferences(String uid, String root);
+
+    /**
+     * Check to see if the dependency set is cacheable or not.
+     *
+     * This is really about wether we expect the definition to change. If not, we can cache based on
+     * descriptor rather than uid, and we can expect those to be 'permanent'. If the entry is not
+     * cacheable, the UID should still give us the ability to cache, but we must be carefull about permanence,
+     * as the defintion may be dynamic.
+     */
+    boolean isDependencySetCacheable(String uid);
+
+    /**
      * assert that the referencingDescriptor has access to the definition.
      *
      * @param referencingDescriptor the descriptor of the component referencing the definition.
@@ -225,9 +275,48 @@ public interface DefinitionService extends AuraService {
     <D extends Definition> void assertAccess(DefDescriptor<?> referencingDescriptor, DefDescriptor<?> accessDescriptor) throws QuickFixException;
 
     /**
+     * Populate a global value provider from references in a set of definitions.
+     *
+     * This routine will populate the global value provider, and capture any errors during the process. If
+     * errors occur, it will throw an exception which will be a composite exception of all errors.
+     *
+     * @param root the root name of the GVP.
+     * @param definitionMap A map of descriptor to definition that defines the set of definitions to use.
+     * @throws QuickFixException if any errors occurred, the exception will be thrown after the entire set is processed
+     */
+    void populateGlobalValues(String root, Map<DefDescriptor<? extends Definition>, Definition> definitionMap)
+        throws QuickFixException;
+
+    /**
+     * Retrieve a set of references to a global value provider, validating them.
+     *
+     * This routine will fetch the set of global value provider references for a given root, validating each one,
+     * and throwing a composite error if validation fails.
+     *
+     * @param root the root name of the GVP.
+     * @param definitionMap A map of descriptor to definition that defines the set of definitions to use.
+     * @throws QuickFixException if any errors occurred, the exception will be thrown after the entire set is processed
+     */
+    Set<String> getGlobalReferences(String root, Map<DefDescriptor<? extends Definition>, Definition> definitionMap)
+        throws QuickFixException;
+
+    /**
      * Returns null if the referencingDescriptor has access to the definition otherwise a specific access violation reason.
      */
     boolean hasAccess(DefDescriptor<?> referencingDescriptor, DefDescriptor<?> accessDescriptor) throws QuickFixException;
 
     <D extends Definition> boolean hasAccess(DefDescriptor<?> referencingDescriptor, D def) throws QuickFixException;
+
+    /**
+     * @param descriptor
+     * @param interfaceDef
+     * @return true if the definition or it's parent (extends) definitions contain the interface
+     * @throws QuickFixException
+     */
+    boolean hasInterface(DefDescriptor<? extends BaseComponentDef> descriptor, DefDescriptor<InterfaceDef> interfaceDef) throws QuickFixException;
+
+    /**
+     * make sure all of our registries are built.
+     */
+    void warmCaches();
 }

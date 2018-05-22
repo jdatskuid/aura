@@ -15,16 +15,6 @@
  */
 package org.auraframework.impl;
 
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.def.DefinitionAccess;
 import org.auraframework.system.AuraContext;
@@ -35,13 +25,23 @@ import org.auraframework.throwable.quickfix.InvalidAccessValueException;
 import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.json.Json;
 
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 public class DefinitionAccessImpl implements DefinitionAccess {
     private static final long serialVersionUID = 8409052764733035151L;
     private static final String accessKey=Json.ApplicationKey.ACCESS.toString();
     private Authentication authentication = null;
     private Access access = null;
     private transient Method accessMethod = null;
-    private boolean isInternalNamespace=false;
+    protected boolean isInternalNamespace=false;
     private String methodString;
     private final String accessString;
    
@@ -191,28 +191,39 @@ public class DefinitionAccessImpl implements DefinitionAccess {
     }
 
     @Override
-    public void serialize(Json json) throws IOException{
+    public void serialize(Json json) throws IOException {
+        String accessCode = getAccessCode();
+        if (accessCode != null) {
+            json.writeMapEntry(accessKey, accessCode);
+        }
+    }
+
+    @Override
+    public String getAccessCode() {
         if(this.isGlobal()) {
             // "G" - GLOBAL
-            json.writeMapEntry(accessKey, 'G');
+            return "G";
         }
         if(this.isPrivileged()){
             // "PP" - PRIVILEGED
-            json.writeMapEntry(accessKey, "PP");
+            return "PP";
         }
         if(this.isPrivate()){
             // "p" - PRIVATE
-            json.writeMapEntry(accessKey, 'p');
+            return "p";
         }
         if(this.isPublic()||this.isInternal()){
             // "P" - PUBLIC, "I" - INTERNAL, "" - DEFAULT DEPENDING ON NAMESPACE
             Access defaultAccess=this.isInternalNamespace?Access.INTERNAL:Access.PUBLIC;
             Access currentAccess=getAccess();
             if(currentAccess!=defaultAccess){
-                json.writeMapEntry(accessKey, currentAccess.name().charAt(0));
+                return currentAccess.name().substring(0, 1);
             }
         }
+
+        return null;
     }
+
 
     protected void defaultAccess(boolean internalNamespace) {
         // Default access if necessary

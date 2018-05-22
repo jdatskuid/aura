@@ -111,9 +111,21 @@
         });
     },
 
-    testDocumentBodyConstructorNotExposed: function(cmp) {
+    testDocumentBodyConstructorNotInvocable: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
-        testUtils.assertUndefined(document.body.constructor, "document.body.constructor should not be defined in Locker");
+        var bodyConstructor = document.body.constructor;
+        try {
+            new bodyConstructor();
+            testUtils.fail("document.body.constructor should not be usable like a constructor in Locker");
+        } catch (e) {
+            testUtils.assertEquals("Illegal constructor", e.message, "Unexpected error message when using document.body.constructor like a constructor");
+        }
+        try {
+            bodyConstructor();
+            testUtils.fail("document.body.constructor should not be usable like a function in Locker");
+        } catch (e) {
+            testUtils.assertEquals("Illegal constructor", e.message, "Unexpected error message when using document.body.constructor like a function");
+        }
     },
 
     testCreateElementCoersionExploit: function(cmp) {
@@ -162,16 +174,6 @@
             "defaultView should return the SecureWindow: " + actual);
     },
 
-    testDocumentImplementationHTMLDocumentCreation: function(cmp) {
-        var testUtils = cmp.get("v.testUtils");
-
-        var body = document.implementation.createHTMLDocument("").body;
-        body.innerHTML = "<form></form><form></form>";
-        var actual = body.childNodes.length;
-
-        testUtils.assertEquals(2, actual, "Expected created HTML document body to have 2 nodes after modifying innerHTML");
-    },
-
     testDocumentElementHasNonZeroPropertyValues: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
         var documentElement = document.documentElement;
@@ -182,5 +184,60 @@
     testDocumentConstructorPassesInstanceOf: function(cmp) {
         var testUtils = cmp.get("v.testUtils");
         testUtils.assertTrue(document instanceof document.constructor, "document instanceof document.constructor should be true");
+    },
+
+    testBlockedApis: function(cmp) {
+        var testUtils = cmp.get("v.testUtils");
+        var blacklist = ["write", "writeln"];
+
+        blacklist.forEach(function(item){
+            testUtils.assertUndefined(document[item], "Access to document." + item +" should be blocked!");
+        });
+    },
+
+    /**
+     * Attempts to use location.assign() to execute a block of Javascript using the javascript: scheme.
+     * This attempt should raise an exception from within lockerservice SecureLocation.js
+     */
+    testJavascriptPseudoScheme: function(component, event, helper) {
+        var testUtils = component.get('v.testUtils');
+        var errorMessage = '';
+
+        // attempt an invalid window.location.assign() call - it SHOULD be sanitized
+        try {
+          document.location.assign('javascript:console.log(new XMLHttpRequest())');
+        } catch (error) {
+          errorMessage = error.message;
+        }
+
+        testUtils.assertEquals(errorMessage, 'SecureLocation.assign only supports http://, https:// schemes.', 'a javascript: pseudo scheme was not correctly sanitized');
+    },
+
+    /**
+     * Attempts to use location.assign() to modify the current URL.
+     * This should be permitted and whitelisted by locker since the URL is valid.
+     */
+    testLocationAssign: function(component, event, helper) {
+        var testUtils = component.get('v.testUtils');
+        document.location.assign('#success');
+        testUtils.assertEquals('#success', document.location.hash, 'Failed to assign a new hash using location.assign()');
+    },
+
+    testCreateHTMLStyleTag: function(cmp) {
+       var testUtils = cmp.get("v.testUtils");
+       testUtils.expectAuraWarning('Creation of style tags is not allowed! Created style-disabled tag instead.');
+           
+       var el = document.createElement("style");
+       testUtils.assertTrue(el instanceof HTMLElement, "Expected element to be an HTMLElement instance.");
+       testUtils.assertFalse(el instanceof HTMLStyleElement, "Expected element to NOT be an HTMLStyleElement instance.");
+    },
+
+    testCreateSVGStyleTag: function(cmp) {
+       var testUtils = cmp.get("v.testUtils");
+       testUtils.expectAuraWarning('Creation of style tags is not allowed! Created style-disabled tag instead.');
+           
+       var el = document.createElementNS("http://www.w3.org/2000/svg", "style");
+       testUtils.assertTrue(el instanceof SVGElement, "Expected element to be an SVGElement instance.");
+       testUtils.assertFalse(el instanceof SVGStyleElement, "Expected element to NOT be an SVGStyleElement instance.");
     }
 })

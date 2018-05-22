@@ -38,10 +38,12 @@ import org.auraframework.system.AuraContext;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 public class LibraryDefImpl extends RootDefinitionImpl<LibraryDef> implements LibraryDef {
 
-    private static final long serialVersionUID = 610875326950592992L;
+    private static final long serialVersionUID = 8578929121184211088L;
+
     private final int hashCode;
     private final List<IncludeDefRef> includes;
 
@@ -54,14 +56,6 @@ public class LibraryDefImpl extends RootDefinitionImpl<LibraryDef> implements Li
     @Override
     public List<IncludeDefRef> getIncludes() {
         return includes;
-    }
-
-    @Override
-    public void retrieveLabels() throws QuickFixException {
-        super.retrieveLabels();
-        for (IncludeDefRef idr : includes) {
-            idr.retrieveLabels();
-        }
     }
 
     @Override
@@ -114,14 +108,14 @@ public class LibraryDefImpl extends RootDefinitionImpl<LibraryDef> implements Li
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
         for (IncludeDefRef include : includes) {
-            include.validateReferences();
+            include.validateReferences(validationContext);
         }
     }
 
     @Override
-    public void appendDependencies(java.util.Set<DefDescriptor<?>> dependencies) {
+    public void appendDependencies(Set<DefDescriptor<?>> dependencies) {
         super.appendDependencies(dependencies);
         for (IncludeDefRef includeRef : includes) {
             includeRef.appendDependencies(dependencies);

@@ -145,7 +145,7 @@ AuraExpressionService.prototype.updateGlobalReferences = function (type, newValu
     updateNestedValue(type, gvpValues, newValues);
 };
 
-AuraExpressionService.prototype.addListener = function (reference, expression, valueProvider) {
+AuraExpressionService.prototype.addExpressionListener = function (reference, expression, valueProvider) {
     expression = $A.expressionService.normalize(expression);
     var consumers=null;
     if(reference.valueProvider){
@@ -160,7 +160,7 @@ AuraExpressionService.prototype.addListener = function (reference, expression, v
     consumers[globalId][expression]=true;
 };
 
-AuraExpressionService.prototype.removeListener = function (reference, expression, valueProvider) {
+AuraExpressionService.prototype.removeExpressionListener = function (reference, expression, valueProvider) {
     expression = $A.expressionService.normalize(expression);
     var consumers = null;
     if (reference.valueProvider) {
@@ -295,10 +295,17 @@ AuraExpressionService.prototype.resolveLocatorContext = function (cmp, locatorDe
     }
 
     var context = {};
-    for (var key in contextDefs) {
-        var expression = this.create(cmp, contextDefs[key]);
-        if (expression) {
-            context[key] = typeof expression === "string" ? expression : expression.evaluate();
+    if (cmp.isValid()) {
+        try {
+            $A.clientService.setCurrentAccess(cmp);
+            for (var key in contextDefs) {
+                var expression = this.create(cmp, contextDefs[key]);
+                if (expression) {
+                    context[key] = typeof expression === "string" ? expression : expression.evaluate();
+                }
+            }
+        } finally {
+            $A.clientService.releaseCurrentAccess();
         }
     }
     return context;

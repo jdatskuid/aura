@@ -34,7 +34,6 @@ import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.service.InstanceService;
 import org.auraframework.service.RenderingService;
-import org.auraframework.service.SerializationService;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.throwable.AuraRuntimeException;
@@ -61,14 +60,11 @@ public abstract class BaseComponentHTMLFormatAdapter<T extends BaseComponent<?, 
     private RenderingService renderingService;
 
     @Inject
-    private SerializationService serializationService;
-
-    @Inject
     private ConfigAdapter configAdapter;
 
     @Inject
     private ServletUtilAdapter servletUtilAdapter;
-    
+
     @Override
     public void write(T value, Map<String, Object> componentAttributes, Appendable out) throws IOException {
         try {
@@ -80,12 +76,12 @@ public abstract class BaseComponentHTMLFormatAdapter<T extends BaseComponent<?, 
             Map<String, Object> attributes = Maps.newHashMap();
 
             StringBuilder sb = new StringBuilder();
-            writeHtmlStyle(configAdapter.getResetCssURL(), sb);
+            writeHtmlStyle(configAdapter.getResetCssURL(), null, sb);
             attributes.put("auraResetTags", sb.toString());
 
 
             sb.setLength(0);
-            writeHtmlStyles(servletUtilAdapter.getStyles(context), sb);
+            writeHtmlStyles(servletUtilAdapter.getStyles(context), null, sb);
             attributes.put("auraStyleTags", sb.toString());
 
             sb.setLength(0);
@@ -127,11 +123,6 @@ public abstract class BaseComponentHTMLFormatAdapter<T extends BaseComponent<?, 
                 auraInit.put("deftype", def.getDescriptor().getDefType());
                 auraInit.put("host", contextPath);
                 auraInit.put("pathPrefix", pathPrefix);
-                
-                String lockerWorkerURL = configAdapter.getLockerWorkerURL();
-                if (configAdapter.isStrictCSPEnforced() && lockerWorkerURL != null) {
-                    auraInit.put("safeEvalWorker", lockerWorkerURL);
-                }
 
                 auraInit.put("MaxParallelXHRCount", configAdapter.getMaxParallelXHRCount());
                 auraInit.put("XHRExclusivity", configAdapter.getXHRExclusivity());
@@ -143,7 +134,7 @@ public abstract class BaseComponentHTMLFormatAdapter<T extends BaseComponent<?, 
                 auraInit.put("token", configAdapter.getCSRFToken());
 
                 StringBuilder contextWriter = new StringBuilder();
-                serializationService.write(context, null, AuraContext.class, contextWriter, "JSON");
+                JsonEncoder.serialize(context, contextWriter, context.getJsonSerializationContext());
                 auraInit.put("context", new Literal(contextWriter.toString()));
 
                 attributes.put("auraInitSync", JsonEncoder.serialize(auraInit));

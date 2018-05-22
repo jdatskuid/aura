@@ -15,20 +15,16 @@
  */
 package org.auraframework;
 
-import java.util.List;
-
 import javax.inject.Inject;
 
 import org.auraframework.adapter.ConfigAdapter;
-import org.auraframework.adapter.ExceptionAdapter;
-import org.auraframework.adapter.JsonSerializerAdapter;
 import org.auraframework.adapter.LocalizationAdapter;
 import org.auraframework.adapter.StyleAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.def.Definition;
 import org.auraframework.instance.Instance;
 import org.auraframework.service.BuilderService;
-import org.auraframework.service.CachingService;
+import org.auraframework.service.CSPInliningService;
 import org.auraframework.service.ContextService;
 import org.auraframework.service.ConverterService;
 import org.auraframework.service.DefinitionService;
@@ -36,16 +32,13 @@ import org.auraframework.service.InstanceService;
 import org.auraframework.service.IntegrationService;
 import org.auraframework.service.LocalizationService;
 import org.auraframework.service.LoggingService;
-import org.auraframework.service.ServerService;
-import org.auraframework.system.AuraContext;
-import org.auraframework.util.adapter.SourceControlAdapter;
-import org.auraframework.util.json.JsonSerializerFactory;
 
 
 /**
  * Entry point for accessing Aura services
  */
 @ServiceComponent
+@Deprecated
 public class Aura implements AuraDeprecated {
     private static IntegrationService integrationService;
     private static StyleAdapter styleAdapter;
@@ -54,40 +47,18 @@ public class Aura implements AuraDeprecated {
     private static DefinitionService definitionService;
     private static ContextService contextService;
     private static InstanceService instanceService;
-    private static SourceControlAdapter sourceControlAdapter;
     private static ConverterService converterService;
     private static BuilderService builderService;
     private static LocalizationService localizationService;
-    private static JsonSerializerFactory jsonSerializerFactory;
-    private static List<JsonSerializerAdapter> jsonSerializerAdapters;
-    private static CachingService cachingService;
-    private static ExceptionAdapter exceptionAdapter;
     private static LocalizationAdapter localizationAdapter;
-    private static ServerService serverService;
+    private static CSPInliningService cspInliningService;
+
+    @Inject
+    public void setCspScriptService(CSPInliningService service){ cspInliningService = service;}
 
     @Inject
     public void setLocalizationAdapter(LocalizationAdapter adapter) {
         localizationAdapter = adapter;
-    }
-
-    @Inject
-    public void setExceptionAdapter(ExceptionAdapter adapter) {
-        exceptionAdapter = adapter;
-    }
-
-    @Inject
-    public void setCachingService(CachingService service) {
-        cachingService = service;
-    }
-    
-    @Inject
-    public void setJsonSerializerFactory(JsonSerializerFactory factory) {
-        jsonSerializerFactory = factory;
-    }
-    
-    @Inject
-    public void setJsonSerializerAdapter(List<JsonSerializerAdapter> adapters) {
-        jsonSerializerAdapters = adapters;
     }
     
     @Inject
@@ -121,11 +92,6 @@ public class Aura implements AuraDeprecated {
     }
 
     @Inject
-    public void setSourceControlAdapter(SourceControlAdapter adapter) {
-        sourceControlAdapter = adapter;
-    }
-
-    @Inject
     public void setIntegrationService(IntegrationService service) {
         integrationService = service;
     }
@@ -145,16 +111,11 @@ public class Aura implements AuraDeprecated {
         localizationService = service;
     }
 
-    @Inject
-    public void setServerService(ServerService service) {
-        serverService = service;
-    }
-
     /**
-     * Get the Context Service: for creating or interacting with a {@link AuraContext} A AuraContext must be started
-     * before working using any other service.
+     * Do not use!!! Use injection.
      */
     // Used by: Lots
+    @Deprecated
     public static ContextService getContextService() {
         return contextService;
     }
@@ -163,6 +124,7 @@ public class Aura implements AuraDeprecated {
      * Get the Definition Service: for loading, finding or interacting with a {@link Definition}
      */
     // Used by: Lots
+    @Deprecated
     public static DefinitionService getDefinitionService() {
         return definitionService;
     }
@@ -171,6 +133,7 @@ public class Aura implements AuraDeprecated {
      * Get the Logging Service: Provides Aura with a top-level Logging handler from the host environments
      */
     // Used by: ApexAuraComponent, BaseComponentImpl, SFDCAuraContextFilter, CoreLightningComponentFacadeImpl, JavaModel, ServiceComponentModel, RecordValueProvider, and more...
+    @Deprecated
     public static LoggingService getLoggingService() {
         return loggingService;
     }
@@ -178,7 +141,8 @@ public class Aura implements AuraDeprecated {
     /**
      * Get the Instance Service: for constructing an {@link Instance} of a {@link Definition}
      */
-    // Used by: Everybody
+    // Used by: A few places, mostly tests.
+    @Deprecated
     public static InstanceService getInstanceService() {
         return instanceService;
     }
@@ -187,22 +151,16 @@ public class Aura implements AuraDeprecated {
      * Get the Config Adapter: Provides Aura with configuration from the host environment
      */
     // Used by: Everybody
+    @Deprecated
     public static ConfigAdapter getConfigAdapter() {
         return configAdapter;
-    }
-
-    /**
-     * Get the Source Control Adapter : Allows interaction with the source control system.
-     */
-    // Used by FileSource
-    public static SourceControlAdapter getSourceControlAdapter() {
-        return sourceControlAdapter;
     }
 
     /**
      * Get the Style Adapter: Used to provide CSS/Style specific functionality.
      */
     // Used by StyleContextImpl, Tokens, FlavoredStyleParser, StyleParser, ParserConfiguration, AbstractStyleDef
+    @Deprecated
     public static StyleAdapter getStyleAdapter() {
         return styleAdapter;
     }
@@ -211,11 +169,13 @@ public class Aura implements AuraDeprecated {
      * Gets the Integration Service: Service that makes integrating into other containers easy.
      */
     // Used in AuraElement, AuraServicesImpl (not used after that), ImportWizardAuraIntegrationServlet, and AuraIntegrationHolder
+    @Deprecated
     public static IntegrationService getIntegrationService() {
         return integrationService;
     }
 
     // Used in BaseComponentImpl and JavaTypeDef
+    @Deprecated
     public static ConverterService getConverterService() {
         return converterService;
     }
@@ -237,51 +197,18 @@ public class Aura implements AuraDeprecated {
      * @return
      */
     @Deprecated
-    public static JsonSerializerFactory getJsonSerializerFactory() {
-        return jsonSerializerFactory;
-    }
-
-    /**
-     * USE INJECTION INSTEAD
-     * @return
-     */
-    @Deprecated
-    public static List<JsonSerializerAdapter> getJsonSerializerAdapters() {
-        return jsonSerializerAdapters;
-    }
-    /**
-     * USE INJECTION INSTEAD
-     * @return
-     */
-    @Deprecated
-    public static CachingService getCachingService() {
-        return cachingService;
-    }
-
-    /**
-     * USE INJECTION INSTEAD
-     * @return
-     */
-    @Deprecated
-    public static ExceptionAdapter getExceptionAdapter() {
-        return exceptionAdapter;
-    }
-
-    /**
-     * USE INJECTION INSTEAD
-     * @return
-     */
-    @Deprecated
     public static LocalizationAdapter getLocalizationAdapter() {
         return localizationAdapter;
     }
 
     /**
      * USE INJECTION INSTEAD
-     * @return
+     * @return the csp inline service
+     *
      */
+    // Used by: SFDCContentSecurityPolicy
     @Deprecated
-    public static ServerService getServerService() {
-        return serverService;
+    public static CSPInliningService getCspInliningService() {
+        return cspInliningService;
     }
 }

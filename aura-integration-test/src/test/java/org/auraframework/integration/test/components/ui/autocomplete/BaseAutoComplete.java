@@ -35,7 +35,7 @@ import org.openqa.selenium.support.ui.ExpectedCondition;
 /**
  * UI test to test autocomplete component. Excluding IE7 and IE8 because component uses html5 specific tags
  */
-@ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8 })
+@ExcludeBrowsers({ BrowserType.IE8 })
 public class BaseAutoComplete extends WebDriverTestCase {
     private final String URL;
     // private final String URL = "/uitest/autoComplete_Test.cmp";
@@ -110,7 +110,7 @@ public class BaseAutoComplete extends WebDriverTestCase {
         inputElement.click();
         String expectedText = "testing";
         inputElement.sendKeys(expectedText);
-        getAuraUITestingUtil().pressEnter(inputElement);
+        inputElement.sendKeys(Keys.ENTER);
         autoCompleteText = (String) getAuraUITestingUtil().getEval(expr);
         assertEquals("Input Value was not change after pressing Enter", expectedText, autoCompleteText);
     }
@@ -118,7 +118,7 @@ public class BaseAutoComplete extends WebDriverTestCase {
     /**
      * Test to verify blur and focus events works when set in the ui:autocomplete component. Test case: W-2391008
      */
-    @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET })
+    @ExcludeBrowsers({ BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET, BrowserType.IPHONE, BrowserType.IPAD })
     @Test
     public void testAutoCompleteWithBlurAndFocusEvent() throws Exception {
         open(URL);
@@ -200,7 +200,7 @@ public class BaseAutoComplete extends WebDriverTestCase {
     // Excluding mobile devices since they don't have tabbing functionality
     // Excluding Firefox as well because tabbing in Firefox works differently. There is a separate test for this.
     // TODO : Bug W-1780786
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8, BrowserType.FIREFOX, BrowserType.ANDROID_PHONE,
+    @ExcludeBrowsers({ BrowserType.IE8, BrowserType.FIREFOX, BrowserType.ANDROID_PHONE,
             BrowserType.ANDROID_TABLET, BrowserType.IPAD, BrowserType.IPHONE })
     @Test
     public void testAutoCompleteTabing() throws Exception {
@@ -213,7 +213,7 @@ public class BaseAutoComplete extends WebDriverTestCase {
         WebElement list = getAutoCompleteList(driver, AUTOCOMPLETE_COMPONENT.get("Generic"));
         waitForAutoCompleteListVisible(list, true);
 
-        getAuraUITestingUtil().pressTab(input);
+        input.sendKeys(Keys.TAB);
         list = getAutoCompleteList(driver, AUTOCOMPLETE_COMPONENT.get("Generic"));
         waitForAutoCompleteListVisible(list, false);
         assertEquals("Focus should be on the next input", nextInput.getAttribute("data-aura-rendered-by"),
@@ -224,7 +224,7 @@ public class BaseAutoComplete extends WebDriverTestCase {
      * Using arrow keys to cycle through list items functions properly.
      */
     // Excluding mobile devices since they dont have arrow key functionality
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
+    @ExcludeBrowsers({ BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
             BrowserType.IPAD, BrowserType.IPHONE })
     @Test
     public void testAutoCompleteArrowKeys() throws Exception {
@@ -238,7 +238,7 @@ public class BaseAutoComplete extends WebDriverTestCase {
 
         // go to second option in list.
         input.sendKeys(Keys.ARROW_DOWN + "");
-        getAuraUITestingUtil().pressEnter(input);
+        input.sendKeys(Keys.ENTER);
         list = getAutoCompleteList(driver, AUTOCOMPLETE_COMPONENT.get("Generic"));
         waitForAutoCompleteListVisible(list, false);
         assertEquals("Wrong option was selected", "hello world2", input.getAttribute("value"));
@@ -376,7 +376,7 @@ public class BaseAutoComplete extends WebDriverTestCase {
      * Test accessibility when autocompleteOptions is extended
      */
     // Excluding mobile devices since they dont have arrow key functionality
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
+    @ExcludeBrowsers({ BrowserType.IE8, BrowserType.ANDROID_PHONE, BrowserType.ANDROID_TABLET,
             BrowserType.IPAD, BrowserType.IPHONE })
     public void _testAutoCompleteOptionExtentionAccessibility() throws Exception {
         open(URL);

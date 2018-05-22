@@ -26,6 +26,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Date;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,7 @@ import javax.annotation.Nonnull;
 
 import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.UncloseableOutputStream;
+import org.json.JSONObject;
 
 import com.google.common.base.Charsets;
 import com.google.common.collect.Lists;
@@ -112,9 +114,83 @@ public class JsonEncoder implements Json {
             return this.type;
         }
     }
+    
+    /**
+     * An Appendable wrapper class that provides the optional functionality to capture a
+     * subsequence of the serialized content, via {@link JsonEncoder#startCapturing()}
+     * and {@link JsonEncoder#stopCapturing()}, for the purpose of cacheing serialization
+     * results. Any write* call should be appending to the encoder's CapturableAppendable,
+     * so that if capturing is turned on, any content is written not only to the main
+     * Appendable, but also to the current capturing buffer.
+     *
+     * @author helen.kwong
+     * @since 214
+     */
+    private static class CapturableAppendable implements Appendable {
+        
+        // the "main" Appendable that is always written to
+        private final Appendable all;
+        // the optional/capturing Appendable that is non-empty only if capturing is in progress
+        private Deque<StringBuilder> captured = new ArrayDeque<>();
+        
+        CapturableAppendable(Appendable out) {
+            this.all = out;
+        }
+        
+        @Override
+        public Appendable append(CharSequence csq) throws IOException {
+            all.append(csq);
+            if (!captured.isEmpty()) {
+                captured.getFirst().append(csq);
+            }
+            return this;
+        }
+
+        @Override
+        public Appendable append(CharSequence csq, int start, int end) throws IOException {
+            all.append(csq, start, end);
+            if (!captured.isEmpty()) {
+                captured.getFirst().append(csq, start, end);
+            }
+            return this;
+        }
+
+        @Override
+        public Appendable append(char c) throws IOException {
+            all.append(c);
+            if (!captured.isEmpty()) {
+                captured.getFirst().append(c);
+            }
+            return this;
+        }
+        
+        /**
+         * Initializes the capturing buffer
+         */
+        void startCapturing() {
+            captured.addFirst(new StringBuilder());
+        }
+        
+        /**
+         * Stops capturing -- returns the result of what has been captured in
+         * the buffer and resets the buffer.
+         * @return captured string, or null if capturing isn't turned on
+         */
+        String stopCapturing() {
+            String result = null;
+            if (!captured.isEmpty()) {
+                result = captured.removeFirst().toString();
+                if (!captured.isEmpty()) {
+                    captured.getFirst().append(result);
+                }
+            }
+            return result;
+        }
+    }
 
     private final JsonSerializationContext serializationContext;
     private final Appendable out;
+    private final CapturableAppendable cacheableOut;
     private final ArrayDeque<IndentEntry> indentStack = new ArrayDeque<>();
     private final DataOutputStream binaryOutput;
     private CountingOutputStream currentBinaryStream;
@@ -147,6 +223,7 @@ public class JsonEncoder implements Json {
 
     protected JsonEncoder(Appendable out, OutputStream binaryOutput, JsonSerializationContext context) {
         this.out = out;
+        this.cacheableOut = new CapturableAppendable(out);
         this.serializationContext = context;
 
         // Set binaryOutput to a DataOutputStream if applicable; otherwise, null
@@ -358,21 +435,6 @@ public class JsonEncoder implements Json {
     }
 
     /**
-     * Check the indent type.
-     *
-     * See the notes on performance on the class above.
-     *
-     * @param type the type of indent that should be on the stack.
-     * @param message the message for the throwable if it is wrong.
-     */
-    @Override
-    public void checkIndent(IndentType type, String message) {
-        if (this.indentStack.isEmpty() || !type.equals(this.indentStack.peek().getType())) {
-            throw new JsonException(message);
-        }
-    }
-
-    /**
      * Pop an indent off the stack.
      *
      * This both checks the type on the stack, and pulls it off. See the notes
@@ -410,7 +472,7 @@ public class JsonEncoder implements Json {
     @Override
     public void writeIndent() throws IOException {
         if (isFormatting()) {
-            out.append(getIndent());
+            cacheableOut.append(getIndent());
         }
     }
 
@@ -421,7 +483,7 @@ public class JsonEncoder implements Json {
      */
     @Override
     public void writeMapBegin() throws IOException {
-        out.append('{');
+        cacheableOut.append('{');
         writeBreak();
         pushIndent(IndentType.BRACE);
     }
@@ -436,75 +498,7 @@ public class JsonEncoder implements Json {
         writeBreak();
         popIndent(IndentType.BRACE, "Json.writeMapBegin must be called before calling Json.writeMapEnd");
         writeIndent();
-        out.append('}');
-    }
-
-    /**
-     * Start a comment.
-     *
-     * This is probably not needed, but if we do want to write a multiline
-     * comment in parts, you would call this function followed by multiple calls
-     * to {@link #writeCommentBody(String)} followed by a call to
-     * {@link #writeCommentEnd()}
-     */
-    @Override
-    public void writeCommentBegin() throws IOException {
-        if (isFormatting()) {
-            writeBreak();
-            writeIndent();
-            out.append("/*");
-        }
-        pushIndent(IndentType.COMMENT);
-    }
-
-    /**
-     * Write out a comment end.
-     */
-    @Override
-    public void writeCommentEnd() throws IOException {
-        popIndent(IndentType.COMMENT, "Json.writeCommentEnd must be preceded by Json.writeCommentBegin");
-        if (isFormatting()) {
-            writeBreak();
-            writeIndent();
-            out.append(" */");
-        }
-    }
-
-    /**
-     * Write out a part of a comment body.
-     *
-     * This call must be preceded by {@link #writeCommentBegin()}.
-     *
-     * @param body the comment to write.
-     */
-    @Override
-    public void writeCommentBody(String body) throws IOException {
-        checkIndent(IndentType.COMMENT, "Json.writeCommentBody must be preceded by Json.writeCommentBegin");
-        if (isFormatting()) {
-            writeBreak();
-            writeIndent();
-            out.append(body.replace("*/", ""));
-        }
-    }
-
-    /**
-     * Write out a comment.
-     *
-     * Note that these are not legal structures in JSON, perhaps we should have
-     * a flag to turn off the writing of these for 'valid' JSON. Unfortunately,
-     * we'd also have to rework our error handling.
-     *
-     * This could take the body and re-work newlines with the indent, but that
-     * seems a good bit of work for little gain (i.e. the result would be
-     * prettier, but who cares).
-     *
-     * @param body the body of the comment.
-     */
-    @Override
-    public void writeComment(String body) throws IOException {
-        writeCommentBegin();
-        writeCommentBody(body);
-        writeCommentEnd();
+        cacheableOut.append('}');
     }
 
     /**
@@ -515,7 +509,7 @@ public class JsonEncoder implements Json {
      */
     @Override
     public void writeArrayBegin() throws IOException {
-        out.append('[');
+        cacheableOut.append('[');
         writeBreak();
         pushIndent(IndentType.SQUARE);
     }
@@ -530,7 +524,7 @@ public class JsonEncoder implements Json {
         writeBreak();
         popIndent(IndentType.SQUARE, "Json.writeArrayBegin must be called before calling Json.writeArrayEnd");
         writeIndent();
-        out.append(']');
+        cacheableOut.append(']');
     }
 
     /**
@@ -544,11 +538,11 @@ public class JsonEncoder implements Json {
     public void writeComma() throws IOException {
         if (!this.indentStack.isEmpty()) {
             if (this.indentStack.peek().needSeparator()) {
-                out.append(",");
+                cacheableOut.append(",");
                 // Special handling of pretty print for collections (arrays and objects)
                 // to separate the items on individual lines.
                 if (isFormatting() || isFormattingRootItems()) {
-                    out.append('\n');
+                    cacheableOut.append('\n');
                 }
             }
         } else {
@@ -559,7 +553,7 @@ public class JsonEncoder implements Json {
 
     @Override
     public void writeMapSeparator() throws IOException {
-        out.append(':');
+        cacheableOut.append(':');
     }
 
     /**
@@ -584,7 +578,11 @@ public class JsonEncoder implements Json {
      */
     @Override
     public void writeLiteral(Object value) throws IOException {
-        out.append(value.toString());
+        if (value == null) {
+            cacheableOut.append("null");
+        } else {
+            cacheableOut.append(value.toString());
+        }
     }
 
     /**
@@ -595,9 +593,12 @@ public class JsonEncoder implements Json {
      */
     @Override
     public void writeString(Object value) throws IOException {
-        out.append('"');
-        out.append(AuraTextUtil.escapeForJSONString(value.toString()));
-        out.append('"');
+        if (value == null) {
+            cacheableOut.append("null");
+            return;
+        }
+
+        cacheableOut.append(JSONObject.quote(AuraTextUtil.escapeForJSONString(value.toString())));
     }
 
     /**
@@ -609,12 +610,12 @@ public class JsonEncoder implements Json {
      */
     @Override
     public void writeDate(Date value) throws IOException {
-        out.append('"');
+        cacheableOut.append('"');
         // Use the ISO DateTime format to write the date.
         synchronized (ISO8601FORMAT) {
-            out.append(ISO8601FORMAT.format(value));
+            cacheableOut.append(ISO8601FORMAT.format(value));
         }
-        out.append('"');
+        cacheableOut.append('"');
     }
 
     private static final SimpleDateFormat ISO8601FORMAT;
@@ -745,7 +746,11 @@ public class JsonEncoder implements Json {
         if (serializer == null) {
             throw new JsonSerializerNotFoundException(key);
         }
-        serializer.serialize(this, key);
+        if (key == null) {
+            cacheableOut.append("\"null\"");
+        } else {
+            this.writeString(key);
+        }
         writeMapSeparator();
     }
 
@@ -757,7 +762,7 @@ public class JsonEncoder implements Json {
     @Override
     public void writeBreak() throws IOException {
         if (isFormatting()) {
-            out.append('\n');
+            cacheableOut.append('\n');
         }
     }
 
@@ -802,7 +807,7 @@ public class JsonEncoder implements Json {
             throw new IllegalStateException(
                     "Binary streams are supported only when Json.createJsonStream is used with an InputStream");
         }
-        out.append('`');
+        cacheableOut.append('`');
     }
 
     /**
@@ -860,6 +865,16 @@ public class JsonEncoder implements Json {
     @Override
     public Appendable getAppendable() {
         return out;
+    }
+    
+    @Override
+    public void startCapturing() {
+        cacheableOut.startCapturing();
+    }
+    
+    @Override
+    public String stopCapturing() {
+        return cacheableOut.stopCapturing();
     }
 
     private boolean isFormatting() {

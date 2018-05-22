@@ -22,7 +22,6 @@ AuraInstance.prototype["warning"] = AuraInstance.prototype.warning;
 AuraInstance.prototype["message"] = AuraInstance.prototype.message;
 AuraInstance.prototype["enqueueAction"] = AuraInstance.prototype.enqueueAction;
 AuraInstance.prototype["executeHotspot"] = AuraInstance.prototype.executeHotspot;
-AuraInstance.prototype["deferAction"] = AuraInstance.prototype.deferAction;
 AuraInstance.prototype["get"] = AuraInstance.prototype.get;
 AuraInstance.prototype["getReference"] = AuraInstance.prototype.getReference;
 AuraInstance.prototype["getRoot"] = AuraInstance.prototype.getRoot;
@@ -252,7 +251,7 @@ Aura.OverrideMap = function OverrideMap() {
                 $A.metricsService.transaction = orig;
             }
         ),
-        
+
         "HtmlComopnent.dispatchAction" : new Aura.Utils.Override(null, Aura.Component.HtmlComponent.prototype["helper"].dispatchAction,
             true,
             function(bound) {
@@ -261,6 +260,27 @@ Aura.OverrideMap = function OverrideMap() {
             function(orig) {
                 HtmlComponent.prototype["helper"].dispatchAction = orig;
             }
-        )
+        ),
+
+        "ComponentService.indexComponent" : new Aura.Utils.Override($A.componentService, $A.componentService.indexComponent,
+            false,
+            function(bound) {
+                $A.componentService.indexComponent = bound;
+            },
+            function(orig) {
+                $A.componentService.indexComponent = orig;
+            }
+        ), 
+
+        "ComponentDefLoader.loadingComplete" : new Aura.Utils.Override(null, 
+                                        Aura.Component.ComponentDefLoader.prototype.loadingComplete, true /*isProto*/,
+            function(bound) {
+                Aura.Component.ComponentDefLoader.prototype.loadingComplete = bound;
+            },
+            function(orig) {
+                Aura.Component.ComponentDefLoader.prototype.loadingComplete = orig;
+            }
+        ) 
+
     };
 };

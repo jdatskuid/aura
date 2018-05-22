@@ -17,15 +17,20 @@ package org.auraframework.impl.factory;
 
 import static org.auraframework.impl.factory.StyleParser.ALLOWED_CONDITIONS;
 
+import javax.inject.Inject;
+
 import org.auraframework.Aura;
+import org.auraframework.adapter.StyleAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponent;
+import org.auraframework.css.ResolveStrategy;
+import org.auraframework.css.TokenValueProvider;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.FlavoredStyleDef;
 import org.auraframework.impl.DefinitionAccessImpl;
 import org.auraframework.impl.css.flavor.FlavoredStyleDefImpl;
 import org.auraframework.impl.css.parser.CssPreprocessor;
 import org.auraframework.impl.css.parser.CssPreprocessor.ParserResult;
-import org.auraframework.impl.source.AbstractTextSourceImpl;
+import org.auraframework.impl.source.AbstractSourceImpl;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.DefinitionFactory;
 import org.auraframework.system.TextSource;
@@ -38,15 +43,22 @@ import com.google.common.collect.Iterables;
  */
 @ServiceComponent
 public final class FlavoredStyleParser implements DefinitionFactory<TextSource<FlavoredStyleDef>, FlavoredStyleDef> {
+
+    @Inject
+    StyleAdapter styleAdapter;
+
     @Override
     public FlavoredStyleDef getDefinition(DefDescriptor<FlavoredStyleDef> descriptor, TextSource<FlavoredStyleDef> source)
             throws QuickFixException {
 
-        ParserResult result = CssPreprocessor.initial()
+        // this will collect all token function references but will leave them unevaluated in the CSS
+        TokenValueProvider tvp = styleAdapter.getTokenValueProvider(descriptor, ResolveStrategy.PASSTHROUGH);
+        
+        ParserResult result = CssPreprocessor.initial(styleAdapter)
                 .source(source.getContents())
                 .resourceName(source.getSystemId())
                 .allowedConditions(Iterables.concat(ALLOWED_CONDITIONS, Aura.getStyleAdapter().getExtraAllowedConditions()))
-                .tokens(descriptor)
+                .tokens(descriptor, tvp)
                 .flavors(descriptor)
                 .parse();
 
@@ -57,6 +69,7 @@ public final class FlavoredStyleParser implements DefinitionFactory<TextSource<F
         builder.setContent(result.content());
         builder.setTokenExpressions(result.expressions());
         builder.setFlavorAnnotations(result.flavorAnnotations());
+        builder.setTokensInCssProperties(result.tokensInCssProperties());
         builder.setAccess(new DefinitionAccessImpl(AuraContext.Access.PUBLIC));
 
         return builder.build();
@@ -74,6 +87,6 @@ public final class FlavoredStyleParser implements DefinitionFactory<TextSource<F
 
     @Override
     public String getMimeType() {
-        return AbstractTextSourceImpl.MIME_CSS;
+        return AbstractSourceImpl.MIME_CSS;
     }
 }

@@ -16,11 +16,9 @@
 ({
     init: function (component) {
         if (component.get("v.disabled")) {
-            component.set("v.displayDatePicker", false);
             // don't bother with the rest if the input is disabled
             return;
         }
-        this.cacheDefaultValues(component);
         if ($A.get("$Browser.formFactor") === "DESKTOP") {
             // only add the placeholder when there is no date picker opener.
             if (!component.get("v.displayDatePicker")) {
@@ -34,19 +32,11 @@
         }
     },
 
-    cacheDefaultValues: function (component) {
-        // these attributes are defined in an interface, and we currently cannot have their default set to an expression
-        component._timezone = component.get("v.timezone") || $A.get("$Locale.timezone");
-        component._format = component.get("v.format") || $A.get("$Locale.dateFormat");
-        // localizationService uses locale in $Locale.langLocale by default
-        component._locale = component.get("v.langLocale");
-    },
-
     displayValue: function (component) {
         var config = {
-            langLocale: component._locale,
-            format: component._format,
-            timezone: component._timezone,
+            langLocale: this.getLocale(component),
+            format: this.getFormat(component),
+            timezone: this.getTimezone(component),
             validateString: true
         };
 
@@ -59,6 +49,9 @@
     },
 
     displayDatePicker: function (component, focusDatePicker) {
+        if (!component.get("v.displayDatePicker")) {
+            return;
+        }
         var useManager = component.get("v.useManager"),
             managerExists = component.get("v.managerExists");
         if (useManager && managerExists) {
@@ -83,8 +76,8 @@
         var localizedValue = $A.localizationService.translateFromLocalizedDigits(value);
         var formattedDate = localizedValue;
         if (value) {
-            var langLocale = component._locale;
-            var format = component._format;
+            var langLocale = this.getLocale(component);
+            var format = this.getFormat(component);
             var date = $A.localizationService.parseDateTimeUTC(localizedValue, format, langLocale, true);
 
             if (date) {
@@ -92,7 +85,7 @@
                 formattedDate = $A.localizationService.formatDateUTC(date, "YYYY-MM-DD");
             }
         }
-        component.set("v.value", formattedDate);
+        component.set("v.value", formattedDate, true);
     },
 
     /**
@@ -108,8 +101,8 @@
 
     getDateValueForDatePicker: function (component) {
         var date;
-        var format = component._format;
-        var langLocale = component._locale;
+        var format = this.getFormat(component);
+        var langLocale = this.getLocale(component);
         var dateString = this.getInputElement(component).value;
         if (!$A.util.isEmpty(dateString)) {
             date = $A.localizationService.parseDateTime(dateString, format, langLocale, true);
@@ -138,6 +131,14 @@
             } else {
                 $A.util.swapClass(clearElem, "hide", "display");
                 $A.util.swapClass(openIconElem, "display", "hide");
+            }
+        } else {
+            if (component.get('v.displayDatePicker')) {
+                if ($A.util.getBooleanValue(component.get('v.disabled'))) {
+                    $A.util.swapClass(openIconElem, "display", "hide");
+                } else {
+                    $A.util.swapClass(openIconElem, "hide", "display");
+                }
             }
         }
     },
@@ -191,8 +192,19 @@
     handleDateSelectionByManager: function (component, event) {
         var dateValue = event.getParam("value") || event.getParam("arguments").value;
         if (dateValue) {
-            component.set("v.value", dateValue);
+            this.setComponentValue(component, dateValue);
         }
+    },
+
+    setComponentValue: function (component, newValue) {
+        if (component.get("v.value") !== newValue) {
+            component.set("v.value", newValue);
+            this.fireChangeEvent(component);
+        }
+    },
+
+    fireChangeEvent: function (component) {
+        component.getEvent("change").fire();
     },
 
     setInputValue: function (component, displayValue) {
@@ -201,6 +213,18 @@
             // only update value if display value is different.
             inputElement.value = displayValue ? $A.localizationService.translateToLocalizedDigits(displayValue) : "";
         }
+    },
+
+    getFormat: function (component) {
+        return component.get("v.format") || $A.get("$Locale.dateFormat");
+    },
+
+    getTimezone: function (component) {
+        return component.get("v.timezone") || $A.get("$Locale.timezone");
+    },
+
+    getLocale: function (component) {
+        return component.get("v.langLocale");
     },
 
     handlePickerTab: function (component, event) {

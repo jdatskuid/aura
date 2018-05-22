@@ -39,6 +39,7 @@ Aura.Services.AuraClientService$AuraXHR.prototype.reset = function() {
 /**
  * add an action.
  */
+
 Aura.Services.AuraClientService$AuraXHR.prototype.addAction = function(action) {
     if (action) {
         if (this.actions[""+action.getId()]) {
@@ -52,11 +53,25 @@ Aura.Services.AuraClientService$AuraXHR.prototype.addAction = function(action) {
  * get an action for a response.
  */
 Aura.Services.AuraClientService$AuraXHR.prototype.getAction = function(id) {
-    var action = this.actions[id];
+    var action;
+    var key = id;
+
+    if (!key) {
+        var keys = Object.keys(this.actions);
+
+        $A.assert(keys.length === 1, "When no ID is specified, there should only be one action in the XHR.");
+
+        if (keys.length === 1) {
+            key = keys[0];
+        }
+    }
+
+    action = this.actions[key];
 
     if (action) {
-        this.actions[id] = undefined;
+        this.actions[key] = undefined;
     }
+
     return action;
 };
 
@@ -131,24 +146,42 @@ Aura.Services.AuraClientService$AuraActionCollector = function AuraActionCollect
  * @constructor
  * @export
  */
-function AuraClientService () {
+function AuraClientService (util) {
     this._host = "";
     this._token = null;
     this._isDisconnected = false;
     this._parallelBootstrapLoad = true;
+    this.authorizationToken = undefined;
     this.auraStack = [];
+    this.actionStorage = new Aura.Controller.ActionStorage();
     this.appcacheDownloadingEventFired = false;
     this.isOutdated = false;
     this.finishedInitDefs = false;
     this.protocols={"layout":true};
-    this.namespaces={internal:{},privileged:{}};
     this.lastSendTime = Date.now();
+
+    this.moduleServices = {};
+    this.moduleSchemas = { "label" : this.labelSchemaResolver };
+    this.moduleSchemasCache = {};
 
     // TODO: @dval We should send this from the server, but for LightningOut apps is a non-trivial change,
     // so for the time being I hard-coded the resource path here to ensure we can lazy fetch them.
     this.clientLibraries = {
-        "ckeditor" : { resourceUrl : "/auraFW/resources/{fwuid}/ckeditor/ckeditor-4.x/rel/ckeditor.js" }
+        "ckeditor": { resourceUrl : "/auraFW/resources/{fwuid}/ckeditor/ckeditor-4.x/rel/ckeditor.js" },
+        "quill": { resourceUrl : "/auraFW/resources/{fwuid}/quill.js" }
     };
+
+    // Access Control
+    this.accessStack=[];
+    this.registeredNamespaces={internal:{},privileged:{}};
+    this.currentAccess=null;
+    this.enableAccessChecks=true;
+    this.logAccessFailures= true
+                            // Logging off by default in PROD mode
+                            // #if {"modes" : ["PRODUCTION"]}
+                            && false
+                            // #end
+                            ;
 
     // whether an appcache error event has been received
     this.appCacheError = false;
@@ -167,10 +200,10 @@ function AuraClientService () {
     // can set this flag if ever required.
     this._disableBootstrapCacheCookie = "auraDisableBootstrapCache";
 
-    // appcache progress. is 0 if appcache is not in use; otherwise ranges from 0 to 100.
-    this.appCacheProgress = 0;
-
-    // appcache progress. is 0 if appcache is not in use; otherwise ranges from 0 to 100.
+    // appcache progress.
+    // = -1 on app cache error state.
+    // = 0 on initial page load state or if appcache is not in use.
+    // otherwise ranges from 0 to 100.
     this.appCacheProgress = 0;
 
     this.NOOP = function() {};
@@ -206,22 +239,13 @@ function AuraClientService () {
     this.reloadFunction = undefined;
     this.reloadPointPassed = false;
 
-    // a map of action keys limited to those visible to the current browser tab.
-    //
-    // actions can depend on defs. defs are loaded at framework init and so the same
-    // must be done for actions: loaded at framework init. otherwise storable actions
-    // may get cache hits that reference defs the current tab does not have in a
-    // multi-tab scenario.
-    //
-    // if action storage doesn't exist no filtering is required. if action storage isn't
-    // persistent then the actions cache is inherently scoped to the current tab.
-    this.persistedActionFilter = undefined;
-
-    // allows the app to explicitly disable the filter
-    this.persistedActionFilterEnabled = true;
+    // Shares token data across tabs to prevent unneeded page reloads.
+    this.tokenSharing = util && util.isLocalStorageEnabled();
+    this.maxActionRetries = 4;
 
     this.handleAppCache();
     this.setupBootstrapErrorReloadButton();
+    this.setupTokenListener();
 }
 
 /**
@@ -266,6 +290,17 @@ AuraClientService.CACHE_BUST_QUERY_PARAM = "nocache";
 AuraClientService.SYSTEM_EXCEPTION_EVENT_RETURN_STATUS = "SYSTEMERROR";
 
 /**
+ * The status to return to action postprocess when receiving a response with invalid session
+ */
+AuraClientService.INVALID_SESSION_RETURN_STATUS = "INVALIDSESSION";
+
+/**
+ * Reserved token that the server responds with in the case that a new TOKEN
+ * cannot be issued.
+ */
+AuraClientService.INVALID_CSRF = "invalid_csrf";
+
+/**
  * Framework + app reload counter to detect and prevent infinite reloads.
  *
  * Counter is cleared when Aura Framework finishes app instantiation. Counter is
@@ -277,6 +312,11 @@ AuraClientService.CONSECUTIVE_RELOAD_COUNTER_KEY = "__RELOAD_COUNT";
  * fwuid used when logging a bootstrap error and context was not initialized
  */
 AuraClientService.UNKNOWN_FRAMEWORK_UID = "UNKNOWN";
+
+/**
+ * Maximum length for action request query strings.
+ */
+AuraClientService.MAX_ACTION_QUERY_LENGTH = 1000;
 
 /**
  * set the XHR queue size.
@@ -368,6 +408,23 @@ AuraClientService.prototype.getSourceMapsUrl = function (descriptor, type) {
 };
 
 /**
+ * @private
+ */
+AuraClientService.prototype.uncommentExporter = function (exporter) {
+    exporter = exporter.toString();
+    var start = exporter.indexOf('/*') + 2;
+    var end = exporter.lastIndexOf('*/');
+    return start < 0 || end < start ? exporter : exporter.substr(start, end - start);
+};
+
+/**
+ * @private
+ */
+AuraClientService.prototype.evalExporter = function(script, descriptor, type) {
+    return $A.util.globalEval("function () {" + script + " }", this.getSourceMapsUrl(descriptor, type));
+};
+
+/**
  * Take a json (hopefully) response and decode it. If the input is invalid JSON, we try to handle it gracefully.
  *
  * @param {XmlHttpRequest} response the XHR object.
@@ -429,13 +486,13 @@ AuraClientService.prototype.decode = function(response, noStrip, timedOut) {
     if ((status !== 200) || $A.util.stringEndsWith(text, "/*ERROR*/")) {
         if (status === 200) {
             // if we encountered an exception once the response was committed
-            // ignore the malformed JSON
-            text = "/*" + text;
+            // strip the malformed JSON
+            text = text.substring(text.indexOf("*/")+2,text.lastIndexOf("/*"));
         } else if (!noStrip === true && text.charAt(0) === "w") {
             //
             // strip off the while(1) at the beginning
             //
-            text = "//" + text;
+            text = text.substring(text.indexOf("\n") + 1);
         }
         var resp = $A.util.json.decode(text);
 
@@ -453,6 +510,7 @@ AuraClientService.prototype.decode = function(response, noStrip, timedOut) {
             var appCache = window.applicationCache;
             if (appCache && (appCache.status === appCache.IDLE || appCache.status === appCache.UPDATEREADY || appCache.status === appCache.OBSOLETE)) {
                 try {
+                    $A.log("[AuraClientService.decode]: Communication error, status - " + status + ". Check for app cache updates using applicationCache.update()");
                     appCache.update();
                 } catch (ignore) {
                     // appcache quirk: calling update() throws in some environments. we have no recovery
@@ -461,7 +519,6 @@ AuraClientService.prototype.decode = function(response, noStrip, timedOut) {
             }
             return ret;
         } else if (resp["exceptionEvent"] === true) {
-            this.throwExceptionEvent(resp);
             var evtObj = resp["event"];
             var eventName;
             var eventNamespace;
@@ -469,15 +526,23 @@ AuraClientService.prototype.decode = function(response, noStrip, timedOut) {
                 var descriptor = new DefDescriptor(evtObj["descriptor"]);
                 eventName = descriptor.getName();
                 eventNamespace = descriptor.getNamespace();
+            }
 
-                // Note that this is for response not 200, so returning COOS in AuraEnabled controller would not go here
-                // ideally, we want to break the flow for all exception event, however, that causes regressions.
-                // for now, we stop the flow for COOS and invalidSession.
-                if (eventNamespace === "aura" && (eventName === "clientOutOfSync" || eventName === "invalidSession")) {
-                    // do not return a valid state (SUCCESS, INCOMPLETE, ERROR), we do not want action callback to handle this.
-                    ret["status"] = AuraClientService.SYSTEM_EXCEPTION_EVENT_RETURN_STATUS;
-                    return ret;
-                }
+            if (eventNamespace === "aura" && eventName === "invalidSession") {
+                ret["status"] = AuraClientService.INVALID_SESSION_RETURN_STATUS;
+                ret["event"] = evtObj;
+                return ret;
+            }
+
+            this.throwExceptionEvent(resp);
+
+            // Note that this is for response not 200, so returning COOS in AuraEnabled controller would not go here
+            // ideally, we want to break the flow for all exception event, however, that causes regressions.
+            // for now, we stop the flow for COOS and invalidSession.
+            if (eventNamespace === "aura" && eventName === "clientOutOfSync") {
+                // do not return a valid state (SUCCESS, INCOMPLETE, ERROR), we do not want action callback to handle this.
+                ret["status"] = AuraClientService.SYSTEM_EXCEPTION_EVENT_RETURN_STATUS;
+                return ret;
             }
 
             ret["status"] = "ERROR";
@@ -517,7 +582,7 @@ AuraClientService.prototype.decode = function(response, noStrip, timedOut) {
     // strip off the while(1) at the beginning
     //
     if (!noStrip === true && text.charAt(0) === "w") {
-        text = "//" + text;
+        text = text.substring(text.indexOf("\n")+1);
     }
 
     var responseMessage = $A.util.json.decode(text);
@@ -567,12 +632,79 @@ AuraClientService.prototype.throwExceptionEvent = function(resp) {
 
         evt.fire();
     } else {
-        try {
-            $A.util.json.decodeString(resp["defaultHandler"])(values);
-        } catch (e) {
-            throw new $A.auraError("Error in defaultHandler for event: " + descriptor, e, $A.severity.QUIET);
+        switch (descriptor) {
+            case "markup://aura:noAccess":
+            this.handleNoAccessException(values);
+            break;
+
+            case "markup://aura:clientOutOfSync":
+            this.handleClientOutOfSyncException();
+            break;
+
+            case "markup://aura:invalidSession":
+            this.handleInvalidSessionException(values);
+            break;
+
+            case "markup://aura:systemError":
+            this.handleSystemErrorException();
+            break;
+
+            default:
+            this.handleGenericEventException();
         }
     }
+};
+
+/**
+ * Handler for remote NoAccessException
+ */
+AuraClientService.prototype.handleNoAccessException = function(values) {
+    $A.log("[AuraClientService.handleNoAccessException]: Reloading the page.");
+    var redirectURL = values["redirectURL"];
+    if (redirectURL) {
+        window.location = redirectURL;
+    } else {
+        this.hardRefresh();
+    }
+};
+
+/**
+ * Handler for remote ClientOutOfSyncException
+ */
+AuraClientService.prototype.handleClientOutOfSyncException = function() {
+    $A.log("[AuraClientService.handleClientOutOfSyncException]: Client out of sync.");
+    this.setOutdated();
+};
+
+/**
+ * Handler for remote InvalidSessionException
+ */
+AuraClientService.prototype.handleInvalidSessionException = function(values) {
+    var newToken = values["newToken"];
+    try {
+        this.invalidSession(newToken);
+    } catch (e) {
+        $A.log("[AuraClientService.handleInvalidSessionException]: Invalid session, reloading the page.");
+        window.location.reload(true);
+    }
+};
+
+/**
+ * Handler for remote SystemErrorException
+ */
+AuraClientService.prototype.handleSystemErrorException = function() {
+    var e = new Error('[SystemErrorException from server] unknown error');
+    e.reported=true;
+    throw e;
+};
+
+/**
+ * Handler for remote GenericEventException
+ */
+ AuraClientService.prototype.handleGenericEventException = function() {
+    var e = new Error('[GenericEventException from server] Unable to process event');
+    e.reported=true;
+    throw e;
 };
 
 AuraClientService.prototype.fireDoneWaiting = function() {
@@ -595,16 +727,21 @@ AuraClientService.prototype.tearDown = function() {
  * @private
 */
 AuraClientService.prototype.initializeClientLibraries = function () {
-// Lazy load data-src scripts
+    // Lazy load data-src scripts
     var scripts = document.getElementsByTagName("script");
     if (scripts) {
-        for ( var i = 0, len = scripts.length; i < len; i++) {
+        for (var i = 0, len = scripts.length; i < len; i++) {
             var script = scripts[i];
             if (script.getAttribute("data-src") && !script.getAttribute("src")) {
                 var source = script.getAttribute("data-src");
                 var name = source.split('/').pop().split('.').shift().toLowerCase();
 
-                this.clientLibraries[name] = $A.util.apply(this.clientLibraries[name] || {}, {
+                var lib = this.clientLibraries[name];
+                if (lib && lib["loaded"]) {
+                    continue;
+                }
+
+                this.clientLibraries[name] = $A.util.apply(lib || {}, {
                     script : script,
                     loaded : false,
                     loading : []
@@ -615,38 +752,74 @@ AuraClientService.prototype.initializeClientLibraries = function () {
 };
 
 /**
- * Load ClientLibraries
+ * Reference an external JavaScript library which is registered on component by aura:clientLibrary.
+ * It loads the required client library from the server if needed.
+ *
+ * @param {String} name - client library name
+ * @param {Function} callback - a callback function that is executed if library is loaded
+ *
  * @export
  */
 AuraClientService.prototype.loadClientLibrary = function(name, callback) {
-    var lib = this.clientLibraries[name.toLowerCase()];
-    $A.assert(lib, 'ClientLibrary has not been registered');
+    $A.assert(typeof name === "string", "AuraClientService.loadClientLibrary(): name must be a String.");
+
+    name = name.toLowerCase();
+    var lib = this.clientLibraries[name];
+    $A.assert(lib, "AuraClientService.loadClientLibrary(): ClientLibrary has not been registered: " + name);
 
     if (lib.loaded) {
         return callback();
+    }
+
+    if (!lib.script) {
+        var script = window.document.createElement("script");
+        script.setAttribute("data-src", lib.resourceUrl.replace("{fwuid}", $A.getContext().fwuid));
+        window.document.body.appendChild(script);
+        lib.script = script;
     }
 
     lib.loading = lib.loading || [];
     lib.loading.push($A.getCallback(callback));
 
     function afterLoad() {
+        $A.metricsService.transactionEnd("aura", "performance:loadClientLibrary");
+
         lib.loaded = true;
+
         for (var i in lib.loading) {
             lib.loading[i]();
         }
         lib.loading = [];
     }
 
-    if (!lib.script) {
-        var script = window.document.createElement('script');
-        script.setAttribute('data-src', lib.resourceUrl.replace('{fwuid}', $A.getContext().fwuid));
-        window.document.body.appendChild(script);
-        lib.script = script;
-    }
-
     lib.script.onload = afterLoad;
-    lib.script.onerror = afterLoad;
-    lib.script.src = lib.script.getAttribute('data-src');
+    // this only gets called when script fails to be loaded.
+    // errors during script execution are handled by global error handler.
+    lib.script.onerror = function(event) {
+        var message = "Failed to load client library: " + lib.script.getAttribute("data-src");
+        if (event && event.message) {
+            message += ". Caused by: " + event.message;
+        }
+
+        var error = new $A.auraError(message, event && event.error);
+        // stacktrace id is 0 if there's no component
+        error.setComponent(name);
+
+        // warning and report the error
+        $A.warning(message, error);
+        $A.logger.reportError(error);
+
+        afterLoad(error);
+    };
+
+    $A.metricsService.transactionStart("aura", "performance:loadClientLibrary", {
+            "context": {
+                "attributes" : {
+                    "library": name
+                }
+            }
+        });
+    lib.script.src = lib.script.getAttribute("data-src");
 };
 
 
@@ -696,26 +869,16 @@ AuraClientService.prototype.isDisconnectedOrCancelled = function(response) {
 AuraClientService.prototype.singleAction = function(action, actionResponse) {
     var needUpdate, needsRefresh;
 
-    try {
-        // Force the transaction id to 'this' action, so that we maintain chains.
-        needUpdate = action.updateFromResponse(actionResponse);
-        needsRefresh = action.isRefreshAction();
+    // Force the transaction id to 'this' action, so that we maintain chains.
+    needUpdate = action.updateFromResponse(actionResponse);
+    needsRefresh = action.isRefreshAction();
 
-        if (!action.abortIfComponentInvalid(false)) {
-            if (needUpdate) {
-                action.finishAction($A.getContext());
-            }
-            if (needsRefresh) {
-                action.fireRefreshEvent("refreshEnd", needUpdate);
-            }
+    if (!action.abortIfComponentInvalid(false)) {
+        if (needUpdate) {
+            action.finishAction($A.getContext());
         }
-    } catch (e) {
-        if (e instanceof $A.auraError) {
-            throw e;
-        } else {
-            var wrapper = new $A.auraError(null, e);
-            wrapper.action = action;
-            throw wrapper;
+        if (needsRefresh) {
+            action.fireRefreshEvent("refreshEnd", needUpdate);
         }
     }
 };
@@ -852,6 +1015,7 @@ AuraClientService.prototype.hardRefresh = function() {
     }
 
     if (!this.isManifestPresent() || location.href.indexOf(cacheBustKey) > -1) {
+        $A.log("[AuraClientService.hardRefresh]: Reloading page - " + location.href);
         window.location.reload(true);
         return;
     }
@@ -864,6 +1028,7 @@ AuraClientService.prototype.hardRefresh = function() {
     // state is null: don't need to track the state with popstate
     // title is null: don't want to set the page title.
     // also ensures loading a 'nocache' url if the user hits "back" button.
+    $A.log("[AuraClientService.hardRefresh]: loading page - " + url);
     history.pushState(null /* state */, null /* title */, url);
     location.href = url;
 };
@@ -876,16 +1041,18 @@ AuraClientService.prototype.isDevMode = function() {
 /**
  * Clears caches (actions/GVP, ComponentDefStorage) then requests the .app
  * from the server.
+ * @param {Object} [metricsPayload] optional payload to send to metrics service.
  * @private
  */
-AuraClientService.prototype.actualDumpCachesAndReload = function() {
+AuraClientService.prototype.actualDumpCachesAndReload = function(metricsPayload) {
     function reload() {
         // use location.reload(true) to clear browser cache.
         // Using hardRefresh() made browser use old versions even though appCache was updated
+        $A.log("[AuraClientService:actualDumpCachesAndReload] Reloading the page. Cause - " + JSON.stringify(metricsPayload));
         window.location.reload(true);
     }
 
-    $A.componentService.clearDefsFromStorage({"cause": "appcache"})
+    $A.componentService.clearDefsFromStorage(metricsPayload)
         .then(reload, reload);
 };
 
@@ -896,19 +1063,22 @@ AuraClientService.prototype.actualDumpCachesAndReload = function() {
  * @param {Boolean} force True to force an immediate cache dump and reload. By default the
  * request is enqueued until framework has finished initialization. This should only be
  * used if $A.initAsync() will not be invoked (eg severe bootstrap error).
+ * @param {Object} [metricsPayload] optional payload to send to metrics service.
  */
-AuraClientService.prototype.dumpCachesAndReload = function(force) {
+AuraClientService.prototype.dumpCachesAndReload = function(force, metricsPayload) {
     // avoid concurrent dump/reload executions
     if (this.reloadFunction) {
         return;
     }
 
-    this.reloadFunction = this.actualDumpCachesAndReload.bind(this);
+    this.reloadFunction = this.actualDumpCachesAndReload.bind(this, metricsPayload);
 
     if (this.reloadPointPassed || force) {
         if (this.shouldPreventReload()) {
             var err = new AuraError("We can't load the page. Please click Refresh.");
-            var extraMessage = "Bootstrap state: " + JSON.stringify(this.getBootstrapState());
+            var extraMessage = "Bootstrap state: " + JSON.stringify(this.getBootstrapState()) +
+                               "\nMetrics payload: " + JSON.stringify(metricsPayload);
+            err["reported"] = true;
             this.showErrorDialogWithReload(err, extraMessage);
         } else {
             this.reloadFunction();
@@ -943,7 +1113,7 @@ AuraClientService.prototype.shouldPreventReload = function() {
             if (idb) {
                 // if inline.js fails then none of the storages are initialized
                 // so must brute force as methods in ComponentDefStorage won't work.
-                idb.deleteDatabase(Action.STORAGE_NAME);
+                idb.deleteDatabase(this.getActionStorageName());
                 idb.deleteDatabase($A.componentService.getComponentDefStorageName());
             }
 
@@ -995,12 +1165,12 @@ AuraClientService.prototype.showErrorDialogWithReload = function(e, additionalLo
             if (additionalLoggedMessage) {
                 e.message = e.message + " " + additionalLoggedMessage;
             }
-            $A.logger.reportError(e, undefined, true);
+            $A.logger.reportError(e, undefined, "WARNING", true);
         } catch (e2) {
             // we've failed utterly. One possible scenario is if inline.js failed to load, since it defines the context / fwuid, which reportError relies upon
             // Let's try to manually send an XHR down, since we don't care about the response format
             // we can just use XMLHttpRequest which is available in IE too.
-            var xhr = new XMLHttpRequest();
+            var xhr = this.createXHR();
             xhr.open("POST", "/aura?r=0", true);
             xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=ISO-8859-13');
             var payload = {
@@ -1014,7 +1184,9 @@ AuraClientService.prototype.showErrorDialogWithReload = function(e, additionalLo
                             "failedAction": e["component"] || "",
                             "clientError": e.message,
                             "clientStack": (e.stackTrace || e.stack || "").toString().substr(0, Aura.Utils.Logger.MAX_STACKTRACE_SIZE),
-                            "componentStack": ""
+                            "componentStack": "",
+                            "stacktraceIdGen": e["stacktraceIdGen"],
+                            "level": "ERROR"
                         },
                         "version": null
                     }]
@@ -1025,9 +1197,15 @@ AuraClientService.prototype.showErrorDialogWithReload = function(e, additionalLo
                 context = $A.getContext().encodeForServer(true);
             } catch (ce) {
                 // special "UNKNOWN" case will allow reportFailedAction's to be logged, but nothing else. This will return a COOSE, but we don't check the response here and there's little more we can do about it.
-                context = {"fwuid": AuraClientService.UNKNOWN_FRAMEWORK_UID};
+                context = $A.util.json.encode({"fwuid": AuraClientService.UNKNOWN_FRAMEWORK_UID});
             }
-            xhr.send("message=" + encodeURIComponent(JSON.stringify(payload)) + "&aura.context=" + encodeURIComponent(JSON.stringify(context)));
+
+            var params = {
+                    "message": $A.util.json.encode(payload),
+                    "aura.context": context
+            };
+            var queryString = this.buildParams(params);
+            xhr.send(queryString);
         }
     }
 };
@@ -1089,7 +1267,7 @@ AuraClientService.prototype.handleAppCache = function() {
                 // quirk: some browser's incorrectly throw InvalidStateError
             }
             // dump caches due to change in fwk and/or app.
-            acs.dumpCachesAndReload();
+            acs.dumpCachesAndReload(false, {"cause": "applicationCache.updateready: Swap old cache for new one."});
         }
     }
 
@@ -1140,7 +1318,7 @@ AuraClientService.prototype.handleAppCache = function() {
         // quirk: spec says if manifest changed during download sequence that it'll fire error event
         // then retry. i've never seen the retry happen.
         if (acs.isOutdated && acs.appcacheDownloadingEventFired) {
-            acs.dumpCachesAndReload();
+            acs.dumpCachesAndReload(false, {"cause": "applicationCache.error: App gets outdated while downloading app cache resources."});
             return;
         }
 
@@ -1172,7 +1350,7 @@ AuraClientService.prototype.handleAppCache = function() {
         // appcache refresh indicates all files are up to date but the app has indicated the app/fwk
         // is out of date. thus caches must be cleared and .app?t loaded from server.
         if (acs.isOutdated) {
-            acs.dumpCachesAndReload();
+            acs.dumpCachesAndReload(false, {"cause": "applicationCache.noupdate: App gets outdated even if all app cache resources are up to date."});
         }
     }
 
@@ -1186,7 +1364,7 @@ AuraClientService.prototype.handleAppCache = function() {
         // refresh cycle and fires relevant events.
         // note: error events may be fired before and after obsolete is fired so error handler explicitly
         // noops when obsolete with errors.
-        acs.dumpCachesAndReload();
+        acs.dumpCachesAndReload(false, {"cause": "applicationCache.obsolete: App cache resources are obsolete."});
     }
 
     if (window.applicationCache && window.applicationCache.addEventListener) {
@@ -1210,6 +1388,7 @@ AuraClientService.prototype.getBootstrapState = function() {
     var state = {
         "inline.js": !!Aura["inlineJsLoaded"],
         "aura.js": !!Aura["frameworkJsReady"],
+        "appcore.js": !!Aura["appCoreJsReady"],
         "app.js": !!Aura["appJsReady"],
         "bootstrap.js": !!Aura["appBootstrap"] || !!Aura["appBootstrapCache"] || !!this.appBootstrap
     };
@@ -1265,6 +1444,7 @@ AuraClientService.prototype.startBootTimers = function() {
         }
 
         // no progress made so reload the page
+        $A.log("[AuraClientService.startBootTimers]: No progress made, reloading the page.");
         window.location.reload(true);
     }, AuraClientService.BOOT_TIMER_DURATION);
 };
@@ -1281,10 +1461,11 @@ AuraClientService.prototype.startBootTimers = function() {
 AuraClientService.prototype.setOutdated = function() {
     this.isOutdated = true;
 
+    var logPrefix = "AuraClientService.setOutdated";
     if (!$A.getContext()) {
         // exception in inline.js does not create aura context and reloadPointPassed is never true
         // so we perform actual dump caches and reload
-        this.actualDumpCachesAndReload();
+        this.actualDumpCachesAndReload({"cause": logPrefix + ": Exception in inline.js does not create aura context."});
         return;
     }
 
@@ -1296,13 +1477,13 @@ AuraClientService.prototype.setOutdated = function() {
     // if appcache isn't supported then dump caches and reload. the browser will request .app?t then
     // .app from the the server.
     if (!appCache) {
-        this.dumpCachesAndReload();
+        this.dumpCachesAndReload(false, {"cause": logPrefix + ": App cache not supported."});
     }
 
     // if appcache isn't activated (eg hasn't successfully downloaded all files, not enabled in the app)
     // then dump caches and reload. the browser will request .app?t then .app from the the server.
     else if (appCache.status === appCache.UNCACHED) {
-        this.dumpCachesAndReload();
+        this.dumpCachesAndReload(false, {"cause": logPrefix + ": UNCACHED app cache status."});
     }
 
     // appcache is obsolete (eg manifest returned 4xx) so dump caches and reload. the browser will
@@ -1311,19 +1492,20 @@ AuraClientService.prototype.setOutdated = function() {
     // appcache. the browser will start the refresh cycle, get a 4xx on the manifest marking it
     // obsolete again, and handleAppCache() is invoked.
     else if (appCache.status === appCache.OBSOLETE) {
-        this.dumpCachesAndReload();
+        this.dumpCachesAndReload(false, {"cause": logPrefix + ": OBSOLETE app cache status."});
     }
 
     // appcache is in use. it's idle (eg not checking for an update) so request the browser start the
     // refresh cycle (fetch the manifest). this will trigger appcache events / invoke handleAppCache().
     else if (appCache.status === appCache.IDLE) {
         try {
+            $A.log("[" + logPrefix + "]: IDLE app cache status. Check for app cache updates using applicationCache.update()");
             appCache.update();
         } catch (e) {
             // appcache quirk: calling update() throws in some environments. take a more extreme
             // recovery of dumping caches and reloading .app from server to trigger appcache
             // population cycle.
-            this.dumpCachesAndReload();
+            this.dumpCachesAndReload(false, {"cause": logPrefix + ": IDLE app cache status."});
         }
     }
 
@@ -1342,6 +1524,7 @@ AuraClientService.prototype.updateAppCacheIfOnlineAndIdle = function() {
         // perform only when online (OR onLine not supported) and appcache IDLE status
         try {
             // force browser to keep trying to get updated js resources as manifest should be updated at this point
+            $A.log("[AuraClientService.updateAppCacheIfOnlineAndIdle]: Check for app cache updates using applicationCache.update()");
             window.applicationCache.update();
             return true;
         } catch (ignore) {
@@ -1374,91 +1557,6 @@ AuraClientService.prototype.setConnected = function(isConnected) {
         // looks like no definitions loaded yet
         alert(isDisconnected ? "Connection lost" : "Connection resumed");//eslint-disable-line no-alert
     }
-};
-
-/**
- * Saves the CSRF token to the Actions storage. Does not block nor report success or failure.
- *
- * This storage operate uses the adapter directly instead of AuraStorage because the specific
- * token key is used in mobile (hybrid) devices to obtain the token without the isolation and
- * even before Aura initialization.
- *
- * @returns {Promise} Promise that resolves with the current CSRF token value.
- */
-AuraClientService.prototype.saveTokenToStorage = function() {
-    // update the persisted CSRF token so it's accessible when the app is launched while offline.
-    // fire-and-forget style, matching action response persistence.
-    var storage = Action.getStorage();
-    if (storage && storage.isPersistent() && this._token) {
-        var token = this._token;
-
-        // satisfy the adapter API shape requirements; see AuraStorage.setItems().
-        var now = new Date().getTime();
-        var tuple = [
-             AuraClientService.TOKEN_KEY,
-             {
-                 "value": { "token": this._token },
-                 "expires": now + 15768000000, // 1/2 year
-                 "created": now
-             },
-             $A.util.estimateSize(AuraClientService.TOKEN_KEY) + $A.util.estimateSize(this._token)
-         ];
-
-        // saves token when storage's adapter is ready
-        return storage.enqueue(function(resolve) {
-            storage.adapter.setItems([tuple]).then(
-                function() {
-                    $A.log("AuraClientService.saveTokenToStorage(): token persisted");
-                    resolve(token);
-                },
-                function(err) {
-                    $A.warning("AuraClientService.saveTokenToStorage(): failed to persist token: " + err);
-                    resolve(token);
-                }
-            );
-        });
-    }
-
-    return Promise["resolve"](this._token);
-};
-
-/**
- * Loads the CSRF token from Actions storage.
- *
- * @return {Promise} Resolves with the token from storage, or undefined
- *         otherwise. Rejects if there is an error.
- */
-AuraClientService.prototype.loadTokenFromStorage = function() {
-    var self = this;
-    var storage = Action.getStorage();
-    if (storage && storage.isPersistent()) {
-        // loads token when storage's adapter is ready
-        return storage.enqueue(function(resolve, reject) {
-            storage.adapter.getItems([AuraClientService.TOKEN_KEY])
-                .then(
-                    function(items) {
-                        if (items[AuraClientService.TOKEN_KEY]) {
-                            var token = items[AuraClientService.TOKEN_KEY]["value"]["token"];
-                            self.setToken(token);
-                            $A.log("AuraClientService.loadTokenFromStorage(): token loaded");
-                            resolve(token);
-                        } else {
-                            $A.log("AuraClientService.loadTokenFromStorage(): no token found");
-                            resolve(undefined);
-                        }
-                    }
-                ).then(
-                    undefined,
-                    function(err) {
-                        $A.warning("AuraClientService.loadTokenFromStorage(): failed to load token: " + err);
-                        reject(err);
-                    }
-                );
-        });
-    }
-
-    $A.log("AuraClientService.loadTokenFromStorage(): no Action storage");
-    return Promise["resolve"]();
 };
 
 /**
@@ -1510,7 +1608,7 @@ AuraClientService.prototype.init = function(config, token, container) {
     var component = $A.componentService.createComponentPriv(config);
     Aura.bootstrapMark("appCreationEnd");
 
-    context.setCurrentAccess(component);
+    this.setCurrentAccess(component);
     try {
         Aura.bootstrapMark("appRenderingStart");
         $A.renderingService.render(component, container || document.body);
@@ -1519,17 +1617,28 @@ AuraClientService.prototype.init = function(config, token, container) {
         if (e instanceof $A.auraError) {
             throw e;
         } else {
-            var ae = new $A.auraError("Error during rendering in init", e, $A.severity.QUIET);
-            ae['component'] = component.getDef().getDescriptor().toString();
-            ae['componentStack'] = context.getAccessStackHierarchy();
-            throw ae;
+            throw new $A.auraError("Error during rendering in init", e, $A.severity.QUIET);
         }
     } finally {
-        context.releaseCurrentAccess();
+        this.releaseCurrentAccess();
         Aura.bootstrapMark("appRenderingEnd");
     }
 
     return component;
+};
+
+AuraClientService.prototype.getCurrentAccessName = function() {
+    if (!this.currentAccess) {
+        return null;
+    }
+
+    // current access can be a component or a component def
+    if (this.currentAccess.getType) {
+        return this.currentAccess.getType();
+    } else {
+        return this.currentAccess.getDescriptor().getFullName();
+    }
+
 };
 
 /**
@@ -1612,7 +1721,7 @@ AuraClientService.prototype.areActionsWaiting = function() {
  * @private
  */
 AuraClientService.prototype.setNamespacePrivileges = function(sentNs) {
-    var namespaces = { "internal" : this.namespaces.internal, "privileged" : this.namespaces.privileged };
+    var namespaces = { "internal" : this.registeredNamespaces.internal, "privileged" : this.registeredNamespaces.privileged };
 
     if (sentNs) {
         for (var x in namespaces) {
@@ -1638,7 +1747,7 @@ AuraClientService.prototype.setNamespacePrivileges = function(sentNs) {
  */
 
 AuraClientService.prototype.initDefs = function() {
-    if (!Aura["appJsReady"]) {
+    if (!Aura["appCoreJsReady"] || !Aura["appJsReady"]) {
         Aura["appDefsReady"] = this.initDefs.bind(this);
         return;
     }
@@ -1705,7 +1814,7 @@ AuraClientService.prototype.getAppBootstrap = function() {
         // (which may be stale) gets reused, which will cause an infinite reload. therefore only
         // reload the .app?t when appcache is idle or not in use.
         if (!window.applicationCache || window.applicationCache.status === window.applicationCache.UNCACHED || window.applicationCache.status === window.applicationCache.IDLE) {
-            this.dumpCachesAndReload();
+            this.dumpCachesAndReload(false, {"cause": "AuraClientService.getAppBootstrap: Failed to load bootstrap.js from network or cache."});
         }
     }
 
@@ -1770,19 +1879,27 @@ AuraClientService.prototype.runAfterBootstrapReady = function (callback) {
     if (bootstrap.source === "network") {
         if (boot["token"]) {
             $A.log("AuraClientService.runAfterBootstrapReady(): Received updated token from bootstrap");
-            this.setToken(boot["token"], true);
+            this.setToken(boot["token"]);
+        }
+        if (this.tokenSharing && this._token) {
+            $A.log("AuraClientService.runAfterBootstrapReady(): Broadcasting token received during bootstrap");
+            this.broadcastToken(this._token);
         }
         this.checkBootstrapUIDs(Aura["appBootstrapCache"]);
-        this.saveBootstrapToStorage(boot);
+        if (!boot["inlined"]) {
+            this.saveBootstrapToStorage(boot);
+        }
     }
 
     try {
         // can have a mismatch if we are upgrading framework or mode
-        if (boot["data"]["components"]) {
+        if (boot["data"] && boot["data"]["components"]) {
             // need to use the resolvedRefs for AuraContext components (componentConfigs aka partialConfigs)
             boot["context"]["components"] = boot["data"]["components"];
         }
-        $A.getContext()["merge"](boot["context"]);
+        if (boot["context"]) {
+            $A.getContext()["merge"](boot["context"]);
+        }
     } catch(e) {
         if (bootstrap.source === "cache" && this.getParallelBootstrapLoad() && Aura["appBootstrapStatus"] !== "failed") {
             $A.warning("Bootstrap cache merge failed, waiting for bootstrap.js from network");
@@ -1793,7 +1910,7 @@ AuraClientService.prototype.runAfterBootstrapReady = function (callback) {
         }
     }
 
-    $A.log("Bootstrap loaded and processed from " + bootstrap.source);
+    $A.log("[AuraClientService.runAfterBootstrapReady]: Bootstrap loaded and processed from " + bootstrap.source);
     this.appBootstrap = boot;
 
     if (bootstrap.source === "cache" && this.getParallelBootstrapLoad() && Aura["appBootstrapStatus"] !== "failed") {
@@ -1807,7 +1924,7 @@ AuraClientService.prototype.runAfterBootstrapReady = function (callback) {
                     Aura["bootstrapUpgrade"] = this.appBootstrap["md5"] !== Aura["appBootstrap"]["md5"];
                     if (Aura["appBootstrap"]["token"]) {
                         $A.log("AuraClientService.runAfterBootstrapReady(): Received updated token after cached bootstrap");
-                        this.setToken(Aura["appBootstrap"]["token"], true);
+                        this.setToken(Aura["appBootstrap"]["token"]);
                     }
                     this.checkBootstrapUIDs(Aura["appBootstrap"]);
                     this.checkBootstrapUpgrade();
@@ -1850,7 +1967,7 @@ AuraClientService.prototype.checkBootstrapUIDs = function(boot) {
 
         if (context.fwuid !== boot["context"]["fwuid"] || currentAppUid !== bootAppUid) {
             if (!this.updateAppCacheIfOnlineAndIdle()) {
-                this.dumpCachesAndReload();
+                this.dumpCachesAndReload(false, {"cause": "AuraClientService.checkBootstrapUIDs: Framework or App UID is different between cached and network version."});
             }
         }
     }
@@ -1939,14 +2056,14 @@ AuraClientService.prototype.loadBootstrapFromStorage = function() {
     }
 
     // if no storage then no cache hit
-    var storage = Action.getStorage();
+    var storage = $A.storageService.getStorage(this.getActionStorageName());
     if (!storage || !storage.isPersistent()) {
         Aura["appBootstrapCacheStatus"] = "failed";
         return Promise["resolve"]();
     }
 
     // else load from storage
-    return storage.get(AuraClientService.BOOTSTRAP_KEY, true)
+    return storage.get(AuraClientService.BOOTSTRAP_KEY)
         .then(
             function(value) {
                 if (value) {
@@ -1973,8 +2090,8 @@ AuraClientService.prototype.loadBootstrapFromStorage = function() {
  *  network on next app load.
  */
 AuraClientService.prototype.saveBootstrapToStorage = function(boot) {
-    var actionStorage = Action.getStorage();
-    if (!actionStorage || !actionStorage.isPersistent()) {
+    var storage = $A.storageService.getStorage(this.getActionStorageName());
+    if (!storage || !storage.isPersistent()) {
         return Promise["resolve"]();
     }
 
@@ -1988,7 +2105,7 @@ AuraClientService.prototype.saveBootstrapToStorage = function(boot) {
             }
         );
 
-    var bootstrapPromise = actionStorage.set(AuraClientService.BOOTSTRAP_KEY, boot)
+    var bootstrapPromise = storage.set(AuraClientService.BOOTSTRAP_KEY, boot)
         .then(
             undefined,
             function(e) {
@@ -2020,6 +2137,70 @@ AuraClientService.prototype.initializeApplication = function() {
             });
         });
     });
+};
+
+/**
+ * Initializes injected services defined in the application.
+ * @param {String[]} services Service descriptors to initialize.
+ * @memberOf AuraClientService
+ * @private
+ */
+AuraClientService.prototype.initializeInjectedServices = function(services) {
+    if (services) {
+        var serviceRegistry = this.moduleServices;
+        services.forEach(function (serviceDefinition) {
+            var serviceModule = $A.componentService.evaluateModuleDef(serviceDefinition);
+            var serviceConstructor = serviceModule["default"] || serviceModule;
+            var service = serviceConstructor(Aura.ServiceApi, $A.componentService.moduleEngine);
+            $A.assert(service.name, 'Unknown service name');
+            serviceRegistry[service.name] = service;
+        });
+    }
+};
+
+/**
+ * Adds a schema resolver so modules can statically import from it
+ * Example: ` import url from "resource://myCustomResource" `
+ *
+ * This method needs to be exported (not platform)
+ * so it can be invoked before framework initialization
+ * @export
+ */
+
+AuraClientService.prototype.addModuleSchemaResolver = function (schema, resolver) {
+    $A.assert(typeof resolver === 'function', 'Schema resolver must be a function');
+    $A.assert(this.moduleSchemas[schema] === undefined, 'Unable to add a resolver for schema ' + schema + '. A resolver its already registered');
+    this.moduleSchemas[schema] = resolver;
+};
+
+/**
+ * Resolve a given schema `schema://resourceuri` from a module static import
+ * Schemas can be defined:
+ *   - By default in framework (like label://)
+ *   - $A.clientService.addModuleSchemaResolver
+ *   - Service injection at the app level.
+ * This method just guards and invokes a resolver for a given schema if registered.
+*/
+AuraClientService.prototype.resolveSchemaDependency = function (schema, resourceUri, fullImport) {
+    if (!this.moduleSchemasCache[fullImport]) {
+        var resolver = this.moduleSchemas[schema];
+        $A.assert(resolver, "Unknown schema for '" + schema + '://' + resourceUri + "'. Either the schema is not supported or a resolver hasn't been provided.");
+        this.moduleSchemasCache[fullImport] = resolver(resourceUri);
+    }
+
+    return this.moduleSchemasCache[fullImport];
+};
+
+
+/**
+ * Default resolver for label:// schema for module static imports
+ * @memberOf AuraClientService
+ * @private
+ */
+AuraClientService.prototype.labelSchemaResolver = function(resourceUri) {
+    var parts = resourceUri.split('.');
+    $A.assert(parts.length === 2, 'Malformed label URI. Static imports for label schema require two parts: section and key');
+    return $A.get("$Label." + resourceUri);
 };
 
 /**
@@ -2076,8 +2257,10 @@ AuraClientService.prototype.postProcess = function() {
             this.process();
         } catch (e) {
             throw (e instanceof $A.auraError) ? e : new $A.auraError("AuraClientService.postProcess: error in processing", e);
+        } finally {
+            this.auraStack.pop();
         }
-        this.auraStack.pop();
+ 
     }
 };
 
@@ -2110,6 +2293,7 @@ AuraClientService.prototype.continueProcessing = function() {
     var index = 0;
     var action;
     var actionList;
+    var isStorageEnabled = this.actionStorage.isStorageEnabled();
 
     // Protect against server actions collecting early.
     this.collector.actionsToCollect += 1;
@@ -2125,10 +2309,9 @@ AuraClientService.prototype.continueProcessing = function() {
             }
             if (action.getDef().isServerAction()) {
                 this.collector.actionsToCollect += 1;
-                var storage = action.getStorage();
                 this.collector.collected[index] = undefined;
                 this.collector.collecting[index] = action;
-                if (!action.isRefreshAction() && action.isStorable() && storage) {
+                if (!action.isRefreshAction() && action.isStorable() && isStorageEnabled) {
                     this.collectStorableAction(action, index);
                 } else {
                     this.collectServerAction(action, index);
@@ -2157,48 +2340,66 @@ AuraClientService.prototype.continueProcessing = function() {
 };
 
 /**
- * Handle a single server action.
- */
-AuraClientService.prototype.getStoredResult = function(action, storage, index) {
-    //
-    // For storable actions check the storage service to see if we already have a viable cached action
-    // response we can complete immediately. In this case, we get a callback, so we create a callback
-    // for each one (ugh, this could have been handled via passing an additional param to the action,
-    // but we don't have that luxury now.)
-    //
-    var that = this;
-    var key;
-
-    key = action.getStorageKey();
-    if (that.persistedActionFilter && !that.persistedActionFilter[key]) {
-        // persisted action filter is active and action is not visible so go to server
-        that.collectServerAction(action, index);
-    } else {
-        storage.get(key, true).then(
-            function(value) {
-                if (value) {
-                    that.executeStoredAction(action, value, that.collector.collected, index);
-                    that.collector.actionsToCollect -= 1;
-                    that.finishCollection();
-                } else {
-                    that.collectServerAction(action, index);
-                }
-            },
-            function(/*error*/) {
-                // error fetching from storage so go to the server
-                that.collectServerAction(action, index);
-            }
-        );
-    }
-};
-
-/**
  * Collect a storable action for subsequent bulk processing.
  * @param {Action} action The action to collect.
  * @param {Number} index The index of the array in the queue.
  */
 AuraClientService.prototype.collectStorableAction = function(action, index) {
     this.collector.collectedStorableActions[index] = action;
+};
+
+/**
+ * @param actionItem
+ * @param response
+ * @param callback who's first parameter is a boolean
+ * @private
+ */
+AuraClientService.prototype.allDefsExistOnClient = function(actionItem, response, callback) {
+    var exist = false;
+    if (response === undefined) {
+        callback(exist);
+        return;
+    }
+    var deps = response["defDependencies"];
+    if ($A.util.isObject(deps)) {
+        if ($A.getContext().uriAddressableDefsEnabled) {
+            for (var dep in deps) {
+                // TODO check on this, type safety in JS is no bueno
+                if ($A.util.isObject(deps[dep])) {
+                    $A.componentService.saveComponentConfig(deps[dep]);
+                    // TODO is module?
+                    // $A.componentService.initModuleDefs(deps[dep]);
+                }
+            }
+            $A.componentService.loadComponentDefs(deps, function(err){
+                callback(!err, err);
+            });
+            return;
+        } else {
+            // TODO remove when uriDefs fully enabled
+            for (var descriptor in deps) {
+                if ($A.componentService.hasCacheableDefinitionOfAnyType(descriptor)) {
+                    // we have the definition on the client! Hadanza!
+                    continue;
+                }  // else
+                $A.metricsService.transaction("aura", "performance:stored-action-missing-defs", {
+                    "context": {
+                        "attributes": {
+                            "action": actionItem.action.def.descriptor,
+                            "missingDef": descriptor,
+                            "requiredDefs": Object.keys(deps)
+                        }
+                    }
+                });
+                callback(exist);
+                return;
+            }
+            exist = true;
+        }
+    } else {
+        exist = true;
+    }
+    callback(exist);
 };
 
 /**
@@ -2220,8 +2421,7 @@ AuraClientService.prototype.processStorableActions = function() {
     this.collector.collectedStorableActions = [];
 
     // if no storage then all actions go to the server
-    var storage = Action.getStorage();
-    if (!storage) {
+    if (!this.actionStorage.isStorageEnabled()) {
         for (i = 0; i < collectedStorableActions.length; i++) {
             action = collectedStorableActions[i];
             if (!action) {
@@ -2239,6 +2439,11 @@ AuraClientService.prototype.processStorableActions = function() {
         action = collectedStorableActions[i];
         if (action) {
             key = action.getStorageKey();
+            if (this.actionStorage.isStoragePersistent() && this.actionStorage.isKeyAbsentFromCache(key)) {
+                this.collectServerAction(action, i);
+                continue;
+            }
+
             arr = keysToActions[key];
             if (!arr) {
                 arr = [];
@@ -2248,38 +2453,45 @@ AuraClientService.prototype.processStorableActions = function() {
         }
     }
 
+    if (Object.keys(keysToActions).length === 0) {
+        return;
+    }
+
     var that = this;
-    storage.getAll(Object.keys(keysToActions), true)
+    this.actionStorage.getAll(Object.keys(keysToActions))
         .then(
             function(items) {
-                var value;
+                var value, actionItem;
+                var existsCallback = function(exists) {
+                    try {
+                        if (exists) {
+                            that.executeStoredAction(actionItem.action, value, that.collector.collected, actionItem.index);
+                            that.collector.actionsToCollect -= 1;
+                            that.finishCollection();
+                        } else {
+                            that.collectServerAction(actionItem.action, actionItem.index);
+                        }
+                    } catch (e) {
+                        $A.logger.reportError(e);
+                    }
+                };
                 for (var k in keysToActions) {
                     arr = keysToActions[k];
                     value = items[k];
 
-                    for (i = 0; i < arr.length; i++) {
-                        try {
-                            if (value) {
-                                that.executeStoredAction(arr[i].action, value, that.collector.collected, arr[i].index);
-                                that.collector.actionsToCollect -= 1;
-                            } else {
-                                that.collectServerAction(arr[i].action, arr[i].index);
-                            }
-                        } catch (e) {
-                            // don't let one action's failure impact the others
-                            $A.logger.reportError(e);
-                        }
+                    for (var j = 0; j < arr.length; j++) {
+                        actionItem = arr[j];
+                        that.allDefsExistOnClient(actionItem, value, existsCallback);
                     }
-
-                    that.finishCollection();
                 }
+                that.finishCollection();
             },
             function(/*error*/) {
                 // error fetching from storage so all actions go to the server
-                for (var k in keysToActions) {
-                    arr = keysToActions[k];
-                    for (i = 0; i < arr.length; i++) {
-                        that.collectServerAction(arr[i].action, arr[i].index);
+                for (var keyToAction in keysToActions) {
+                    arr = keysToActions[keyToAction];
+                    for (var l = 0; l < arr.length; l++) {
+                        that.collectServerAction(arr[l].action, arr[l].index);
                     }
                 }
             }
@@ -2288,6 +2500,7 @@ AuraClientService.prototype.processStorableActions = function() {
             undefined,
             function(error) {
                 // something is really wrong. no clear way to recover so at least report
+                $A.warning(undefined, error);
                 $A.logger.reportError(error);
             }
         );
@@ -2309,22 +2522,19 @@ AuraClientService.prototype.persistStorableActions = function(actions) {
             try {
                 key = action.getStorageKey();
             } catch (e) {
-                var errorWrapper = new $A.auraError(null, e);
-                errorWrapper.action = action;
-                $A.logger.reportError(errorWrapper);
+                var message = "AuraClientService.persistStorableActions(): Failed to get action storage key";
+                var auraError = new $A.auraError(message, e);
+                $A.logger.reportError(auraError, action);
+                continue;
             }
 
             doStore = true;
             values[key] = value;
-            if (this.persistedActionFilter) {
-                this.persistedActionFilter[key] = true;
-            }
         }
     }
 
-    var storage = Action.getStorage();
-    if (doStore && storage) {
-        storage.setAll(values)
+    if (doStore && this.actionStorage.isStorageEnabled()) {
+        return this.actionStorage.setAll(values)
             .then(
                 undefined,
                 function(error){
@@ -2334,7 +2544,7 @@ AuraClientService.prototype.persistStorableActions = function(actions) {
                 }
             );
     }
-
+    return Promise["resolve"]();
 };
 
 /**
@@ -2375,9 +2585,8 @@ AuraClientService.prototype.executeStoredAction = function(action, response, col
             }
         }
     } catch (e) {
-        var errorWrapper = new $A.auraError(null, e);
-        errorWrapper.action = action;
-        $A.logger.reportError(errorWrapper);
+        var auraError = new $A.auraError("AuraClientService.executeStoredAction(): error happened when processing stored action", e);
+        $A.logger.reportError(auraError, action);
     } finally {
         this.clearInCollection();
     }
@@ -2505,6 +2714,8 @@ AuraClientService.prototype.sendActionXHRs = function() {
     var processing;
     var foreground = [];
     var background = [];
+    var publiclyCacheableAndBackground = [];
+    var publiclyCacheable = [];
     var deferred = [];
     var action, auraXHR;
     var caboose = 0;
@@ -2519,6 +2730,10 @@ AuraClientService.prototype.sendActionXHRs = function() {
         }
         if (action.isDeferred()) {
             deferred.push(action);
+        } else if (!action.isBackground() && action.isPubliclyCacheable()) {
+            publiclyCacheable.push(action);
+        } else if (action.isBackground() && action.isPubliclyCacheable()) {
+            publiclyCacheableAndBackground.push(action);
         } else if (action.isBackground()) {
             background.push(action);
         } else {
@@ -2548,6 +2763,14 @@ AuraClientService.prototype.sendActionXHRs = function() {
         }
     }
 
+    if (publiclyCacheable.length) {
+        this.sendAsSingle(publiclyCacheable, publiclyCacheable.length, { background: false });
+    }
+
+    if (publiclyCacheableAndBackground.length) {
+        this.sendAsSingle(publiclyCacheableAndBackground, publiclyCacheableAndBackground.length, { background: true });
+    }
+
     if (background.length) {
         this.sendAsSingle(background, background.length, { background: true });
     }
@@ -2570,7 +2793,7 @@ AuraClientService.prototype.sendActionXHRs = function() {
  * @private
  * @param {Array} actions the set of actions to send.
  * @param {int} count the number of actions to send.
- * @param {Options} options extra options for the send, allows callers to set headers.
+ * @param {Options} options extra options for the send, allows callers to set headers and background option
  */
 AuraClientService.prototype.sendAsSingle = function(actions, count, options) {
     var i;
@@ -2591,7 +2814,7 @@ AuraClientService.prototype.sendAsSingle = function(actions, count, options) {
             sent += 1;
             auraXHR = this.getAvailableXHR(background);
             if (auraXHR) {
-                if (!this.send(auraXHR, [ action ], "POST", options)) {
+                if (!this.send(auraXHR, [ action ], action.isPubliclyCacheable() ? "GET" : "POST", options)) {
                     this.releaseXHR(auraXHR);
                 }
             }
@@ -2638,8 +2861,6 @@ AuraClientService.prototype.finishProcessing = function() {
     this.setInCollection();
     try {
         $A.renderingService.rerenderDirty();
-    } catch (e) {
-        throw e;
     } finally {
         this.clearInCollection();
         if (this.actionsQueued.length > 0) {
@@ -2728,16 +2949,19 @@ AuraClientService.prototype.getAndClearDupes = function(key) {
  *
  * @param auraXHR the wrapped XHR.
  * @param actions the set of actions to send.
- * @param method GET or POST
- * @param options extra options for the send, allows callers to set headers.
+ * @param method GET or POST. GET method is for publicly cacheable actions.
+ * @param options extra options for the send, allows callers to set headers and background option
  * @return true if the XHR was sent, otherwise false.
  */
 AuraClientService.prototype.send = function(auraXHR, actions, method, options) {
+    options = options || { background: false };
     var actionsToSend = [];
+    var actionDefs = [];
     var that = this;
     var action;
     var context = $A.getContext();
     var i;
+    var actionDef;
 
     for (i = 0; i < actions.length; i++) {
         action = actions[i];
@@ -2753,6 +2977,8 @@ AuraClientService.prototype.send = function(auraXHR, actions, method, options) {
             continue;
         }
         actionsToSend.push(action.prepareToSend());
+        actionDef = action.getDef();
+        actionDefs.push(actionDef);
     }
 
     if (actionsToSend.length === 0) {
@@ -2764,17 +2990,23 @@ AuraClientService.prototype.send = function(auraXHR, actions, method, options) {
     var timerId = undefined;
     var marker = Aura.Services.AuraClientServiceMarker++;
     var qs, url;
-
+    var loc = window.location;
     try {
         var params = {
             "message"      : $A.util.json.encode({ "actions" : actionsToSend }),
-            "aura.context" : context.encodeForServer(method === "POST")
+            "aura.context" : context.encodeForServer(method === "POST", method === "GET")
         };
+
         if (method === "GET") {
-            params["aura.access"] = "UNAUTHENTICATED";
+            // Indicate the GET request is an action
+            params["aura.isAction"] = true;
         } else {
+            // Send page URI
+            // This is not sent for cacheable GET requests as it will vary the url, we'll fallback to referer header on the server side
+            params["aura.pageURI"] = loc.pathname + loc.search + loc.hash;
             params["aura.token"] = this._token;
         }
+
         qs = this.buildParams(params);
     } catch (e) {
         for (i = 0; i < actions.length; i++) {
@@ -2782,15 +3014,19 @@ AuraClientService.prototype.send = function(auraXHR, actions, method, options) {
             action.markException(e);
             action.finishAction(context);
         }
+        $A.error("failed to generate parameters for action xhr for action: " + actionsToSend[0], e);
+        return false;
     }
 
-    url = this._host + "/aura?r=" + marker;
+    if (method === "GET") {
+        // for cacheable (GET) requests we don't want the marker parameter
+        // or the action name list and we want the query string in the URL
+        url = this._host + "/aura?" + qs;
+    } else {
+        url = this._host + "/aura?r=" + marker + "&" + this.buildActionNameList(actionsToSend, actionDefs);
+    }
 
-    //#if {"excludeModes" : ["PRODUCTION"]}
-    url = url + "&" + this.buildActionNameList(actionsToSend);
-    //#end
-
-    auraXHR.background = options && options.background;
+    auraXHR.background = options.background;
     auraXHR.length = qs.length;
     auraXHR.request = this.createXHR();
     auraXHR.request["open"](method, url, this._appNotTearingDown);
@@ -2818,13 +3054,13 @@ AuraClientService.prototype.send = function(auraXHR, actions, method, options) {
         }
     };
 
-    if(context&&context.getCurrentAccess()&&this.inAuraLoop()){
+    if(this.currentAccess&&this.inAuraLoop()){
         onReady = $A.getCallback(onReady);
     }
 
     auraXHR.request["onreadystatechange"] = onReady;
 
-    if (options && options["headers"]) {
+    if (options["headers"]) {
         var key, headers = options["headers"];
 
         for (key in headers) {
@@ -2834,11 +3070,16 @@ AuraClientService.prototype.send = function(auraXHR, actions, method, options) {
         }
     }
 
+    if (this.authorizationToken) {
+        auraXHR.request.setRequestHeader('Authorization', this.authorizationToken);
+    }
     if (qs && method === "POST") {
         auraXHR.request.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=ISO-8859-13');
         auraXHR.request["send"](qs);
-    } else {
+    } else if (method !== "POST") {
         auraXHR.request["send"]();
+    } else {
+        return false;
     }
 
     // start the timer if necessary
@@ -2860,6 +3101,19 @@ AuraClientService.prototype.send = function(auraXHR, actions, method, options) {
 };
 
 /**
+* Prepares the request
+*/
+AuraClientService.prototype.prepareRequest = function (actions) {
+    var params = {
+        "message"      : $A.util.json.encode({ "actions" : actions }),
+        "aura.context" : $A.getContext().encodeForServer(true),
+        "aura.token"   : this._token
+    };
+
+    return this.buildParams(params);
+};
+
+/**
  * Send beacon
  *
  * @returns true if payload was successfully sent to the server.
@@ -2870,12 +3124,7 @@ AuraClientService.prototype.send = function(auraXHR, actions, method, options) {
 AuraClientService.prototype.sendBeacon = function(action) {
     if (window.navigator && window.navigator["sendBeacon"] && window.Blob) {
         try {
-            var params = {
-                "message"      : $A.util.json.encode({ "actions" : [action] }),
-                "aura.context" : $A.getContext().encodeForServer(true),
-                "aura.token"   : this._token
-            };
-            var blobObj = new Blob([this.buildParams(params)], {
+            var blobObj = new Blob([this.prepareRequest([action])], {
                 "type" : "application/x-www-form-urlencoded; charset=ISO-8859-13"
             });
             return window.navigator["sendBeacon"](this._host + "/auraAnalytics", blobObj);
@@ -2976,28 +3225,58 @@ AuraClientService.prototype.buildParams = function(map) {
 };
 
 /**
- * Create an encoded query string with action names and their occurrence count
+ * Create an encoded query string with action names and their occurrence count.
  *
  * @param {Action[]} actions  The list of actions.
  * @returns {String}          The encoded query string.
  * @private
  */
-AuraClientService.prototype.buildActionNameList = function(actions) {
-    var map = {};
+AuraClientService.prototype.buildActionNameList = function(actions, actionDefs) {
+    var i, map = {};
 
-    for (var i = 0; i < actions.length; i++) {
+    for (i = 0; i < actions.length; i++) {
         var actionDescriptor = actions[i]["descriptor"];
         var parts = actionDescriptor.split('/');
-        var controllerMethod = parts.pop().split('$').pop();
-        var controller = parts.pop().split('.').pop().split('Controller').shift();
-        var actionName = controller + "." + controllerMethod;
+        var controllerMethod = parts.pop().split("$").pop();
+        var controllerParts = parts.pop().split(".");
+        var controller = controllerParts.pop();
+        var index = controller.indexOf("Controller", controller.length - "Controller".length);
+        if ( index > 0 ) {
+            controller = controller.substring(0, index);
+        }
+        var pkg;
+        if ( controllerParts.length === 0 ) {
+            if ( parts[0] === "aura:" ) {
+                pkg = "aura";
+            } else {
+                pkg = "other";
+            }
+        } else if (actionDefs && actionDefs[i] && actionDefs[i].getActionGroup()) {
+            pkg = actionDefs[i].getActionGroup();
+        } else {
+            pkg = controllerParts.join("-");
+        }
+
+        var actionName = pkg + "." + controller + "." + controllerMethod;
 
         map[actionName] = map[actionName] ? map[actionName] + 1 : 1;
     }
 
-    return this.buildParams(map);
+    var arr = [];
+    var keys = Object.keys(map).sort();
+    for (i = 0; i < keys.length; i++) {
+        if ( i > 0 ) {
+            arr.push("&");
+        }
+        var key = keys[i];
+        arr.push(key, "=", encodeURIComponent(map[key]));
+    }
+    var list = arr.join("");
+    if (list.length > AuraClientService.MAX_ACTION_QUERY_LENGTH) {
+        list = list.substring(0, list.lastIndexOf("&", AuraClientService.MAX_ACTION_QUERY_LENGTH));
+    }
+    return list;
 };
-
 
 /**
  * This function is only meant to be used for the corner case of preloading actions before Aura is available
@@ -3034,6 +3313,61 @@ AuraClientService.prototype.hydrateActions = function(actions, preloadMapId, res
 };
 
 /**
+ * This function is only meant to be used for the corner case of preloading actions before Aura is available
+ * It gets the actions that were preloaded ahead of time, a map with actionIds, and the prelaod XHR response object
+ * Basically is like a regular server action but re-wiring the server results manually
+ *
+ * @param {Object[]} rawResponses - collection of rawResponse objects with shape {{Number}status, {String}responseText}
+ * @return {Promise<ReifyResult>} a promise that resolves to the actions contained in the rawResponse
+ */
+AuraClientService.prototype.reifyActions = function(rawResponses) {
+    var context = $A.getContext();
+    var actionsToPersist = [], nonStorableActions = [], error = null;
+    rawResponses.forEach(function (rawResponse) {
+        var response = this.decode(rawResponse);
+        if (response["status"] === "SUCCESS") {
+            var reponsePayload = response["message"];
+            var responseContext = reponsePayload["context"];
+            var responseActions = reponsePayload["actions"];
+
+            // Merge Context
+            context['merge'](responseContext, true /* ignoreMissmatch */);
+            $A.componentService.saveDefsToStorage(responseContext, context);
+
+            responseActions.forEach(function (responseAction) {
+                var action = this.buildStorableServerAction(responseAction);
+                if (action) {
+                    actionsToPersist.push(action);
+                } else {
+                    nonStorableActions.push(responseAction);
+                }
+            }, this);
+        } else {
+            // Send the new token in case of INVALID SESSION so that clients can implement their own retry logic.
+            var newToken;
+            if(response["status"] === AuraClientService.INVALID_SESSION_RETURN_STATUS) {
+                var event = response["event"];
+                var data = {};
+                if(event) {
+                    newToken = event["attributes"] &&
+                           event["attributes"]["values"] &&
+                           event["attributes"]["values"]["newToken"];
+
+                    if(this.isValidToken(newToken) && newToken !== this._token) {
+                        data["newToken"] = newToken;
+                    }
+                }
+            }
+            error = {"status": response["status"], "message": response["message"], "data": data};
+        }
+    }, this);
+
+    return this.persistStorableActions(actionsToPersist).then(function () {
+        return { "storableActions": actionsToPersist, "nonStorableActions": nonStorableActions, "error": error };
+    });
+};
+
+/**
  * Callback for an XHR for a set of actions.
  *
  * This function does all of the processing for a set of actions that come back from the server. It correctly deals
@@ -3055,12 +3389,28 @@ AuraClientService.prototype.receive = function(auraXHR, timedOut) {
             this.processIncompletes(auraXHR);
         } else if (responseMessage["status"] === "ERROR") {
             this.processErrors(auraXHR, responseMessage["message"]);
+        } else if (responseMessage["status"] === AuraClientService.INVALID_SESSION_RETURN_STATUS) {
+            this.retryActions(auraXHR, responseMessage["event"]);
         } else if (responseMessage["status"] === AuraClientService.SYSTEM_EXCEPTION_EVENT_RETURN_STATUS) {
             this.processSystemError(auraXHR);
         }
         this.fireDoneWaiting();
     } catch (e) {
-        throw (e instanceof $A.auraError) ? e : new $A.auraError("AuraClientService.receive action callback failed", e);
+        if (e instanceof $A.auraError) {
+            if (e.action) {
+                var failingCmp = e.action.getComponent();
+                if (failingCmp) {
+                    // if error has action, using the component associated with the action
+                    var descriptor = failingCmp.getDef().getDescriptor().toString();
+                    e.setComponent(descriptor);
+                }
+            }
+            throw e;
+        }
+
+        // There might be some handling gap here. We may need action info to report error correctly.
+        throw new $A.auraError("AuraClientService.receive action callback failed", e);
+
     } finally {
         this.auraStack.pop();
         this.releaseXHR(auraXHR);
@@ -3068,6 +3418,45 @@ AuraClientService.prototype.receive = function(auraXHR, timedOut) {
     }
 
     return responseMessage;
+};
+
+/**
+ * Retries in-flight actions on the given XHR due to a failed server response (invalidSession)
+ * @param auraXHR originating auraXHR
+ * @param event parsed server event in the originating response
+ */
+AuraClientService.prototype.retryActions = function(auraXHR, event) {
+    var newToken = event["attributes"] &&
+                   event["attributes"]["values"] &&
+                   event["attributes"]["values"]["newToken"];
+    if (this.isValidToken(newToken) && newToken !== this._token) {
+        this.setToken(newToken, true);
+
+        $A.log("[AuraClientService.retryActions]: New token received, attempting to retry failed actions");
+        for (var name in auraXHR.actions) {
+            if (auraXHR.actions[name].getRetryCount() < this.maxActionRetries) {
+                auraXHR.actions[name].incrementRetryCount();
+                this.enqueueAction(auraXHR.actions[name]);
+            } else {
+                $A.log("[AuraClientService.retryActions]: Exceeded action retry limit");
+                this.throwExceptionEvent({event: event});
+                this.processSystemError(auraXHR);
+                break;
+            }
+        }
+    }
+    else {
+        $A.log("[AuraClientService.retryActions]: Could not retry actions, no token received.");
+        this.throwExceptionEvent({event: event});
+        this.processSystemError(auraXHR);
+    }
+};
+
+/**
+ * Returns true if the token is of valid format
+ */
+AuraClientService.prototype.isValidToken = function(token) {
+    return ($A.util.isString(token) && !$A.util.isEmpty(token) && token !== AuraClientService.INVALID_CSRF);
 };
 
 /**
@@ -3085,7 +3474,19 @@ AuraClientService.prototype.processErrors = function(auraXHR, errorMessage) {
             action = actions[id];
             var error = new Error(errorMessage);
             $A.warning("Error in the server action response:" + errorMessage);
-            action.markError($A.getContext(), [error]);
+
+            try {
+                action.markError($A.getContext(), [error]);
+            } catch (e) {
+                if (e instanceof $A.auraError) {
+                    throw e;
+                }
+
+                // if callback is not in aura loop, non AuraError gets caught
+                var auraError = new $A.auraError("Error happened when processing action errors", e);
+                auraError.action = action;
+                throw auraError;
+            }
         }
     }
 };
@@ -3109,30 +3510,74 @@ AuraClientService.prototype.processSystemError = function(auraXHR) {
     }
 };
 
-AuraClientService.prototype.processResponses = function(auraXHR, responseMessage) {
+AuraClientService.prototype.addAllDefsToMap = function(defs, map) {
+    if ($A.util.isArray(defs)) {
+        for (var i=0, length=defs.length; i<length; i++) {
+            if (defs[i]["descriptor"]){
+                map[defs[i]["descriptor"]] = defs[i];
+            }
+        }
+        return;
+    }
+    for (var def in defs) {
+        map[def] = defs[def];
+    }
+};
 
+AuraClientService.prototype.extractAllDefs = function(config) {
+    var descriptors = {};
+
+    this.addAllDefsToMap(config["componentDefs"], descriptors);
+    this.addAllDefsToMap(config["libraryDefs"], descriptors);
+    this.addAllDefsToMap(config["eventDefs"], descriptors);
+    this.addAllDefsToMap(config["moduleDefs"], descriptors);
+
+    this.addAllDefsToMap(config["descriptorUids"], descriptors);
+
+    // include loaded as actions to the server "safely" assume these already exist on the client
+    var loaded = Object.keys($A.getContext().loaded);
+    for (var i=0, length=loaded.length; i<length; i++) {
+        var def = loaded[i];
+        if ($A.util.isString(def)) {
+            if (def.indexOf("@") >= 0) {
+                descriptors[def.split("@")[1]] = $A.getContext().loaded[def];
+            } else {
+                descriptors[def] = $A.getContext().loaded[def];
+            }
+        }
+    }
+
+    return descriptors;
+};
+
+AuraClientService.prototype.processResponses = function(auraXHR, responseMessage) {
+    /// ******* The order of parameters to this method matter. They are used in overrides *******
     var action, actionResponses, response, dupes;
     var token = responseMessage["token"];
     if (token) {
-        this.setToken(token, true);
+        this.setToken(token);
     }
     var context=$A.getContext();
-    var priorAccess=context.getCurrentAccess();
+    var priorAccess=this.currentAccess;
+    var allDefsInContextResponse = {};
 
     if(!priorAccess){
-        context.setCurrentAccess($A.getRoot());
+        this.setCurrentAccess($A.getRoot());
     }
     try {
         if ("context" in responseMessage) {
             var responseContext = responseMessage["context"];
             context['merge'](responseContext);
-            $A.componentService.saveDefsToStorage(responseContext, context);
+            $A.componentService.saveDefsToStorage(responseContext, context).then(undefined,
+                // swallow any errors returned
+                function(){});
+            allDefsInContextResponse = this.extractAllDefs(responseContext);
         }
     } catch (e) {
         $A.logger.reportError(e);
     }finally{
         if(!priorAccess){
-            context.releaseCurrentAccess();
+            this.releaseCurrentAccess();
         }
     }
 
@@ -3157,6 +3602,9 @@ AuraClientService.prototype.processResponses = function(auraXHR, responseMessage
         action = null;
         try {
             response = actionResponses[r];
+
+            $A.assert((!response["id"] ? actionResponses.length === 1 : true), "When an action has no ID, there should be only one action in the response.");
+
             action = auraXHR.getAction(response["id"]);
             if (action) {
                 if (response["storable"] && !action.isStorable()) {
@@ -3175,6 +3623,10 @@ AuraClientService.prototype.processResponses = function(auraXHR, responseMessage
             if (!action) {
                 throw new $A.auraError("Unable to find an action for "+response["id"]+": "+response);
             } else {
+                if (Object.keys(allDefsInContextResponse).length > 0) {
+                    action.defDependencies = allDefsInContextResponse;
+                }
+
                 actionsToPersist.push(action);
                 var key = this.actionStoreMap[action.getId()];
                 dupes = this.getAndClearDupes(key);
@@ -3189,11 +3641,12 @@ AuraClientService.prototype.processResponses = function(auraXHR, responseMessage
         } catch (e) {
             if (e instanceof $A.auraError) {
                 throw e;
-            } else {
-                var errorWrapper = new $A.auraError("Error processing action response", e);
-                errorWrapper.action = action;
-                throw errorWrapper;
             }
+
+            // if callback is not in aura loop, non AuraError gets caught
+            var auraError = new $A.auraError("Error happened when processing action responses", e);
+            auraError.action = action;
+            throw auraError;
         }
     }
 
@@ -3212,7 +3665,7 @@ AuraClientService.prototype.buildStorableServerAction = function(response) {
         // Create a client side action instance to go with the server created action response
         //
         var descriptor = response["action"];
-        var actionDef = $A.services.component.getActionDef(descriptor);
+        var actionDef = $A.componentService.getActionDef(descriptor);
         if (!actionDef) {
             // No action.
             throw new $A.auraError("Missing action definition for "+descriptor);
@@ -3233,14 +3686,25 @@ AuraClientService.prototype.processIncompletes = function(auraXHR) {
 
     for (id in actions) {
         if (actions.hasOwnProperty(id)) {
-            action = actions[id];
-            action.incomplete($A.getContext());
-            key = this.actionStoreMap[action.getId()];
-            dupes = this.getAndClearDupes(key);
-            if (dupes) {
-                for (var i = 0; i < dupes.length; i++) {
-                    dupes[i].incomplete($A.getContext());
+            try {
+                action = actions[id];
+                action.incomplete($A.getContext());
+                key = this.actionStoreMap[action.getId()];
+                dupes = this.getAndClearDupes(key);
+                if (dupes) {
+                    for (var i = 0; i < dupes.length; i++) {
+                        dupes[i].incomplete($A.getContext());
+                    }
                 }
+            } catch (e) {
+                if (e instanceof $A.auraError) {
+                    throw e;
+                }
+
+                // if callback is not in aura loop, non AuraError gets caught
+                var auraError = new $A.auraError("Error happened when processing incompleted actions", e);
+                auraError.action = action;
+                throw auraError;
             }
         }
     }
@@ -3272,13 +3736,50 @@ AuraClientService.prototype.parseAndFireEvent = function(evtObj) {
  *
  * @param {String} token The new token.
  * @param {Boolean} saveToStorage True to save the token to storage, false to not save.
+ * @param {Boolean} broadcast True to broadcast token to existing windows/tabs
  * @memberOf AuraClientService
  * @private
  */
-AuraClientService.prototype.setToken = function(newToken, saveToStorage) {
+AuraClientService.prototype.setToken = function(newToken, broadcast) {
+    var oldToken = this._token;
     this._token = newToken;
-    if (saveToStorage) {
-       this.saveTokenToStorage();
+
+    if (broadcast && this.tokenSharing && (!oldToken || (newToken !== oldToken))) {
+        this.broadcastToken(newToken);
+    }
+};
+
+/**
+ * Broadcasts token to other open tabs to prevent stale token usage after a re-issue from the server.
+ *
+ * @param {String} newToken The new token to broadcast.
+ * @private
+ */
+AuraClientService.prototype.broadcastToken = function(newToken) {
+    if (this.tokenSharing) {
+        $A.log("[AuraClientService.broadcastToken]: Broadcasting new token.");
+        window.localStorage.setItem(AuraClientService.TOKEN_KEY, newToken);
+    }
+};
+
+/**
+ * Establish event listener for receiving broadcasted tokens
+ * @private
+ */
+AuraClientService.prototype.setupTokenListener = function() {
+    if (this.tokenSharing) {
+        var self = this;
+        if (window.addEventListener) {
+            window.addEventListener("storage", function(event) {
+                if (event.key === AuraClientService.TOKEN_KEY && event.newValue && event.oldValue !== event.newValue) {
+                    $A.log("[AuraClientService.tokenListener]: Received new token.");
+                    self._token = event.newValue;
+
+                    // local storage is synchronous, other tabs will still receive the updated value before this delete
+                    window.localStorage.removeItem(AuraClientService.TOKEN_KEY);
+                }
+            });
+        }
     }
 };
 
@@ -3290,43 +3791,9 @@ AuraClientService.prototype.setToken = function(newToken, saveToStorage) {
  * @export
  */
 AuraClientService.prototype.resetToken = function(newToken) {
-    this.setToken(newToken, true);
+    this.setToken(newToken);
 };
 
-
-/**
- * [DEPRECATED] Run the actions.
- *
- * This function effectively attempts to submit all pending actions immediately (if
- * there is room in the outgoing request queue). If there is no way to immediately queue
- * the actions, they are submitted via the normal mechanism.
- *
- * @param {Array.<Action>}
- *            actions an array of Action objects
- * @param {Object}
- *            scope The scope in which the function is executed
- * @param {function}
- *            callback The callback function to run
- * @memberOf AuraClientService
- * @deprecated
- * @export
- */
-AuraClientService.prototype.runActions = function(actions, scope, callback) {
-    var i;
-    var count = actions.length;
-    var completion = function() {
-        count -= 1;
-        if (count === 0) {
-            callback.call(scope);
-        }
-    };
-
-    for (i = 0; i < actions.length; i++) {
-        this.enqueueAction(actions[i]);
-        actions[i].setCompletion(completion);
-    }
-    this.process();
-};
 
 /**
  * Inject a component and set up its event handlers. For Integration
@@ -3344,7 +3811,10 @@ AuraClientService.prototype.injectComponent = function(config, locatorDomId, loc
     // Save off any context global stuff like new labels
     var context = $A.getContext();
     context['merge'](config["context"]);
-    var priorAccess = context.getCurrentAccess();
+    var priorAccess = this.currentAccess;
+
+    // workaround for client library. register client libraries on injected component
+    this.initializeClientLibraries();
 
     var actionResult = config["actions"][0];
     var action = $A.get("c.aura://ComponentController.getComponent");
@@ -3353,7 +3823,7 @@ AuraClientService.prototype.injectComponent = function(config, locatorDomId, loc
     action.setCallback(action, function(a) {
         var root = $A.getRoot();
         if(!priorAccess){
-            context.setCurrentAccess(root);
+            self.setCurrentAccess(root);
         }
         try {
             var element = $A.util.getElement(locatorDomId);
@@ -3411,7 +3881,7 @@ AuraClientService.prototype.injectComponent = function(config, locatorDomId, loc
             $A.afterRender(c);
         } finally {
             if (!priorAccess) {
-                context.releaseCurrentAccess();
+                self.releaseCurrentAccess();
             }
         }
     });
@@ -3500,12 +3970,11 @@ AuraClientService.prototype.renderInjection = function(component, locator, actio
  * @export
  */
 AuraClientService.prototype.injectComponentAsync = function(config, locator, eventHandlers, callback) {
-    var acs = this;
-    var context = $A.getContext();
-    var priorAccess = context.getCurrentAccess();
+    var self = this;
+    var priorAccess = this.currentAccess;
     var root = $A.getRoot();
     if (!priorAccess) {
-        context.setCurrentAccess(root);
+        self.setCurrentAccess(root);
     }
     try {
         $A.componentService.newComponentAsync(undefined, function(component) {
@@ -3513,18 +3982,18 @@ AuraClientService.prototype.injectComponentAsync = function(config, locator, eve
                 callback(component);
             }
 
-            acs.renderInjection(component, locator, eventHandlers);     
+            self.renderInjection(component, locator, eventHandlers);
         }, config, root, false, false, true);
     } finally {
         if (!priorAccess) {
-            context.releaseCurrentAccess();
-        }        
+            self.releaseCurrentAccess();
+        }
     }
 
     // Now we go ahead and stick a label load on the request.
     var labelAction = $A.get("c.aura://ComponentController.loadLabels");
     labelAction.setCallback(this, function() {});
-    acs.enqueueAction(labelAction);
+    self.enqueueAction(labelAction);
 };
 
 /**
@@ -3537,14 +4006,9 @@ AuraClientService.prototype.addComponentHandlers = function(component, actionEve
     if (actionEventHandlers) {
         var containerValueProvider = {
             get : function(functionName) {
-                return {
-                    run : function(event) {
-                        window[functionName](event);
-                    },
-                    runDeprecated : function(event) {
-                        window[functionName](event);
-                    }
-                };
+                var action=new Action();
+                action.run=action.runDeprecated=window[functionName];
+                return action;
             }
         };
 
@@ -3578,62 +4042,48 @@ AuraClientService.prototype.enqueueAction = function(action, background) {
     $A.assert($A.util.isAction(action), "Cannot call EnqueueAction() with a non Action parameter.");
 
     if (background) {
-        $A.deprecated("Do not use the deprecated background parameter",null,"2017/03/08","2018/03/08");
+        $A.warning("$A.enqueueAction(): Do not use the deprecated background parameter. The parameter is not used anymore.");
     }
 
-    if(this.allowFlowthrough){
+    if (this.allowFlowthrough) {
         // special queue if all criteria are met:
         // - server action
         // - not a refresh action
-        // - does not have a cache hit (if persisted actions filter is disabled then assume a cache miss)
-        var isServerAction=action.getDef().isServerAction()&&!action.isRefreshAction();
-        if(isServerAction){
-            var isPersisted=this.persistedActionFilterEnabled && this.persistedActionFilter && this.persistedActionFilter.hasOwnProperty(action.getStorageKey());
-            if (!isPersisted) {
-                var auraXHR = this.getAvailableXHR(false);
-                if (auraXHR) {
-                    if (!this.send(auraXHR, [action], "POST")) {
-                        this.releaseXHR(auraXHR);
-                    }
-                    return;
-                } // no XHR available; fall through to default behavior
-            } // not persisted
-        } // not a server action or cache refresh
+        // - does not have a cache hit (if storage is persistent but failed to populate stored actions, then assume a cache miss)
+        //                             (if actions filter has not been set up yet, assume a cache miss)
+        var isServerAction = action.getDef().isServerAction() && !action.isRefreshAction();
+        if (isServerAction && !action.isCaboose() && this.isActionAbsentFromStorage(action)) {
+            var auraXHR = this.getAvailableXHR(false);
+            if (auraXHR) {
+                if (!this.send(auraXHR, [action], action.isPubliclyCacheable() ? "GET" : "POST")) {
+                    this.releaseXHR(auraXHR);
+                }
+                return;
+            } // no XHR available; fall through to default behavior
+        } // not a server action or cache refresh, and no cache hit
     }
 
     this.actionsQueued.push(action);
 };
 
 /**
- * [DEPRECATED] [DOES NOT WORK] [DO NOT USE] Defer the action by returning a Promise object.
- * Configure your action excluding the callback prior to deferring.
- * The Promise is a thenable, meaning it exposes a 'then' function for consumers to chain updates.
+ * This function is used in enqueueAction when hotspot flow is set.
  *
- * @param {Action} action - target action
- * @return {Promise} a promise which is resolved or rejected depending on the state of the action
- * @export
- * @deprecated
+ * @param {Action} action the action
+ * @returns {Boolean} true if the action storage key is guaranteed to not be accessible from storage; false if accessible or unknown.
+ * @private
  */
-AuraClientService.prototype.deferAction = function (action) {
-    $A.deprecated("$A.deferAction is broken, do not use it.","Use '$A.enqueueAction(action);'.","2017/01/06","2017/02/17");
-    var acs = this;
-    var promise = new Promise(function(success, error) {
+AuraClientService.prototype.isActionAbsentFromStorage = function(action) {
+    if (!action || !action.isStorable()) {
+        return true;
+    }
 
-        action.wrapCallback(acs, function (a) {
-            if (a.getState() === 'SUCCESS') {
-                success(a.getReturnValue());
-            }
-            else {
-                // Reject the promise as it was not successful.
-                // Give the user a somewhat useful object to use on reject.
-                error({ state: a.getState(), action: a });
-            }
-        });
+    // if actions filter has not been set up yet, assume a cache miss
+    if (!this.actionStorage.isStoragePersistent() || !this.actionStorage.isActionsFilterInitialized()) {
+        return true;
+    }
 
-        acs.enqueueAction(action);
-    });
-
-    return promise;
+    return this.actionStorage.isKeyAbsentFromCache(action.getStorageKey());
 };
 
 /**
@@ -3646,22 +4096,20 @@ AuraClientService.prototype.deferAction = function (action) {
  * @export
  */
 AuraClientService.prototype.isActionInStorage = function(descriptor, params, callback) {
-    var storage = Action.getStorage();
     callback = callback || this.NOOP;
 
-    if (!$A.util.isString(descriptor) || !$A.util.isObject(params) || !storage) {
+    if (!$A.util.isString(descriptor) || !$A.util.isObject(params) || !this.actionStorage.isStorageEnabled()) {
         callback(false);
         return;
     }
 
     var key = Action.getStorageKey(descriptor, params);
-    if (this.persistedActionFilter && !this.persistedActionFilter[key]) {
-        // persisted action filter is active and action is not visible
+    if (this.actionStorage.isStoragePersistent() && this.actionStorage.isKeyAbsentFromCache(key)) {
         callback(false);
         return;
     }
 
-    storage.get(key).then(
+    this.actionStorage.get(key).then(
         function(value) {
             $A.run(function() {
                 callback(!!value);
@@ -3686,25 +4134,24 @@ AuraClientService.prototype.isActionInStorage = function(descriptor, params, cal
  * @export
  */
 AuraClientService.prototype.revalidateAction = function(descriptor, params, callback) {
-    var storage = Action.getStorage();
     callback = callback || this.NOOP;
 
-    if (!$A.util.isString(descriptor) || !$A.util.isObject(params) || !storage) {
+    if (!$A.util.isString(descriptor) || !$A.util.isObject(params) || !this.actionStorage.isStorageEnabled()) {
         callback(false);
         return;
     }
 
     var key = Action.getStorageKey(descriptor, params);
-    if (this.persistedActionFilter && !this.persistedActionFilter[key]) {
-        // persisted action filter is active and action is not visible
+    if (this.actionStorage.isStoragePersistent() && this.actionStorage.isKeyAbsentFromCache(key)) {
         callback(false);
         return;
     }
 
-    storage.get(key, true).then(
+    var that = this;
+    this.actionStorage.get(key).then(
         function(value) {
             if (value) {
-                storage.set(key, value).then(
+                that.actionStorage.set(key, value).then(
                     function() { callback(true); },
                     function(/*error*/) { callback(false); }
                 );
@@ -3730,52 +4177,96 @@ AuraClientService.prototype.revalidateAction = function(descriptor, params, call
  * @export
  */
 AuraClientService.prototype.invalidateAction = function(descriptor, params, successCallback, errorCallback) {
-    var storage = Action.getStorage();
     successCallback = successCallback || this.NOOP;
     errorCallback = errorCallback || this.NOOP;
 
-    if (!$A.util.isString(descriptor) || !$A.util.isObject(params) || !storage) {
+    if (!$A.util.isString(descriptor) || !$A.util.isObject(params) || !this.actionStorage.isStorageEnabled()) {
         successCallback(false);
         return;
     }
 
     var key = Action.getStorageKey(descriptor, params);
-    if (this.persistedActionFilter && !this.persistedActionFilter[key]) {
-        // persisted action filter is active and action is not visible
+    if (this.actionStorage.isStoragePersistent() && this.actionStorage.isKeyAbsentFromCache(key)) {
         successCallback(true);
         return;
     }
 
-    storage.remove(key).then(
+    this.actionStorage.remove(key).then(
         function() { successCallback(true); },
         errorCallback
     );
 };
 
+// ACCESS CONTROL
 AuraClientService.prototype.isInternalNamespace = function(namespace) {
-    return this.namespaces.internal.hasOwnProperty(namespace);
+    return this.registeredNamespaces.internal.hasOwnProperty(namespace);
 };
 
 AuraClientService.prototype.isPrivilegedNamespace = function(namespace) {
-    return this.namespaces.privileged.hasOwnProperty(namespace);
+    return this.registeredNamespaces.privileged.hasOwnProperty(namespace);
+};
+
+AuraClientService.prototype.getAccessStackHierarchy=function(){
+    return this.currentAccess ? this.accessStack.map(function(component) {
+        return "[" + component.getType() + "]";
+    }).join(" > ") : "";
+};
+
+AuraClientService.prototype.setCurrentAccess=function(component){
+    if(!component){
+        component=this.currentAccess;
+    }else{
+        while(component instanceof PassthroughValue){
+            component=component.getComponent();
+        }
+    }
+    if(component){
+        this.accessStack.push(component);
+        this.currentAccess=component;
+    }
+};
+
+AuraClientService.prototype.releaseCurrentAccess=function(){
+    this.accessStack.pop();
+    this.currentAccess=this.accessStack[this.accessStack.length-1];
+};
+
+AuraClientService.prototype.getAccessVersion = function(name) {
+    var currentAccessCaller = this.accessStack[this.accessStack.length-2];
+    var ret = null;
+    if (currentAccessCaller) {
+        var def = currentAccessCaller.getDef();
+        if (def) {
+            // return the version of currentAccessCaller if namespaces are the same
+            if (def.getDescriptor().getNamespace() === name) {
+                ret = currentAccessCaller.get("version");
+            }
+            else {
+                ret = def.getRequiredVersionDefs().getDef(name);
+                if (ret) {
+                    ret = ret.getVersion();
+                }
+            }
+        }
+    }
+
+    return ret;
 };
 
 AuraClientService.prototype.allowAccess = function(definition, component) {
     if(definition&&definition.getDescriptor){
-        var context;
-        var currentAccess;
+        var currentAccess=this.currentAccess;
         if(definition.access==='G'){
             // GLOBAL means accessible from anywhere
             return true;
         }else if(definition.access==='p'){
             // PRIVATE means "same component only".
-            context=$A.getContext();
-            currentAccess=context&&context.getCurrentAccess();
             return currentAccess&&(currentAccess===component||currentAccess.getComponentValueProvider()===component||currentAccess.getDef()===component);
         }else{
             // Compute PRIVILEGED, INTERNAL, PUBLIC, and default (omitted)
-            context=$A.getContext();
-            currentAccess=(context&&context.getCurrentAccess())||component;
+            if(!currentAccess){
+                currentAccess=component;
+            }
             if(currentAccess){
                 var accessDef=null;
                 var accessFacetDef=null;
@@ -3793,11 +4284,11 @@ AuraClientService.prototype.allowAccess = function(definition, component) {
                 var accessFacetNamespace=accessFacetDescriptor&&accessFacetDescriptor.getNamespace();
 
                 var allowProtocol=this.protocols.hasOwnProperty(accessDescriptor&&accessDescriptor.getPrefix()) || this.protocols.hasOwnProperty(accessFacetDescriptor&&accessFacetDescriptor.getPrefix());
-                var isInternal=allowProtocol || this.namespaces.internal.hasOwnProperty(accessNamespace) || this.namespaces.internal.hasOwnProperty(accessFacetNamespace);
+                var isInternal=allowProtocol || this.registeredNamespaces.internal.hasOwnProperty(accessNamespace) || this.registeredNamespaces.internal.hasOwnProperty(accessFacetNamespace);
 
                 if(definition.access==='PP') {
                     // PRIVILEGED means accessible to namespaces marked PRIVILEGED, as well as to INTERNAL
-                    var isPrivileged=this.namespaces.privileged.hasOwnProperty(accessNamespace) || this.namespaces.privileged.hasOwnProperty(accessFacetNamespace);
+                    var isPrivileged=this.registeredNamespaces.privileged.hasOwnProperty(accessNamespace) || this.registeredNamespaces.privileged.hasOwnProperty(accessFacetNamespace);
                     if(isPrivileged || isInternal){
                         // Privileged Namespace
                         return true;
@@ -3823,7 +4314,7 @@ AuraClientService.prototype.allowAccess = function(definition, component) {
             return (definition.isInstanceOf && definition.isInstanceOf("aura:application")) ||
             // #if {"excludeModes" : ["PRODUCTION","PRODUCTIONDEBUG"]}
             // JBUCH: HACK: REMOVE WHEN WE NO LONGER LOAD COMPONENTS DIRECTTLY FOR DEV/TEST
-            (!$A.getRoot() || !$A.getRoot().isInstanceOf('aura:application')) && !(context&&context.getCurrentAccess()) ||
+            (!$A.getRoot() || !$A.getRoot().isInstanceOf('aura:application')) && !this.currentAccess ||
             // #end
             false;
         }
@@ -3836,29 +4327,18 @@ AuraClientService.prototype.allowAccess = function(definition, component) {
  * Saves the new token to storage then refreshes page.
  * @export
  */
-AuraClientService.prototype.invalidSession = function(token) {
-    var acs = this;
-
-    function refresh(disableParallelBootstrapLoad) {
-        if (disableParallelBootstrapLoad) {
-            acs.disableParallelBootstrapLoadOnNextLoad();
-        }
-        $A.clientService.hardRefresh();
-    }
-
+AuraClientService.prototype.invalidSession = function(newToken) {
     // if new token provided then persist to storage and reload. if persisting
     // fails then we must go to the server for bootstrap.js to get a new token.
-    if (token && token["newToken"]) {
-        this._token = token["newToken"];
-        this.saveTokenToStorage()
-            .then(refresh.bind(null, false), refresh.bind(null, true))
-            .then(undefined, function(err) {
-                $A.warning("AuraClientService.invalidSession(): Failed to refresh, " + err);
-            });
+    if (this.isValidToken(newToken) && newToken !== this._token) {
+        $A.log("[AuraClientService.invalidSession]: New Token provided, replacing existing token.");
+        this.setToken(newToken, true);
     } else {
         // refresh (to get a new session id) and force bootstrap.js to the server
         // (to get a new csrf token).
-        refresh(true);
+        this.disableParallelBootstrapLoadOnNextLoad();
+        $A.log("[AuraClientService.invalidSession]: Reloading the page.");
+        this.hardRefresh();
     }
 };
 
@@ -3884,8 +4364,7 @@ AuraClientService.prototype.setParallelBootstrapLoad = function(parallel) {
  */
 AuraClientService.prototype.disableParallelBootstrapLoadOnNextLoad = function() {
     // can only get a cache hit on bootstrap.js with persistent storage
-    var storage = Action.getStorage();
-    if (storage && storage.isPersistent()) {
+    if (this.actionStorage.isStoragePersistent()) {
         var duration = 1000*60*60*24*7; // 1 week
         $A.util.setCookie(this._disableBootstrapCacheCookie, "true", duration);
     }
@@ -3937,70 +4416,17 @@ AuraClientService.prototype.setXHRTimeout = function(timeout) {
  * Populates the persisted actions filter if applicable.
  * @return {Promise} a promise that resolves when the action keys are loaded.
  */
-AuraClientService.prototype.populatePersistedActionsFilter = function() {
-    this.setupPersistedActionsFilter();
-
-    // if filter isn't active then noop
-    if (!this.persistedActionFilter) {
-        return Promise["resolve"]();
-    }
-
+AuraClientService.prototype.populateActionsFilter = function() {
     // if GVP didn't load then don't populate the filter, effectively hiding all persisted actions
     var context = $A.getContext();
     if (!context.globalValueProviders.LOADED_FROM_PERSISTENT_STORAGE) {
         return Promise["resolve"]();
     }
 
-    // if actions isn't persistent then nothing to do
-    var actionStorage = Action.getStorage();
-    if (!actionStorage || !actionStorage.isPersistent()) {
-        return Promise["resolve"]();
-    }
-
-    var acs = this;
-    return actionStorage.getAll([], true)
+    return this.actionStorage.populateActionsFilter()
         .then(function(items) {
-            for (var key in items) {
-                acs.persistedActionFilter[key] = true;
-            }
-            $A.log("AuraClientService: restored " + Object.keys(items).length + " actions");
+            $A.log("ActionStorage: restored " + Object.keys(items).length + " actions");
         });
-};
-
-
-AuraClientService.prototype.clearPersistedActionsFilter = function () {
-    this.persistedActionFilter = undefined;
-    this.setupPersistedActionsFilter();
-};
-/**
- * Setup the persisted actions filter.
- *
- * Actions can depend on defs. And defs can depend on GVPs (particularly $Label).
- * Defs are loaded at framework init so the available actions must be determined
- * at the same time: framework init. Otherwise in a multi-tab scenario actions from
- * other tabs may be visible, and those actions may reference defs this tab doesn't have.
- */
-AuraClientService.prototype.setupPersistedActionsFilter = function() {
-    // single execution guard
-    if (this.persistedActionFilter !== undefined) {
-        return;
-    }
-
-    this.persistedActionFilter = null;
-
-    // if the app has explicitly disabled the filter
-    if (!this.persistedActionFilterEnabled) {
-        return;
-    }
-
-    // if actions isn't persistent then cross-tab action sharing isn't possible
-    var actionStorage = Action.getStorage();
-    if (!actionStorage || !actionStorage.isPersistent()) {
-        return;
-    }
-
-    // enable actions filter
-    this.persistedActionFilter = {};
 };
 
 /**
@@ -4016,7 +4442,53 @@ AuraClientService.prototype.setupPersistedActionsFilter = function() {
  * @export
  */
 AuraClientService.prototype.setPersistedActionsFilter = function(enable) {
-    this.persistedActionFilterEnabled = !!enable;
+    this.actionStorage.enableActionsFilter(enable);
+};
+
+AuraClientService.prototype.clearActionsFilter = function () {
+    this.actionStorage.clearActionsFilter();
+};
+
+/**
+ * Returns Action storage
+ * @returns {ActionStorage}
+ */
+AuraClientService.prototype.getActionStorage = function() {
+    return this.actionStorage;
+};
+
+/**
+ * Returns name of Action storage
+ * @returns {String} name of Action storage
+ */
+AuraClientService.prototype.getActionStorageName = function() {
+    return this.actionStorage.STORAGE_NAME;
+};
+
+/**
+ * Returns the globalId for the owner component.
+ * Used on component instantiation.
+ * @return {String} GlobalId of parent component
+ *
+ * @private
+ */
+AuraClientService.prototype.getCurrentAccessGlobalId = function () {
+    var owner = null;
+    if(!$A.util.isUndefinedOrNull(this.currentAccess)) {
+        owner = this.currentAccess.globalId;
+    }
+
+    return owner;
+};
+
+/**
+ * If set, an Authorization header will be set with the value of the given token for every request.
+ *
+ * @param {String} token value to be set for every request
+ * @export
+ */
+AuraClientService.prototype.setAuthorizationToken = function (token) {
+    this.authorizationToken = token;
 };
 
 Aura.Services.AuraClientService = AuraClientService;

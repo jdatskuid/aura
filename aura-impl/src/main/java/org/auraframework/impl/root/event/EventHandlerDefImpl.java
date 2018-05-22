@@ -34,6 +34,7 @@ import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.InvalidReferenceException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 /**
  * Definition of an event handler.
@@ -81,8 +82,8 @@ public class EventHandlerDefImpl extends DefinitionImpl<EventDef> implements Eve
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
-        super.validateReferences();
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        super.validateReferences(validationContext);
     	EventDef event = null;
         DefinitionService definitionService = Aura.getDefinitionService();
         if (name == null && descriptor != null) {
@@ -122,13 +123,13 @@ public class EventHandlerDefImpl extends DefinitionImpl<EventDef> implements Eve
         try {
             json.writeMapBegin();
             if (descriptor != null) {
-                json.writeMapEntry("eventDef", Aura.getDefinitionService().getDefinition(descriptor));
+                json.writeMapEntry(Json.ApplicationKey.EVENTDEF, Aura.getDefinitionService().getDefinition(descriptor));
             }
-            json.writeMapEntry("action", action);
-            json.writeMapEntry("value", value);
-            json.writeMapEntry("name", name);
-            json.writeMapEntry("phase", phase);
-            json.writeMapEntry("includeFacets", includeFacets);
+            json.writeMapEntry(Json.ApplicationKey.ACTION, action);
+            json.writeMapEntry(Json.ApplicationKey.VALUE, value);
+            json.writeMapEntry(Json.ApplicationKey.NAME, name);
+            json.writeMapEntry(Json.ApplicationKey.PHASE, phase);
+            json.writeMapEntry(Json.ApplicationKey.INCLUDEFACETS, includeFacets);
             json.writeMapEnd();
         } catch (QuickFixException e) {
             throw new AuraRuntimeException(e);

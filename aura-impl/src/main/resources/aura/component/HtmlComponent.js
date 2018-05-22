@@ -45,7 +45,7 @@ function HtmlComponent(config, localCreation) {
     this.localIndex = {};
     this.destroyed=0;
     this.version = config["version"];
-    this.owner = context.getCurrentAccess();
+    this.owner = $A.clientService.getCurrentAccessGlobalId();
     this.name='';
 
     // allows components to skip creation path checks if it's doing something weird
@@ -101,7 +101,7 @@ function HtmlComponent(config, localCreation) {
     }
 
     // add this component to the global index
-    $A.componentService.index(this);
+    $A.componentService.indexComponent(this);
 
     // sets this components definition, preferring partialconfig if it exists
     this.setupComponentDef(this.partialConfig || config);
@@ -151,6 +151,11 @@ function HtmlComponent(config, localCreation) {
 
     if (forcedPath && act && this.creationPath) {
         act.releaseCreationPath(this.creationPath);
+    }
+
+    var tag = this.attributeSet.getValue("tag");
+    if (!$A.util.isUndefinedOrNull(tag)) {
+        this.componentDef.getHelper().validateTagName(tag);
     }
 }
 
@@ -230,10 +235,7 @@ HtmlComponent.prototype["renderer"] = {
         if ($A.util.isUndefinedOrNull(tag)) {
             throw new Error("Undefined tag attribute for " + component.getGlobalId());
         }
-
-        if(!helper.ALLOWED_TAGS.hasOwnProperty(tag) && !helper.ALLOWED_TAGS.hasOwnProperty(tag.toLowerCase())){
-            throw new Error("The HTML tag '"+tag+"' is not allowed.");
-        }
+        helper.validateTagName(tag);
 
         var HTMLAttributes = component.attributeSet.getValue("HTMLAttributes");
 
@@ -243,7 +245,7 @@ HtmlComponent.prototype["renderer"] = {
             helper.createHtmlAttribute(component, element, attribute, HTMLAttributes[attribute]);
         }
         
-        $A.util.setDataAttribute(element, $A.componentService.renderedBy, this.globalId);
+        $A.util.setDataAttribute(element, $A.componentService.renderedBy, component.globalId);
 
         helper.processJavascriptHref(element);
 
@@ -520,6 +522,12 @@ HtmlComponent.prototype["helper"] = {
         "hashHandler": "fcHashHandler"
     },
 
+    validateTagName: function(tagName) {
+        if (!this.ALLOWED_TAGS.hasOwnProperty(tagName) && !this.ALLOWED_TAGS.hasOwnProperty(tagName.toLowerCase())){
+            throw new Error("The HTML tag '" + tagName + "' is not allowed.");
+        }
+    },
+    
     caseAttribute: function (attribute) {
         return this.SPECIAL_CASINGS[attribute] || attribute;
     },
@@ -696,6 +704,20 @@ HtmlComponent.prototype["helper"] = {
                     } else if (lowerName === "type" || lowerName === "href" || lowerName === "style" || lowerName.indexOf("data-") === 0) {
                         // special case we have to use "setAttribute"
                         element.setAttribute(casedAttribute, value);
+                    } else if (lowerName === "srcdoc" && element.tagName === "IFRAME" && !$A.util.isUndefinedOrNull(value)) {
+                        var message;
+                        // Check if srcdoc is allowed.  This may change as new defs are sent down.
+                        if (!$A.get("$Global")["srcdoc"]) {
+                            message = "The '" + name + "' attribute is not supported, and will not be set for " + element + " in " + component;
+                            $A.warning(message);
+                        } else {
+                            message = "The '" + name + "' attribute has been set for " + element + " in " + component;
+                            element[casedAttribute] = value;
+                        }
+                        // Track any usages for eventual deprecation
+                        $A.logger.reportError(new $A.auraError(message), null, "WARNING");
+                    } else if (lowerName === "rel" && value && value.toLowerCase && value.toLowerCase() === "import" && element.tagName === "LINK") {
+                        $A.warning("The '" + name + "' attribute is not supported, and will not be set for " + element + " in " + component);
                     } else {
                         if ($A.util.isUndefinedOrNull(value)) {
                             value = '';
@@ -726,18 +748,16 @@ HtmlComponent.prototype["helper"] = {
                 element.setAttribute("href", "javascript:void(0);");
             }
 
-            if ($A.getContext().isLockerServiceEnabled) {
-                element.addEventListener("click", this.inlineJavasciptCSPViolationPreventer);
-            }
+            element.addEventListener("click", this.inlineJavasciptCSPViolationPreventer);
       }
     },
 
     inlineJavasciptCSPViolationPreventer: function(event) {
         // Check for javascript: inline javascript
-        
+
         /*eslint-disable no-script-url*/
         var hrefTarget = this.href;
-        if (hrefTarget && /javascript:\s*void\(/.test(hrefTarget.toLowerCase())) {
+        if (hrefTarget && /^\s*javascript:\s*void\((\s*|0|null|'.*')\)/.test(hrefTarget.toLowerCase())) {
             event.preventDefault();
         }
     }

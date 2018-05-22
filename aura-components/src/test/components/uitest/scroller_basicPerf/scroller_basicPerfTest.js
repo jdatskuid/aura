@@ -15,7 +15,7 @@
  */
 ({
 	testScrollerPerf: {
-		browsers: ["-IE7","-IE8"],
+		browsers: ["-IE8"],
 		attributes: {},
         test: function(component){
         	var totalScrollerComponentsInDOM,
@@ -34,9 +34,9 @@
         	else{
         		$A.test.assert(false, "DOM query returned empty.");
         	}
-        	var body = $A.getRoot().find("scrollContainer").get("v.body");
+        	var body = component.find("scrollContainer").get("v.body");
         	var toDestroy = body.splice(0,1);
-        	$A.getRoot().find("scrollContainer").set("v.body", body);
+        	component.find("scrollContainer").set("v.body", body);
         	toDestroy[0].destroy();
     		totalScrollerComponentsInDOM  = queryString.query().groups['markup://ui:scroller'];
         	totalOutputURLComponentsInDOM  = queryString.query().groups['markup://ui:outputURL'];

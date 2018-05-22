@@ -22,7 +22,7 @@ import org.auraframework.adapter.DefinitionParserAdapter;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.impl.AuraImplTestCase;
-import org.auraframework.impl.factory.XMLParser;
+import org.auraframework.impl.factory.XMLParserBase;
 import org.auraframework.impl.root.parser.handler.ComponentDefHandler;
 import org.auraframework.impl.source.StringSource;
 import org.auraframework.system.Parser.Format;
@@ -43,11 +43,11 @@ public class ModuleDefRefHandlerTest extends AuraImplTestCase {
                 ComponentDef.class);
         StringSource<ComponentDef> source = new StringSource<>(
                 desc,"<test:test />", "myID", Format.XML);
-        XMLStreamReader xmlReader = XMLParser.createXMLStreamReader(source.getHashingReader());
+        XMLStreamReader xmlReader = XMLParserBase.createXMLStreamReader(source.getReader());
         xmlReader.next();
         ComponentDefHandler cdh = new ComponentDefHandler(null, source, xmlReader, true, definitionService, contextService,
                 configAdapter, definitionParserAdapter);
-        ModuleDefRefHandler handler = new ModuleDefRefHandler<>(cdh, xmlReader, source, true, definitionService, configAdapter, definitionParserAdapter);
+        ModuleDefRefHandler<?> handler = new ModuleDefRefHandler<>(cdh, xmlReader, source, true, definitionService, configAdapter, definitionParserAdapter);
         assertEquals("module reference", handler.getHandledTag());
     }
 

@@ -117,13 +117,12 @@
     },
 
     close: function (cmp, callback, shouldReturnFocus) {
-        // shouldReturnFocus defaults to true if it is not explicitly passed in.
-        if ($A.util.isUndefinedOrNull(shouldReturnFocus) || shouldReturnFocus) {
-            this.focusLib.stackUtil.unstackFocus(cmp);
-        }
-
         cmp.hide(function () {
             if (cmp.isValid()) {
+                // MODAL should not handle return focus.
+                // ui:destroyPanel event handling in panelManager2 will return the focus
+                // after activateNextPanel which could cause focus move to next panel.
+                // so to return focus correctly, must return it after activateNextPanel.
                 cmp.getEvent('notify').setParams({
                     action: 'destroyPanel',
                     typeOf: 'ui:destroyPanel',
@@ -189,43 +188,54 @@
         this.lib.panelLibCore.hide(cmp, config);
     },
 
+    _setMaskOpacity: function(mask, value, delay) {
+        var setOpacity = function (target, opacity) {
+            if (target && target.style) {
+                target.style.opacity = opacity;
+            } 
+        };
+
+        if (delay > 0) {
+            setTimeout(function() {
+                setOpacity(mask, value);
+            }, delay);
+        } else {
+            setOpacity(mask, value);
+        }
+    },
+
     mask: function(cmp) {
         var useTransition = $A.util.getBooleanValue(cmp.get('v.useTransition'));
         var mask = this._findContainedComponent(cmp, 'modal-glass').getElement();
         
         if ($A.util.isUndefinedOrNull(this.global._originalOverflowStyle)) {
-            var overflowStyle = window.getComputedStyle(document.body, '').overflow;
+            var style = window.getComputedStyle(document.body, '') || document.body.style;
+            var overflowStyle = style && style.overflow ? style.overflow : document.body.style.overflow;
             this.global._originalOverflowStyle = overflowStyle;
             // prevent scrolling of the body when modals are open
             document.body.style.overflow = 'hidden';
         }
 
-        var toAdd = ['fadein', $A.getToken('uiModal.backdropOpen')];
-        $A.util.swapClass(mask, 'hidden', toAdd);
+        $A.util.swapClass(mask, 'hidden', ['fadein', $A.getToken('uiModal.backdropOpen')]);
+        
+        this._setMaskOpacity(mask,
+                            useTransition ? 0.8 : 1, 
+                            useTransition ? 10 : 0);
+    },
 
-        if(useTransition) {
-            setTimeout(function() {
-                mask.style.opacity = 0.8;
-            },10);
-        } else {
-            mask.style.opacity = 1;
-        }
-    },
-    scopeScrollables: function (cmp) {
-        this.lib.panelLibCore.scopeScrollables(cmp);
-    },
-    
     unmask: function(cmp, useTransition, panel) {
         var mask = this._findContainedComponent(cmp, 'modal-glass').getElement();
         
         if(useTransition) {
             panel.style.opacity = '0';
-            setTimeout(function() {
-                 mask.style.opacity = '0';
-            }, 50);
+            this._setMaskOpacity(mask, 0, 50);            
         }
         
         this.unsetOverflow(cmp);
+    },    
+
+    scopeScrollables: function (cmp) {
+        this.lib.panelLibCore.scopeScrollables(cmp);
     },
     
     unsetOverflow: function() {

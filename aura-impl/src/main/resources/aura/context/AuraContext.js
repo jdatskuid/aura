@@ -35,7 +35,12 @@ Aura.Context.AuraContext = function AuraContext(config, initCallback) {
 
     this.fwuid = config["fwuid"];
     this.pathPrefix = config["pathPrefix"];
+    this.moduleServices = config["services"];
     this.num = 0;
+    this.scriptNonce = config["scriptNonce"];
+    this.styleContext = {};
+    this.styleContext.cuid = config["styleContext"] ? config["styleContext"]["cuid"] : undefined;
+
 
     // To keep track of re-rendering service call
     this.renderNum = 0;
@@ -49,19 +54,19 @@ Aura.Context.AuraContext = function AuraContext(config, initCallback) {
     this.contextPath = config["contextPath"] || "";
     this.allowedGlobals = config["allowedGlobals"];
     this.globals = config["globals"];
-    this.enableAccessChecks=true;
-    this.isLockerServiceEnabled = this["isLockerServiceEnabled"] = false;
-
-    // JBUCH: TOGGLE LOGGING OFF BY DEFAULT IN PROD MODE
-    this.logAccessFailures= true
-                            // #if {"modes" : ["PRODUCTION"]}
-                            && false
-                            // #end
-                            ;
-    this.accessStack=[];
     this.tokens={};
-    this.isModulesEnabled = !!config["m"];
-
+    this.useCompatSource = !!config["c"];
+    this.moduleNamespaceAliases = config["mna"] || {};
+    this.actionPublicCachingEnabled = !!config["apce"];
+    if (this.actionPublicCachingEnabled) {
+        this.actionPublicCacheKey = config["apck"];
+    }
+    this.uriAddressableDefsEnabled = config[Json.ApplicationKey.URIADDRESSABLEDEFINITIONS];
+    if (this.uriAddressableDefsEnabled === undefined) {
+        this.uriAddressableDefsEnabled = !!this.getURIDefsStateFromQuery();
+    }
+    this.cdnHost = config[Json.ApplicationKey.CDN_HOST];
+    
     var that = this;
 
     this.initGlobalValueProviders(config["globalValueProviders"], function(gvps) {
@@ -135,7 +140,7 @@ Aura.Context.AuraContext.prototype.initGlobalValueProviders = function(gvps, cal
         gvps = {};
     }
 
-    $A.util.apply(gvps,$A.globalValueProviders);
+    $A.util.applyNotFromPrototype(gvps,$A.globalValueProviders);
 
     this.globalValueProviders = new Aura.Provider.GlobalValueProviders(gvps, callback);
 };
@@ -150,59 +155,6 @@ Aura.Context.AuraContext.prototype.initGlobalValueProviders = function(gvps, cal
  */
 Aura.Context.AuraContext.prototype.getMode = function() {
     return this.mode;
-};
-
-Aura.Context.AuraContext.prototype.getCurrentAccess=function(){
-    return this.accessStack[this.accessStack.length-1];
-};
-
-Aura.Context.AuraContext.prototype.getCurrentAccessCaller=function(){
-    return this.accessStack[this.accessStack.length-2];
-};
-
-Aura.Context.AuraContext.prototype.getAccessStackHierarchy=function(){
-    return this.accessStack ? this.accessStack.map(function(component) {
-        return "[" + component.getType() + "]";
-    }).join(" > ") : null;
-};
-
-Aura.Context.AuraContext.prototype.setCurrentAccess=function(component){
-    if(!component){
-        component=this.getCurrentAccess();
-    }else{
-        while(component instanceof PassthroughValue){
-            component=component.getComponent();
-        }
-    }
-    if(component){
-        this.accessStack.push(component);
-    }
-};
-
-Aura.Context.AuraContext.prototype.releaseCurrentAccess=function(){
-    this.accessStack.pop();
-};
-
-Aura.Context.AuraContext.prototype.getAccessVersion = function(name) {
-    var currentAccessCaller = this.getCurrentAccessCaller();
-    var ret = null;
-    if (currentAccessCaller) {
-        var def = currentAccessCaller.getDef();
-        if (def) {
-            // return the version of currentAccessCaller if namespaces are the same
-            if (def.getDescriptor().getNamespace() === name) {
-                ret = currentAccessCaller.get("version");
-            }
-            else {
-                ret = def.getRequiredVersionDefs().getDef(name);
-                if (ret) {
-                    ret = ret.getVersion();
-                }
-            }
-        }
-    }
-
-    return ret;
 };
 
 /**
@@ -251,7 +203,7 @@ Aura.Context.AuraContext.prototype.getGlobalValueProvider = function(type) {
  * @return {String} json representation
  * @private
  */
-Aura.Context.AuraContext.prototype.encodeForServer = function(includeDynamic) {
+Aura.Context.AuraContext.prototype.encodeForServer = function(includeDynamic, includeCacheKeyForCacheableXHR) {
     var contextToSend = {
         "mode" : this.mode,
         "fwuid" : this.fwuid
@@ -268,10 +220,16 @@ Aura.Context.AuraContext.prototype.encodeForServer = function(includeDynamic) {
         contextToSend["loaded"] = this.loaded;
         contextToSend["dn"] = $A.services.component.getDynamicNamespaces();
         contextToSend["globals"] = this.globalValueProviders.getValueProvider("$Global").serializeForServer();
+    } else {
+        contextToSend["loaded"] = this.loadedOriginal;
     }
-    if(this.isModulesEnabled) {
-        contextToSend["m"] = 1;
+    if (includeCacheKeyForCacheableXHR) {
+        contextToSend["apck"] = this.actionPublicCacheKey;
     }
+    if(this.useCompatSource) {
+        contextToSend["c"] = 1;
+    }
+    contextToSend[Json.ApplicationKey.URIADDRESSABLEDEFINITIONS] = !!this.uriAddressableDefsEnabled;
     return $A.util.json.encode(contextToSend);
 };
 
@@ -279,26 +237,24 @@ Aura.Context.AuraContext.prototype.encodeForServer = function(includeDynamic) {
  * @param {Object} otherContext the context from the server to join in to this one.
  * @export
  */
-Aura.Context.AuraContext.prototype.merge = function(otherContext) {
+Aura.Context.AuraContext.prototype.merge = function(otherContext, allowMissmatch) {
     var i, defs;
 
-    if (otherContext["mode"] !== this.getMode()) {
-        throw new $A.auraError("[Mode mismatch] Expected '" + this.getMode() + "' instead tried to merge mode '" + otherContext["mode"] + "'", null, $A.severity.QUIET);
-    }
+    if (!allowMissmatch) {
 
-    if ($A.util.isUndefinedOrNull(this.fwuid)) {
-        this.fwuid = otherContext["fwuid"];
-    }
-    if (otherContext["fwuid"] !== this.fwuid) {
-        throw new $A.auraError("framework mismatch", null, $A.severity.QUIET);
-    }
+        if ($A.util.isUndefinedOrNull(this.fwuid)) {
+            this.fwuid = otherContext["fwuid"];
+        }
+        if (otherContext["fwuid"] !== this.fwuid) {
+            throw new $A.auraError("framework mismatch", null, $A.severity.QUIET);
+        }
 
-    this.enableAccessChecks=otherContext["enableAccessChecks"];
-    this.isLockerServiceEnabled = this["isLockerServiceEnabled"] = $A.lockerService.containerSupportsRequiredFeatures() && otherContext["lockerEnabled"];
-    this.isModulesEnabled = !!otherContext["m"];
+        $A.clientService.enableAccessChecks = otherContext["enableAccessChecks"];
+        this.moduleServices = otherContext["services"];
+    }
 
     try {
-        this.globalValueProviders.merge(otherContext["globalValueProviders"]);        
+        this.globalValueProviders.merge(otherContext["globalValueProviders"]);
     } finally {
         if (otherContext["libraryDefs"]) {
             defs = otherContext["libraryDefs"];
@@ -306,7 +262,7 @@ Aura.Context.AuraContext.prototype.merge = function(otherContext) {
                 $A.componentService.saveLibraryConfig(defs[i]);
             }
         }
-    
+
         if (otherContext["componentDefs"]) {
             defs = otherContext["componentDefs"];
             for (i = 0; i < defs.length; i++) {
@@ -316,7 +272,7 @@ Aura.Context.AuraContext.prototype.merge = function(otherContext) {
                 }
             }
         }
-    
+
         if (otherContext["eventDefs"]) {
             defs = otherContext["eventDefs"];
             for (i = 0; i < defs.length; i++) {
@@ -327,10 +283,18 @@ Aura.Context.AuraContext.prototype.merge = function(otherContext) {
         if (otherContext["moduleDefs"]) {
             $A.componentService.initModuleDefs(otherContext["moduleDefs"]);
         }
-    
+
         this.joinComponentConfigs(otherContext["components"], ""+this.getNum());
-        this.joinLoaded(otherContext["loaded"]);
+        this.joinLoaded(otherContext["loaded"], allowMissmatch);
     }
+};
+
+/**
+ * @param $Label mapping of additional labels to add
+ * @export
+ */
+Aura.Context.AuraContext.prototype.mergeLabels = function(labels) {
+    this.globalValueProviders.merge([labels]);
 };
 
 /**
@@ -555,13 +519,13 @@ Aura.Context.AuraContext.prototype.clearComponentConfigs = function(actionId) {
 /**
  * @private
  */
-Aura.Context.AuraContext.prototype.joinLoaded = function(loaded) {
+Aura.Context.AuraContext.prototype.joinLoaded = function(loaded, dontOverride) {
     if (this.loaded === undefined) {
         this.loaded = {};
     }
     if (loaded) {
         for ( var i in loaded) {
-            if (loaded.hasOwnProperty(i) && !($A.util.isFunction(i))) {
+            if (loaded.hasOwnProperty(i) && !dontOverride && !($A.util.isFunction(i))) {
                 var newL = loaded[i];
                 if (newL === 'deleted') {
                     delete this.loaded[i];
@@ -666,4 +630,100 @@ Aura.Context.AuraContext.prototype.getContextPath = function() {
 /** @export */
 Aura.Context.AuraContext.prototype.setContextPath = function(path) {
     this.contextPath = path;
+};
+
+/**
+ * @return {boolean} if action public caching is enabled or not
+ * @export
+ */
+Aura.Context.AuraContext.prototype.isActionPublicCachingEnabled = function() {
+    return this.actionPublicCachingEnabled;
+};
+
+/**
+ * @return {String} The action public cache key
+ * @export
+ */
+Aura.Context.AuraContext.prototype.getActionPublicCacheKey = function() {
+    return this.actionPublicCacheKey;
+};
+
+/**
+ * @return {boolean} if URI Addressable Defs enabled or not
+ */
+Aura.Context.AuraContext.prototype.isURIAddressableDefsEnabled = function() {
+    return this.uriAddressableDefsEnabled;
+};
+
+/**
+ * @return {boolean} if CDN is enabled
+ */
+Aura.Context.AuraContext.prototype.isCDNEnabled = function() {
+    return !$A.util.isUndefinedOrNull(this.cdnHost);
+};
+
+/**
+ * Whether compat source is needed.
+ * @returns {Boolean} whether compat is enabled
+ */
+Aura.Context.AuraContext.prototype.isCompat = function() {
+    return this.useCompatSource;
+};
+
+/**
+ * should only be used in AuraContext.
+ * @private
+ */
+Aura.Context.AuraContext.prototype.__setDefaultURIDefsState = function(state) {
+    var newState = {};
+    if (state["createCmp"] === undefined) {
+        newState.createCmp = true;
+    } else {
+        newState.createCmp = state["createCmp"];
+    }
+    if (state["hydration"] === undefined) {
+        newState.hydration = "one";
+    } else {
+        newState.hydration = state["hydration"];
+    }
+    if (state["bundleRequests"] === undefined) {
+        newState.bundleRequests = true;
+    } else {
+        newState.bundleRequests = state["bundleRequests"];
+    }
+    return newState;
+};
+
+/**
+ * @private
+ */
+Aura.Context.AuraContext.prototype.getURIDefsStateFromQuery = function() {
+    var uriDefsState = null;
+    var state = window.location.search.split("uriDefsState=");
+    if (state.length >= 2) {
+        var value = state[1].split("&")[0];
+        if (value.length > 0) {
+            uriDefsState = JSON.parse(decodeURIComponent(value));
+        }
+    }
+    return uriDefsState;
+};
+
+/**
+ * @private
+ */
+Aura.Context.AuraContext.prototype.getURIDefsState = function() {
+    if (this.uriDefsState === undefined) {
+        if (!this.uriAddressableDefsEnabled) {
+            this.uriDefsState = null;
+            return this.uriDefsState;
+        }
+        this.uriDefsState = this.getURIDefsStateFromQuery();
+        if (this.uriAddressableDefsEnabled && this.uriDefsState === null) {
+            this.uriDefsState = {};
+        }
+        this.uriDefsState = this.__setDefaultURIDefsState(this.uriDefsState);
+    }
+
+    return this.uriDefsState;
 };

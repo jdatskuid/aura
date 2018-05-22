@@ -72,7 +72,7 @@ public class ActionTypeDef extends DefinitionImpl<TypeDef> implements TypeDef {
 
         public Builder() {
             super(TypeDef.class);
-            setDescriptor(new DefDescriptorImpl<>("aura://Aura.Action", TypeDef.class, null));
+            setDescriptor(new DefDescriptorImpl<>("aura", "Aura", "Action", TypeDef.class, null));
             setLocation(getDescriptor().getQualifiedName(), -1);
             setAccess(new DefinitionAccessImpl(AuraContext.Access.GLOBAL));
         };
@@ -82,9 +82,4 @@ public class ActionTypeDef extends DefinitionImpl<TypeDef> implements TypeDef {
             return new ActionTypeDef(this);
         }
     }
-
-    @Override
-    public void appendDependencies(Object instance, Set<DefDescriptor<?>> deps) {
-    }
-
 }

@@ -34,6 +34,7 @@ import org.auraframework.system.AuraContext;
 import org.auraframework.throwable.quickfix.InvalidDefinitionException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 import com.google.common.base.Optional;
 
@@ -75,7 +76,7 @@ public final class FlavoredStyleDefImpl extends AbstractStyleDef<FlavoredStyleDe
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
         DefDescriptor<ComponentDef> desc = Flavors.toComponentDescriptor(getDescriptor());
         ComponentDef def = Aura.getDefinitionService().getDefinition(desc);
         if (!def.hasFlavorableChild() && !def.inheritsFlavorableChild() && !def.isDynamicallyFlavorable()) {
@@ -87,11 +88,11 @@ public final class FlavoredStyleDefImpl extends AbstractStyleDef<FlavoredStyleDe
     @Override
     public void serialize(Json json) throws IOException {
         json.writeMapBegin();
-        json.writeMapEntry("descriptor", descriptor);
+        json.writeMapEntry(Json.ApplicationKey.DESCRIPTOR, descriptor);
 
         AuraContext context = Aura.getContextService().getCurrentContext();
         if (!context.isPreloading() && !context.isPreloaded(getDescriptor())) {
-            json.writeMapEntry("code", getCode());
+            json.writeMapEntry(Json.ApplicationKey.CODE, getCode());
         }
         json.writeMapEnd();
     }

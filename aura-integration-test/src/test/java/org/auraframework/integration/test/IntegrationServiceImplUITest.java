@@ -15,9 +15,10 @@
  */
 package org.auraframework.integration.test;
 
-import com.google.common.base.Function;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
+import java.util.List;
+import java.util.Map;
+
+import javax.inject.Inject;
 
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.ControllerDef;
@@ -25,8 +26,8 @@ import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.HelperDef;
 import org.auraframework.def.ProviderDef;
 import org.auraframework.def.StyleDef;
-import org.auraframework.impl.AuraImplTestCase;
 import org.auraframework.integration.test.util.WebDriverTestCase;
+import org.auraframework.test.util.AuraTestCase;
 import org.auraframework.test.util.AuraTestingMarkupUtil;
 import org.auraframework.test.util.WebDriverUtil.BrowserType;
 import org.auraframework.util.AuraTextUtil;
@@ -37,12 +38,8 @@ import org.junit.Test;
 import org.openqa.selenium.By;
 import org.openqa.selenium.WebElement;
 
-import java.net.MalformedURLException;
-import java.net.URISyntaxException;
-import java.util.List;
-import java.util.Map;
-
-import javax.inject.Inject;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 /**
  * UI test for usage of Integration Service.
@@ -66,11 +63,11 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
 
         getMockConfigAdapter().setLockerServiceEnabled(false);
 
-        defaultStubCmp = addSourceAutoCleanup(
-            ComponentDef.class,
-            getIntegrationStubMarkup(
+        String integrationStubMarkup = getIntegrationStubMarkup(
                 "java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererForTestingIntegrationService",
-                true, true, true));
+                true, true, true);
+
+        defaultStubCmp = addSourceAutoCleanup(ComponentDef.class, integrationStubMarkup);
     }
 
 
@@ -92,11 +89,11 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
     @ExcludeBrowsers({ BrowserType.IPAD, BrowserType.IPHONE})
     @Test
     public void testSimpleComponentWithModelAndControllerAsync() throws Exception {
-        DefDescriptor<ComponentDef> stub = addSourceAutoCleanup(
-            ComponentDef.class,
-            getIntegrationStubMarkup(
+        String integrationStubMarkup = getIntegrationStubMarkup(
                 "java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererForTestingIntegrationService",
-                true, true, true, true));
+                true, true, true, true);
+        DefDescriptor<ComponentDef> stub = addSourceAutoCleanup(ComponentDef.class,integrationStubMarkup);
+
         verifySimpleComponentWithModelControllerHelperandProvider(stub);
     }
 
@@ -110,7 +107,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
         openIntegrationStub(stub, cmpToInject, attributes);
 
         getAuraUITestingUtil().waitForElement("Injected component not found inside placeholder",
-        		By.cssSelector(selectorForPlaceholder + ">" + "div.wrapper"));
+                By.cssSelector(selectorForPlaceholder + ">" + "div.wrapper"));
         WebElement attrValue = findDomElement(By.cssSelector("div.dataFromAttribute"));
         assertEquals("Failed to see data from model of injected component", "Oranges", attrValue.getText());
         WebElement modelValue = findDomElement(By.cssSelector("div.dataFromModel"));
@@ -130,21 +127,16 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
 
         WebElement valueFromJsProvider = findDomElement(By.cssSelector("div.dataFromJSProvider"));
         assertEquals("Failed to see data from model of injected component",
-        		"ValueFromJsProvider[ValueFromHelper]", valueFromJsProvider.getText());
+                "ValueFromJsProvider[ValueFromHelper]", valueFromJsProvider.getText());
 
         WebElement valueFromJavaProvider = findDomElement(By.cssSelector("div.dataFromJavaProvider"));
         assertEquals("Failed to see data from model of injected component",
-        		"valueFromJavaProvider", valueFromJavaProvider.getText());
+                "valueFromJavaProvider", valueFromJavaProvider.getText());
 
         WebElement buttonShowStyle = findDomElement(By.cssSelector(".btnShowStyle"));
         buttonShowStyle.click();
         getAuraUITestingUtil().waitForElementFunction(By.cssSelector("div.dataFromAttributeStyle"),
-        		new Function<WebElement, Boolean>() {
-		            @Override
-		            public Boolean apply(WebElement element) {
-		                return element.getText().startsWith("rgb(255, 255, 255)")||element.getText().startsWith("#fff");
-		            }
-        	}
+                element -> element.getText().startsWith("rgb(255, 255, 255)")||element.getText().startsWith("#fff")
         );
     }
 
@@ -161,20 +153,20 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
                 .getDefDescriptor(cmpDesc, DefDescriptor.JAVASCRIPT_PREFIX, ControllerDef.class);
         DefDescriptor<ProviderDef> jsProviderdesc = definitionService
                 .getDefDescriptor(cmpDesc, DefDescriptor.JAVASCRIPT_PREFIX, ProviderDef.class);
-    	DefDescriptor<HelperDef> jsHelperdesc = definitionService
+        DefDescriptor<HelperDef> jsHelperdesc = definitionService
                 .getDefDescriptor(cmpDesc,  DefDescriptor.JAVASCRIPT_PREFIX, HelperDef.class);
-    	DefDescriptor<StyleDef> CSSdesc = definitionService
+        DefDescriptor<StyleDef> CSSdesc = definitionService
                 .getDefDescriptor(cmpDesc,  DefDescriptor.CSS_PREFIX, StyleDef.class);
-    	//fill in component to be injected
+        //fill in component to be injected
         String jsProviderName = jsProviderdesc.getQualifiedName();
         String systemAttributes = "model='java://org.auraframework.components.test.java.model.TestModel' "
                 + "controller='java://org.auraframework.components.test.java.controller.TestController' "
                 + "provider='" + jsProviderName
                 + ",java://org.auraframework.impl.java.provider.TestComponnetConfigProviderAIS' ";
         String bodyMarkup = "<aura:attribute name='strAttribute' type='String' default='Apple'/> "
-        		+ "<aura:attribute name='valueFromJSProvider' type='String' default='Empty'/> "
-        		+ "<aura:attribute name='valueFromJavaProvider' type='String' default='Empty'/> "
-        		+ "<aura:attribute name='dataFromAttributeStyle' type='String' default='Empty'/> "
+                + "<aura:attribute name='valueFromJSProvider' type='String' default='Empty'/> "
+                + "<aura:attribute name='valueFromJavaProvider' type='String' default='Empty'/> "
+                + "<aura:attribute name='dataFromAttributeStyle' type='String' default='Empty'/> "
                 + "<ui:button aura:id='btnHandleClick' class='btnHandleClick' label='clickMe' press='{!c.handleClick}'/>"
                 + "<ui:button aura:id='btnShowStyle' class='btnShowStyle' label='showStyle' press='{!c.showStyle}'/>"
                 + "<div class='wrapper'>"
@@ -186,7 +178,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
                 + "<div class='dataFromAttributeStyle' aura:id='dataFromAttributeStyle'>{!v.dataFromAttributeStyle}</div> "
                 + "</div>";
         addSourceAutoCleanup(cmpDesc, String.format(baseComponentTag, systemAttributes,bodyMarkup));
-    	//fill in js controller
+        //fill in js controller
         addSourceAutoCleanup(jsControllerdesc,
         "{"
             + "  handleClick:function(cmp){"
@@ -226,15 +218,15 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
             + "      }"
             + "    };"
             + "  }"
-		    + "}"
+            + "}"
         );
         //fill in helper
         addSourceAutoCleanup(jsHelperdesc,
-	        "{"
+            "{"
             + "  returnAString: function() {"
             + "    return 'ValueFromHelper';"
             + "  }"
-	        + "}"
+            + "}"
         );
         //fill in CSS
         addSourceAutoCleanup(CSSdesc, ".THIS .dataFromAttribute { color: #fff; } ");
@@ -249,17 +241,16 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
 
     @Test
     public void testSimpleComponentWithExtensionAsync() throws Exception {
-        DefDescriptor<ComponentDef> stub = addSourceAutoCleanup(
-            ComponentDef.class,
-            getIntegrationStubMarkup("java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererForTestingIntegrationService",
-                true, true, true, true)
-        );
+        String integrationStubMarkup = getIntegrationStubMarkup(
+                "java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererForTestingIntegrationService",
+                true, true, true, true);
+        DefDescriptor<ComponentDef> stub = addSourceAutoCleanup(ComponentDef.class, integrationStubMarkup);
 
         verifySimpleComponentWithExtension(stub);
     }
 
-    private void verifySimpleComponentWithExtension(DefDescriptor<ComponentDef> stub) throws MalformedURLException, URISyntaxException {
-    	DefDescriptor<ComponentDef> cmpToInject = setupSimpleComponentWithExtension();
+    private void verifySimpleComponentWithExtension(DefDescriptor<ComponentDef> stub) throws Exception {
+        DefDescriptor<ComponentDef> cmpToInject = setupSimpleComponentWithExtension();
         Map<String, Object> attributes = Maps.newHashMap();
 
         openIntegrationStub(stub, cmpToInject, attributes);
@@ -273,28 +264,28 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
     }
 
     private DefDescriptor<ComponentDef> setupSimpleComponentWithExtension() {
-    	DefDescriptor<ComponentDef> baseCmpDesc =  setupSimpleComponentToExtend();
-    	DefDescriptor<ComponentDef> cmpDesc = getAuraTestingUtil().createStringSourceDescriptor(null,
+        DefDescriptor<ComponentDef> baseCmpDesc =  setupSimpleComponentToExtend();
+        DefDescriptor<ComponentDef> cmpDesc = getAuraTestingUtil().createStringSourceDescriptor(null,
                 ComponentDef.class, null);
-    	String systemAttributes=String.format("extends='%s:%s' ", baseCmpDesc.getNamespace(),baseCmpDesc.getName());
-    	String bodyMarkup = "<aura:set attribute='SimpleAttribute'> We just Set it </aura:set> "
-    			+ "<div class='attrFromBaseCmp'>In BaseCmp : SimpleAttribute={!v.SimpleAttribute}  </div>";
-    	addSourceAutoCleanup(cmpDesc, String.format(baseComponentTag, systemAttributes,bodyMarkup));
+        String systemAttributes=String.format("extends='%s:%s' ", baseCmpDesc.getNamespace(),baseCmpDesc.getName());
+        String bodyMarkup = "<aura:set attribute='SimpleAttribute'> We just Set it </aura:set> "
+                + "<div class='attrFromBaseCmp'>In BaseCmp : SimpleAttribute={!v.SimpleAttribute}  </div>";
+        addSourceAutoCleanup(cmpDesc, String.format(baseComponentTag, systemAttributes,bodyMarkup));
 
-    	return cmpDesc;
+        return cmpDesc;
     }
 
     private DefDescriptor<ComponentDef> setupSimpleComponentToExtend() {
-    	DefDescriptor<ComponentDef> cmpDesc = getAuraTestingUtil().createStringSourceDescriptor(null,
+        DefDescriptor<ComponentDef> cmpDesc = getAuraTestingUtil().createStringSourceDescriptor(null,
                 ComponentDef.class, null);
-    	String systemAttributes="extensible='true' ";
-    	String bodyMarkup =
-    	"<aura:attribute name='SimpleAttribute' type='String' default='DefaultStringFromBaseCmp'/>"
-    	+ "{!v.body}"
+        String systemAttributes="extensible='true' ";
+        String bodyMarkup =
+        "<aura:attribute name='SimpleAttribute' type='String' default='DefaultStringFromBaseCmp'/>"
+        + "{!v.body}"
         + "<div class='attrInBaseCmp'>In BaseCmp : SimpleAttribute={!v.SimpleAttribute} </div>";
-    	addSourceAutoCleanup(cmpDesc, String.format(baseComponentTag, systemAttributes,bodyMarkup));
+        addSourceAutoCleanup(cmpDesc, String.format(baseComponentTag, systemAttributes,bodyMarkup));
 
-    	return cmpDesc;
+        return cmpDesc;
     }
 
     /**
@@ -330,7 +321,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
                                 "'Apple,Orange'", "'Melon,Berry,Grapes'", "", "", "");
 
         DefDescriptor<ComponentDef> cmpToInject = addSourceAutoCleanup(ComponentDef.class,
-                String.format(AuraImplTestCase.baseComponentTag, "", attributeMarkup + attributeWithDefaultsMarkup));
+                String.format(AuraTestCase.baseComponentTag, "", attributeMarkup + attributeWithDefaultsMarkup));
 
         Map<String, Object> attributes = Maps.newHashMap();
         attributes.put("strAttr", "Oranges");
@@ -384,12 +375,10 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
     @ExcludeBrowsers({ BrowserType.IPAD, BrowserType.IPHONE })
     @Test
     public void testExtendedAppWithRegisteredEventsAsync() throws Exception {
-        DefDescriptor<ComponentDef> stub = addSourceAutoCleanup(
-                ComponentDef.class,
-                getIntegrationStubMarkup(
-                        "java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererWithExtendedApp",
-                        true, true, true, true)
-                );
+        String integrationStubMarkup = getIntegrationStubMarkup(
+                "java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererWithExtendedApp",
+                true, true, true, true);
+        DefDescriptor<ComponentDef> stub = addSourceAutoCleanup(ComponentDef.class, integrationStubMarkup);
         verifyComponentWithRegisteredEvents(stub, true);
     }
 
@@ -400,12 +389,11 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
     @ExcludeBrowsers({ BrowserType.IPAD, BrowserType.IPHONE })
     @Test
     public void testComponentWithRegisteredEvents() throws Exception {
+        String integrationStubMarkup = getIntegrationStubMarkup(
+                "java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererForAISWithCustomJScript",
+                true, true, true);
         DefDescriptor<ComponentDef> stub = addSourceAutoCleanup(
-                ComponentDef.class,
-                getIntegrationStubMarkup(
-                        "java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererForAISWithCustomJScript",
-                        true, true, true)
-                );
+                ComponentDef.class, integrationStubMarkup);
         verifyComponentWithRegisteredEvents(stub, false);
     }
 
@@ -416,12 +404,11 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
     @ExcludeBrowsers({ BrowserType.IPAD, BrowserType.IPHONE })
     @Test
     public void testComponentWithRegisteredEventsAsync() throws Exception {
+        String integrationStubMarkup = getIntegrationStubMarkup(
+                "java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererForAISWithCustomJScript",
+                true, true, true, true);
         DefDescriptor<ComponentDef> stub = addSourceAutoCleanup(
-                ComponentDef.class,
-                getIntegrationStubMarkup(
-                        "java://org.auraframework.impl.renderer.sampleJavaRenderers.RendererForAISWithCustomJScript",
-                        true, true, true, true)
-                );
+                ComponentDef.class, integrationStubMarkup);
         verifyComponentWithRegisteredEvents(stub, false);
     }
 
@@ -444,7 +431,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
                 + "<div class='click2_t' onclick='{!c.click2Hndlr}'>Click Me2</div>"
                 + "<div class='click3_t' onclick='{!c.click3Hndlr}'>Click Me3</div>";
         DefDescriptor<ComponentDef> cmpToInject = addSourceAutoCleanup(ComponentDef.class,
-                String.format(AuraImplTestCase.baseComponentTag, "", bodyMarkup));
+                String.format(AuraTestCase.baseComponentTag, "", bodyMarkup));
         DefDescriptor<ControllerDef> jsControllerdesc = definitionService
                 .getDefDescriptor(
                         String.format("%s://%s.%s", DefDescriptor.JAVASCRIPT_PREFIX, cmpToInject.getNamespace(),
@@ -520,7 +507,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
                 + "<div class='divDefault'>Div as default</div>"
                 + "<span class='spanDefault'>Span component as default</span>" + "</aura:attribute>{!v.cmpsDefault}";
         DefDescriptor<ComponentDef> cmpToInject = addSourceAutoCleanup(ComponentDef.class,
-                String.format(AuraImplTestCase.baseComponentTag, "", attributeMarkup + attributeWithDefaultsMarkup));
+                String.format(AuraTestCase.baseComponentTag, "", attributeMarkup + attributeWithDefaultsMarkup));
 
         DefDescriptor<ComponentDef> customStub = addSourceAutoCleanup(
                 ComponentDef.class,
@@ -580,7 +567,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
 
     private void verifyMissingPlaceholder(DefDescriptor<ComponentDef> stub, String locatorName) throws Exception {
         DefDescriptor<ComponentDef> cmpToInject = addSourceAutoCleanup(ComponentDef.class,
-                String.format(AuraImplTestCase.baseComponentTag, "", ""));
+                String.format(AuraTestCase.baseComponentTag, "", ""));
 
         String badPlaceholder = "fooBared";
         String expectedErrorMessage = String.format(
@@ -666,7 +653,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
 
     private void verifyExceptionDuringComponentInitialization(DefDescriptor<ComponentDef> stub) throws Exception {
         DefDescriptor<ComponentDef> cmpWithReqAttr = addSourceAutoCleanup(ComponentDef.class,
-                String.format(AuraImplTestCase.baseComponentTag, "",
+                String.format(AuraTestCase.baseComponentTag, "",
                         "<aura:attribute name='reqAttr' required='true' type='String'/>"));
         Map<String, Object> attributes = Maps.newHashMap();
         String expectedErrorMessage = "is missing required attribute 'reqAttr'";
@@ -699,7 +686,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
         }
 
         DefDescriptor<ComponentDef> customStubCmp = addSourceAutoCleanup(ComponentDef.class,
-                String.format(AuraImplTestCase.baseComponentTag, "render='server'", facetMarkup));
+                String.format(AuraTestCase.baseComponentTag, "render='server'", facetMarkup));
 
         openIntegrationStub(customStubCmp, cmpToInject, null, null);
         assertTrue(isElementPresent(By.xpath("//div//script[contains(@src,'aura_dev.js')]")));
@@ -727,7 +714,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
      * skipped. So changing url # should not fire aura:locationChange event
      */
     // History Service is not supported in IE7 or IE8
-    @ExcludeBrowsers({ BrowserType.IE7, BrowserType.IE8 })
+    @ExcludeBrowsers({ BrowserType.IE8 })
     @Test
     public void testHistoryServiceAPIs() throws Exception {
         String expectedTxt = "";
@@ -778,10 +765,10 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
     private String getIntegrationStubMarkup(String javaRenderer, Boolean attributeMap, Boolean placeHolder,
             Boolean localId, Boolean useAsync) {
         String stubMarkup = String.format(
-                "<aura:component render='server' renderer='%s'>"
-                + "<aura:attribute name='desc' type='String'/>"
-                + "%s %s %s %s"
-                + "</aura:component>",
+                "<aura:component render='server' renderer='%s'>" +
+                "    <aura:attribute name='desc' type='String'/>" +
+                "    %s %s %s %s" +
+                "</aura:component>",
                 javaRenderer,
                 attributeMap ? "<aura:attribute name='attrMap' type='Map'/>" : "",
                 placeHolder ? String.format("<aura:attribute name='placeholder' type='String' default='%s'/>",
@@ -798,7 +785,7 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
      */
     private void openIntegrationStub(DefDescriptor<ComponentDef> stub, DefDescriptor<ComponentDef> toInject,
             Map<String, Object> attributeMap, String placeholder)
-            throws MalformedURLException, URISyntaxException {
+            throws Exception {
         String url = String.format("/%s/%s.cmp", stub.getNamespace(), stub.getName());
         url = url + "?desc=" + String.format("%s:%s", toInject.getNamespace(), toInject.getName());
 
@@ -820,12 +807,12 @@ public class IntegrationServiceImplUITest extends WebDriverTestCase {
 
     private void openIntegrationStub(DefDescriptor<ComponentDef> stub, DefDescriptor<ComponentDef> toInject,
             Map<String, Object> attributeMap)
-            throws MalformedURLException, URISyntaxException {
+            throws Exception {
         openIntegrationStub(stub, toInject, attributeMap, null);
     }
 
     private void openIntegrationStub(DefDescriptor<ComponentDef> toInject, Map<String, Object> attributeMap)
-            throws MalformedURLException, URISyntaxException {
+            throws Exception {
         openIntegrationStub(defaultStubCmp, toInject, attributeMap, null);
     }
 }

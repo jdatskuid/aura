@@ -22,6 +22,7 @@ import java.util.List;
 import org.auraframework.Aura;
 import org.auraframework.http.CSP;
 import org.auraframework.http.CSPReporterServlet;
+import org.auraframework.service.CSPInliningService;
 
 /**
  * A default, fairly strict security policy, allowing no framing and only same-origin script.
@@ -37,25 +38,42 @@ public class DefaultContentSecurityPolicy implements ContentSecurityPolicy {
     private static String inlineHeader = null;
     private static String defaultHeader = null;
 
-    private static List<String> sameOrigin = null;
+    private final CSPInliningService cspInliningService;
 
-    private boolean allowInline;
+    private boolean nonCspInlineEnabled;
+
+    private ConfigAdapter configAdapter;
 
     /**
      * Returns the content security report URL.
      */
     @Override
     public String getReportUrl() {
-        return CSPReporterServlet.URL;
+        return configAdapter.getCSPReportUri();
     }
 
     /**
      * Creates a default policy.
      *
      * @param inline whether to allow inline script and style. It's better not to, but legacy is what legacy is.
+     * @deprecated use injection to get csp inlining service
      */
+    @Deprecated
     public DefaultContentSecurityPolicy(boolean inline) {
-        allowInline = inline;
+        this(inline, Aura.getCspInliningService(), Aura.getConfigAdapter());
+    }
+
+    /**
+     * Creates a default policy.
+     *
+     * @param inline whether to allow inline script and style. It's better not to, but legacy is what legacy is.
+     * @param scriptService inline csp service
+     * @param auraConfigAdapter static reference to config adapter
+     */
+    public DefaultContentSecurityPolicy(boolean inline, CSPInliningService scriptService, ConfigAdapter auraConfigAdapter) {
+        nonCspInlineEnabled = inline;
+        cspInliningService = scriptService;
+        configAdapter = auraConfigAdapter;
     }
 
     /**
@@ -80,21 +98,23 @@ public class DefaultContentSecurityPolicy implements ContentSecurityPolicy {
      */
     @Override
     public Collection<String> getScriptSources() {
-        List<String> list = new ArrayList<>(allowInline ? 4 : 3);
+        List<String> list = new ArrayList<>(nonCspInlineEnabled ? 4 : 3);
         list.add(null); // Same origin allowed
+
+        if (!nonCspInlineEnabled && cspInliningService != null){
+            list.addAll(cspInliningService.getCurrentScriptDirectives());
+        }
 
         list.add("chrome-extension:");
 
         boolean strictCSPEnforced = Aura.getConfigAdapter().isStrictCSPEnforced();
 
-        if (allowInline || !strictCSPEnforced) {
+        if (nonCspInlineEnabled || !strictCSPEnforced) {
             list.add(CSP.UNSAFE_INLINE);
         }
-        
-		if (!strictCSPEnforced) {
-            list.add(CSP.UNSAFE_EVAL);
-        }
-        
+
+        list.add(CSP.UNSAFE_EVAL);
+
         return list;
     }
 
@@ -136,6 +156,11 @@ public class DefaultContentSecurityPolicy implements ContentSecurityPolicy {
         return null;
     }
 
+    @Override
+    public boolean isNonCspInlineEnabled() {
+        return nonCspInlineEnabled;
+    }
+
     /**
      * We can connect only to the same origin. Which should be default by the browser anyway.
      */
@@ -146,19 +171,18 @@ public class DefaultContentSecurityPolicy implements ContentSecurityPolicy {
 
     /** Creates a shared, immutable list for same-origin-only */
     private List<String> getSameOrigin() {
-        if (sameOrigin == null) {
-            sameOrigin = new ArrayList<>(1);
-            sameOrigin.add(null);
-        }
-        return sameOrigin;
+    	List<String> sameOrigin = new ArrayList<String>(1);
+    	sameOrigin.add(null);
+        
+    	return sameOrigin;
     }
 
     @Override
     public String getCspHeaderValue() {
-        String header = allowInline ? inlineHeader : defaultHeader;
+        String header = nonCspInlineEnabled ? inlineHeader : defaultHeader;
         if (header == null) {
             header = buildHeaderNormally(this);
-            if (allowInline) {
+            if (nonCspInlineEnabled) {
                 inlineHeader = header;
             } else {
                 defaultHeader = header;
@@ -199,7 +223,7 @@ public class DefaultContentSecurityPolicy implements ContentSecurityPolicy {
             if (site == null) {
                 result[i] = CSP.SELF;
             } else {
-                result[i] = site;
+                result[i] = site.toLowerCase();
             }
             i++;
         }

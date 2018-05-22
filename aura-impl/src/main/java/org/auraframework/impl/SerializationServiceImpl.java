@@ -19,6 +19,8 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ExecutionError;
+
 import org.auraframework.adapter.FormatAdapter;
 import org.auraframework.annotations.Annotations.ServiceComponent;
 import org.auraframework.impl.util.AuraUtil;
@@ -31,9 +33,6 @@ import org.auraframework.throwable.quickfix.QuickFixException;
 
 import javax.inject.Inject;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.io.Reader;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -116,30 +115,6 @@ public class SerializationServiceImpl implements SerializationService {
     }
 
     @Override
-    public <T> T read(Reader in, Class<T> type) throws IOException, QuickFixException {
-        contextService.assertEstablished();
-        return getFormatAdapter(type).read(in);
-    }
-
-    @Override
-    public <T> T read(Reader in, Class<T> type, String format) throws IOException, QuickFixException {
-        contextService.assertEstablished();
-        return innerGetFormatAdapter(format, type).read(in);
-    }
-
-    @Override
-    public <T> Collection<T> readCollection(Reader in, Class<T> type) throws IOException, QuickFixException {
-        return readCollection(in, type, null);
-    }
-
-    @Override
-    public <T> Collection<T> readCollection(Reader in, Class<T> type, String format) throws IOException,
-            QuickFixException {
-        contextService.assertEstablished();
-        return innerGetFormatAdapter(format, type).readCollection(in);
-    }
-
-    @Override
     public <T> void write(T value, Map<String, Object> attributes, Appendable out) throws IOException,
             QuickFixException {
         contextService.assertEstablished();
@@ -149,45 +124,10 @@ public class SerializationServiceImpl implements SerializationService {
     }
 
     @Override
-    public <T> void write(T value, Map<String, Object> attributes, Class<T> type, Appendable out)
-            throws IOException, QuickFixException {
-        contextService.assertEstablished();
-        getFormatAdapter(type).write(value, attributes, out);
-    }
-
-    @Override
     public <T> void write(T value, Map<String, Object> attributes, Class<T> type, Appendable out, String format)
             throws IOException, QuickFixException {
         contextService.assertEstablished();
         innerGetFormatAdapter(format, type).write(value, attributes, out);
-    }
-
-    @Override
-    public <T> void writeBinary(T value, Map<String, Object> attributes, Class<T> type, OutputStream out)
-            throws IOException, QuickFixException {
-        contextService.assertEstablished();
-        getFormatAdapter(type).writeBinary(value, attributes, out);
-    }
-
-    @Override
-    public <T> void writeBinary(T value, Map<String, Object> attributes, Class<T> type, OutputStream out,
-            String format) throws IOException, QuickFixException {
-        contextService.assertEstablished();
-        innerGetFormatAdapter(format, type).writeBinary(value, attributes, out);
-    }
-
-    @Override
-    public <T> void writeCollection(Collection<? extends T> values, Class<T> type, Appendable out) throws IOException,
-            QuickFixException {
-        contextService.assertEstablished();
-        getFormatAdapter(type).writeCollection(values, out);
-    }
-
-    @Override
-    public <T> void writeCollection(Collection<? extends T> values, Class<T> type, Appendable out, String format)
-            throws IOException, QuickFixException {
-        contextService.assertEstablished();
-        innerGetFormatAdapter(format, type).writeCollection(values, out);
     }
 
     private <T> FormatAdapter<T> getFormatAdapter(Class<T> type) throws QuickFixException {
@@ -214,6 +154,12 @@ public class SerializationServiceImpl implements SerializationService {
 
         try {
             ret = (FormatAdapter<T>) formatAdapterCache.get(new IndexKey(format, type));
+        } catch (ExecutionError ex) {
+            AuraContext context = contextService.getCurrentContext();
+            String message = String.format(ex.getMessage() + "  Application descriptor: %s  Loading Application Descriptor: %s",
+                    context.getApplicationDescriptor(),
+                    context.getLoadingApplicationDescriptor());
+            throw new AuraRuntimeException(message, ex);
         } catch (ExecutionException ee) {
             // FIXME: EXCEPTIONINFO
             throw new AuraRuntimeException(ee);

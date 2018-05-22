@@ -19,13 +19,16 @@
  * @protected
  * @export
  */
-function PropertyReferenceValue(path, valueProvider) {
+function PropertyReferenceValue(path, valueProvider/*, target*/) {
     var isArray=$A.util.isArray(path);
     this.path = isArray?path:path.split('.');
     this.expression = isArray?path.join('.'):path;
     this.isGlobal=this.expression.charAt(0) === '$';
+    // if($A.util.isString(target)){
+    //     debugger;
+    // }
     this.valueProvider=this.isGlobal?null:valueProvider;
-    this.context=this.isGlobal?null:((valueProvider instanceof PassthroughValue)?valueProvider:$A.getContext().getCurrentAccess());
+    this.context=this.isGlobal?null:((valueProvider instanceof PassthroughValue)?valueProvider:$A.clientService.currentAccess);
     this.lastResult=null;
     this.isValid=true;
 
@@ -46,13 +49,13 @@ PropertyReferenceValue.prototype.evaluate = function(valueProvider) {
         if (!valueProvider) {
             valueProvider = this.valueProvider;
         }
-        $A.getContext().setCurrentAccess(this.context);
+        $A.clientService.setCurrentAccess(this.context);
         try {
             var result = valueProvider.get(this.expression);
             this.lastResult = result;
             return result;
         } finally {
-            $A.getContext().releaseCurrentAccess();
+            $A.clientService.releaseCurrentAccess();
         }
     }
 };
@@ -65,12 +68,12 @@ PropertyReferenceValue.prototype.set = function(value) {
         if (this.isGlobal) {
             return aura.set(this.expression, value);
         }
-        $A.getContext().setCurrentAccess(this.context);
+        $A.clientService.setCurrentAccess(this.context);
         try {
             var result = this.valueProvider.set(this.expression, value);
             return result;
         } finally {
-            $A.getContext().releaseCurrentAccess();
+            $A.clientService.releaseCurrentAccess();
         }
     }
 };
@@ -80,12 +83,12 @@ PropertyReferenceValue.prototype.set = function(value) {
  */
 PropertyReferenceValue.prototype.addChangeHandler=function(cmp, key, method, rebind) {
     if(this.isGlobal){
-        $A.expressionService.addListener(this,key,cmp);
+        $A.expressionService.addExpressionListener(this,key,cmp);
         return;
     }
     var valueProvider=this.valueProvider;
     var expression = this.expression;
-    if(valueProvider.addValueHandler&&(valueProvider!==cmp||expression!==key)) {
+    if(valueProvider.addChangeHandler&&(valueProvider!==cmp||expression!==key)) {
         if(!method){
             method=function PropertyReferenceValue$changeHandler(event) {
             	// If not valid, don't fire change events
@@ -100,7 +103,11 @@ PropertyReferenceValue.prototype.addChangeHandler=function(cmp, key, method, reb
         method.id=cmp.getGlobalId();
         method.key=key;
         var config={"event": "change", "value": expression, "method": method, "cmp": cmp};
-        this.valueProvider.addValueHandler(config);
+        this.valueProvider.addChangeHandler(config);
+
+        // if(this.valueProvider instanceof PassthroughValue) {
+        //     this.valueProvider.addValueHandler({"event": "change", "value": this.expression, "method": method});
+        // }
     }
 };
 
@@ -110,7 +117,7 @@ PropertyReferenceValue.prototype.addChangeHandler=function(cmp, key, method, reb
  */
 PropertyReferenceValue.prototype.removeChangeHandler=function(cmp, key){
     if(this.isGlobal){
-        $A.expressionService.removeListener(this,key,cmp);
+        $A.expressionService.removeExpressionListener(this,key,cmp);
         return;
     }
     var valueProvider=this.valueProvider;
@@ -123,16 +130,8 @@ PropertyReferenceValue.prototype.removeChangeHandler=function(cmp, key){
         expression = valueProvider.getExpression(expression);
         valueProvider=valueProvider.getComponent();
     }
-    if(this.valueProvider.removeValueHandler&&(valueProvider!==cmp||this.expression!==key)) {
-        //
-        // Also see PassThroughValue
-        // Horrendous Hack. We add both the id and the component to the
-        // config so that we don't have to go back and look up the component here.
-        // Turns out that things are sometimes out of order and the component is then
-        // not in the global index, leading to a failure when adding and removing
-        // elements quickly.
-        //
-        this.valueProvider.removeValueHandler({"event": "change", "value": this.expression, "id":cmp.getGlobalId(), "cmp":cmp, "key":key});
+    if(valueProvider&&valueProvider.removeValueHandler&&(valueProvider!==cmp||this.expression!==key)) {
+        valueProvider.removeValueHandler({"event": "change", "value": this.expression, "id":cmp.getGlobalId(),"key":key});
     }
 };
 
@@ -141,6 +140,10 @@ PropertyReferenceValue.prototype.removeChangeHandler=function(cmp, key){
  */
 PropertyReferenceValue.prototype.getExpression = function() {
     return this.expression;
+};
+
+PropertyReferenceValue.prototype.getIsGlobal = function() {
+    return this.isGlobal;
 };
 
 PropertyReferenceValue.prototype.getReference = function(path) {

@@ -22,7 +22,8 @@
  */
 Aura.Event.Event = function(config) {
     // source is only used to calculate the path, not determine access
-    this.source = config["component"] || $A.getContext().getCurrentAccess() || $A.getRoot();
+    this.source = config["component"] || $A.clientService.currentAccess || $A.getRoot();
+    this.sourceEvent=null;
     this.eventDef = config["eventDef"];
     this.eventDispatcher = config["eventDispatcher"];
     this.eventName = config["name"];
@@ -49,6 +50,18 @@ Aura.Event.Event = function(config) {
 Aura.Event.Event.prototype.getSource = function() {
     return this.source;
 };
+
+/**
+ * Gets the source event that fired this event, if it was fired by an event binding, i.e. {!e.myEvent}.
+ *
+ * @returns {Object} The source event
+ * @platform
+ * @export
+ */
+Aura.Event.Event.prototype.getSourceEvent = function() {
+    return this.sourceEvent;
+};
+
 
 /**
  * Gets the Event Definition.
@@ -198,10 +211,10 @@ Aura.Event.Event.prototype.setParams = function(config) {
         var attributeDefs = this.eventDef.getAttributeDefs();
         for (var key in config){
             if (config.hasOwnProperty(key)) {
-                if (attributeDefs[key]) {
+                if (attributeDefs.hasAttribute(key)) {
                     this.params[key] = config[key];
                 } else {
-                    $A.warning("Event.setParams(): '" + key +"'('" + config[key] + "') is not a valid parameter. Valid parameters are '"+ Object.keys(this.eventDef.getAttributeDefs()).join("', '") + "'");
+                    $A.warning("Event.setParams(): '" + key +"'('" + config[key] + "') is not a valid parameter. Valid parameters are '"+ attributeDefs.getNames().join("', '") + "'");
                 }
             }
         }
@@ -220,10 +233,10 @@ Aura.Event.Event.prototype.setParam = function(key, value) {
     if (this.fired && this.componentEvent) {
         $A.assert(false, "Event.setParam(): cannot modify a component event that has already been fired.");
     }
-    if (this.eventDef.getAttributeDefs()[key]) {
+    if (this.eventDef.getAttributeDefs().hasAttribute(key)) {
         this.params[key] = value;
     } else {
-        $A.warning("Event.setParam(): '"+key+"' is not a valid parameter. Valid parameters are '" + Object.keys(this.eventDef.getAttributeDefs()).join("', '") + "'");
+        $A.warning("Event.setParam(): '"+key+"' is not a valid parameter. Valid parameters are '" + this.eventDef.getAttributeDefs().getNames().join("', '") + "'");
     }
 };
 
@@ -303,9 +316,9 @@ Aura.Event.Event.prototype.executeHandlerIterator = function(handlerIterator) {
     var res = {};
     var value;
 
-    var context=$A.getContext();
-    var isSystemError = this.eventDef.getDescriptor().toString() === "markup://aura:systemError";
-    var isCustomerError = this.eventDef.getDescriptor().toString() === "markup://aura:customerError";
+    var type = this.getType();
+    var isSystemError = type === "aura:systemError";
+    var isCustomerError = type === "aura:customerError";
     var isComponentEventType = this.getEventExecutionType() === "COMPONENT";
 
     while(!this.paused && !res.done) {
@@ -338,11 +351,11 @@ Aura.Event.Event.prototype.executeHandlerIterator = function(handlerIterator) {
                 }
             }
             else {
-                context.setCurrentAccess(value.cmp);
+                $A.clientService.setCurrentAccess(value.cmp);
                 try {
                     value.handler(this);
                 } finally {
-                    context.releaseCurrentAccess();
+                    $A.clientService.releaseCurrentAccess();
                 }
             }
         }
@@ -381,7 +394,7 @@ Aura.Event.Event.prototype.fire = function(params) {
     var self = this;
 
     if (this.fired) {
-        aura.assert(false, "Event.fire(): Unable to fire event. Event has already been fired.");
+        $A.assert(false, "Event.fire(): Unable to fire event. Event has already been fired.");
     }
 
     if (params) {

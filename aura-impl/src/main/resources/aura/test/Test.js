@@ -46,18 +46,18 @@ function TestInstance() {
     this.prePostDecodeConfigs = [];
     this.installOverride();
     this.name = undefined;
-    
-    //borrow Aura.time if it's there, if not, polyfill 
-    this.time = 
-    	(window['Aura'] && Aura.time && Aura.time instanceof Function)?
-    	Aura.time:(
-    		(window.performance && window.performance.now) ? window.performance.now.bind(performance) : function(){return Date.now();}
-    	);  
+
+    //borrow Aura.time if it's there, if not, polyfill
+    this.time =
+        (window['Aura'] && Aura.time && Aura.time instanceof Function)?
+        Aura.time:(
+            (window.performance && window.performance.now) ? window.performance.now.bind(performance) : function(){return Date.now();}
+        );
     //for debug use only
     if(window.sessionStorage) {
-    	sessionStorage.setItem('frameworkReadyWhenCreateTestInstance', window['Aura']?true:false);
-    	sessionStorage.setItem('frameworkJsReadyWhenCreateTestInstance', (window['Aura'] && window['Aura']['frameworkJsReady'])?true:false);
-    	sessionStorage.setItem('timeStampOfTestInstanceCreation', this.time());
+        sessionStorage.setItem('frameworkReadyWhenCreateTestInstance', window['Aura']?true:false);
+        sessionStorage.setItem('frameworkJsReadyWhenCreateTestInstance', (window['Aura'] && window['Aura']['frameworkJsReady'])?true:false);
+        sessionStorage.setItem('timeStampOfTestInstanceCreation', this.time());
     }
 }
 
@@ -223,6 +223,15 @@ TestInstance.prototype.getSentRequestCount = function() {
 };
 
 /**
+ * Get the total number of uri-addressable definitions that have been requested
+ * @export
+ */
+TestInstance.prototype.getRequestedComponentDefCount = function() {
+    return $A.componentService.componentDefLoader.counter;
+};
+
+
+/**
  * Check to see if an array of actions have all completed.
  *
  * @export
@@ -239,7 +248,7 @@ TestInstance.prototype.areActionsComplete = function(actions) {
             return false;
         }
     }
-    return true;
+    return $A.componentService.componentDefLoader.loading === 0;
 };
 
 /**
@@ -282,28 +291,6 @@ TestInstance.prototype.getAction = function(component, name, params, callback) {
         }
     }
     return action;
-};
-
-/**
- * Run a set of actions as a transaction.
- *
- * This is a wrapper around runActions allowing a test to safely run a set of actions as a single transaction with a
- * callback.
- *
- * @param {Array}
- *            actions A list of actions to run.
- * @param {Object}
- *            scope The scope for the callback.
- * @param {Function}
- *            callback The callback
- * @export
- * @function Test#runActionsAsTransaction
- */
-TestInstance.prototype.runActionsAsTransaction = function(actions, scope, callback) {
-    $A.assert(!$A.services.client.inAuraLoop(), "runActionsAsTransaction called from inside Aura call stack");
-    $A.run(function() {
-        $A.services.client.runActions(actions, scope, callback);
-    });
 };
 
 /**
@@ -357,13 +344,16 @@ TestInstance.prototype.getExternalAction = function(component, descriptor, param
             "name" : k
         });
     }
-    var def = new ActionDef({
-        "name" : descriptor,
-        "descriptor" : descriptor,
-        "actionType" : "SERVER",
-        "params" : paramDefs,
-        "returnType" : returnType
-    });
+
+    var config = {};
+    config[Json.ApplicationKey.NAME] = descriptor;
+    config[Json.ApplicationKey.DESCRIPTOR] = descriptor;
+    config[Json.ApplicationKey.ACTIONTYPE] = "SERVER";
+    config[Json.ApplicationKey.RETURNTYPE] = returnType;
+    config[Json.ApplicationKey.PARAMS] = paramDefs;
+
+    var def = new ActionDef(config);
+
     var action = def.newInstance(component);
     action.setParams(params);
     if (callback) {
@@ -399,7 +389,7 @@ TestInstance.prototype.clearAndAssertComponentConfigs = function(a) {
  * @function Test#isActionPending
  */
 TestInstance.prototype.isActionPending = function() {
-    return !$A.clientService.idle();
+    return !$A.clientService.idle() || $A.componentService.componentDefLoader.loading !== 0;
 };
 
 /**
@@ -476,6 +466,14 @@ TestInstance.prototype.setServerReachable = function(reachable) {
     } else {
         $A.clientService.initHost('//offline');
     }
+};
+
+/**
+ * @param xhrExclusivity boolean for xhr's to be run exclusively (one at a time)
+ * @export
+ */
+TestInstance.prototype.setXHRExclusivity = function(xhrExclusivity) {
+    $A.clientService.setXHRExclusivity(xhrExclusivity);
 };
 
 /**
@@ -1619,9 +1617,9 @@ TestInstance.prototype.addEventHandler = function(eventName, handler, component,
             // throw new Error("Test.addEventHandler called with 'insert'. Please update test.");
             component.addHandler(eventName, {
                 get: function () {
-                    return {
-                        run: handler, runDeprecated: handler
-                    };
+                    var action=new Action();
+                    action.run=action.runDeprecated=handler;
+                    return action;
                 }
             }, "TESTHANDLER",insert);
         }else{
@@ -1653,7 +1651,7 @@ TestInstance.prototype.getAuraErrorMessage = function() {
 
 /**
  * Assert that the Access check failure message is as expected
- * 
+ *
  * @param {String}
  *      errorMessage An Aura Error Message
  * @param {String}
@@ -1662,7 +1660,7 @@ TestInstance.prototype.getAuraErrorMessage = function() {
  *      targetCmp A string containing component being accessed
  * @param {String}
  *      accessingCmp A string containing accessing component details
- * 
+ *
  * @export
  * @function Test#getPopOverErrorMessage
  */
@@ -1673,7 +1671,7 @@ TestInstance.prototype.getPopOverErrorMessage = function(errorMessage, delimiter
             this.fail("Access check error message verification failed. Did not receive expected error");
         }
     } else {
-        throw new Error("TestInstance:getPopOverErrorMessage  Did not receive expected error");
+        this.fail("TestInstance:getPopOverErrorMessage  Did not receive expected error");
     }
 };
 
@@ -2025,7 +2023,7 @@ TestInstance.prototype.run = function(name, code, timeoutOverride, quickFixExcep
     this.name = name;
 
     if (quickFixException) {
-        this.logError(quickFixException);
+        this.logError(quickFixException["message"]);
         this.doTearDown();
         return;
     }
@@ -2040,7 +2038,7 @@ TestInstance.prototype.run = function(name, code, timeoutOverride, quickFixExcep
     }
 
     var continueRun = this.runInternal.bind(this, name);
-    setTimeout(this.waitForRoot.bind(this, continueRun), 1);
+    setTimeout(this.waitForRoot.bind(this, name, continueRun), 1);
 };
 
 /**
@@ -2055,13 +2053,25 @@ TestInstance.prototype.getTestName = function () {
 /**
  * @private
  */
-TestInstance.prototype.waitForRoot = function(callback) {
+TestInstance.prototype.waitForRoot = function(testName, callback) {
     var that = this;
-    if ($A.getRoot()) {
-        setTimeout(callback, 1); // give browser a moment to settle down
+    var root = $A.getRoot();
+    if (root) {
+        if (root.getDef().getDescriptor().getFullName() === "auratest:test") {
+            var testCase = this.suite[testName];
+            var descriptor = root.get("v.descriptor");
+            var attributes = testCase.hasOwnProperty("attributes") ? testCase["attributes"] : {};
+            $A.clientService.setCurrentAccess(root);
+            $A.createComponent(descriptor, attributes, $A.getCallback(function(newComponent) {
+                root.set("v.target", newComponent);
+                setTimeout(callback, 1); // give browser a moment to settle down
+            }));
+        } else {
+            setTimeout(callback, 1); // give browser a moment to settle down
+        }
         return;
     }
-    setTimeout(that.waitForRoot.bind(that, callback), 50);
+    setTimeout(that.waitForRoot.bind(that, testName, callback), 50);
 };
 
 /**
@@ -2071,22 +2081,28 @@ TestInstance.prototype.waitForRoot = function(callback) {
 TestInstance.prototype.runInternal = function(name) {
     var that = this;
 
-    this.cmp = $A.getRoot();
-    $A.getContext().setCurrentAccess(this.cmp);
+    var testCase = this.suite[name];
+    var root = $A.getRoot();
+    if (root.getType() === "auratest:test") {
+        this.cmp = root.get("v.target");
+    } else {
+        this.cmp = root;
+    }
+    $A.clientService.setCurrentAccess(this.cmp);
     var useLabel = function(labelName) {
         var suiteLevel = that.suite[labelName] || false;
-        var testLevel = that.suite[name][labelName];
+        var testLevel = testCase[labelName];
         return (testLevel === undefined) ? suiteLevel : testLevel;
     };
 
     this.failOnWarning = useLabel("failOnWarning");
     this.doNotWrapInAuraRun = useLabel("doNotWrapInAuraRun");
 
-    this.stages = this.suite[name]["test"];
+    this.stages = testCase["test"];
     this.stages = $A.util.isArray(this.stages) ? this.stages : [ this.stages ];
 
-    var auraErrorsExpectedDuringInit = this.suite[name]["auraErrorsExpectedDuringInit"] || [];
-    var auraWarningsExpectedDuringInit = this.suite[name]["auraWarningsExpectedDuringInit"] || [];
+    var auraErrorsExpectedDuringInit = testCase["auraErrorsExpectedDuringInit"] || [];
+    var auraWarningsExpectedDuringInit = testCase["auraWarningsExpectedDuringInit"] || [];
 
     function checkErrors() {
       try {
@@ -2313,6 +2329,19 @@ TestInstance.prototype.checkGlobalNamespacePollution = function(whitelistedPollu
         }
     }
     return (pollutants.length ? "New global variables found: " + pollutants.join(",") + "." : "");
+};
+
+/**
+ * sets the uri addressable definitions state
+ * @param newState
+ * @return previous state
+ * @export
+ */
+TestInstance.prototype.setURIDefsState = function(newState) {
+    var oldState = $A.util.uriDefsState;
+    $A.util.uriDefsState = newState;
+    $A.getContext().uriAddressableDefsEnabled = !!newState;
+    return oldState;
 };
 
 /**

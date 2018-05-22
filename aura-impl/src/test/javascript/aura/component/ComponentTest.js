@@ -25,28 +25,44 @@ Function.RegisterNamespace("Aura.Component");
 Test.Aura.Component.ComponentTest=function(){
     var Aura = {
         "Component": {},
-        "Attribute": {}
+        "Attribute": {},
+        "Errors": {}
     };
+    var _PassthroughValue;
 
     Mocks.GetMocks(Object.Global(), {
         "Aura": Aura,
         "Component": function(){}, // Prevent Global
-        "AttributeSet": function(){} // Prevent Global
+        "AttributeSet": function(){}, // Prevent Global
+        "AuraError": function(){},// Prevent Global
+        "PassthroughValue": function(){},// Prevent Global
+        "StackFrame": function(){},
+        "ErrorStackParser": function(){}
     })(function(){
         [Import("aura-impl/src/main/resources/aura/component/Component.js"),
          Import("aura-impl/src/main/resources/aura/component/EventValueProvider.js"),
+         Import("aura-impl/src/main/resources/aura/value/PassthroughValue.js"),
          Import("aura-impl/src/main/resources/aura/component/StyleValueProvider.js"),
          Import("aura-impl/src/main/resources/aura/component/ActionValueProvider.js"),
-         Import("aura-impl/src/main/resources/aura/attribute/AttributeSet.js")]
+         Import("aura-impl/src/main/resources/aura/attribute/AttributeSet.js"),
+         Import("aura-impl/src/main/resources/aura/polyfill/stackframe.js"),
+         Import("aura-impl/src/main/resources/aura/polyfill/error-stack-parser.js"),
+         Import("aura-impl/src/main/resources/aura/error/AuraError.js")]
+
+        _PassthroughValue = PassthroughValue;
     });
 
     delete StyleValueProvider;
     delete ActionValueProvider;
     delete EventValueProvider;
+    delete AuraError;
 
     function mockFramework(during){
+        var mockedCmp = Stubs.Aura.GetComponent({});
         var mock = {
+            "Aura":Aura,
             "Component": Aura.Component.Component,
+            "PassthroughValue": _PassthroughValue,
             "AttributeSet": Aura.Attribute.AttributeSet,
             "StyleValueProvider": Aura.Component.StyleValueProvider,
             "ActionValueProvider": Aura.Component.ActionValueProvider,
@@ -55,8 +71,6 @@ Test.Aura.Component.ComponentTest=function(){
                 assert:function(condition,message){if(!condition)throw new Error(message)},
                 error:function(message){throw new Error(message)},
                 getContext:function(){return {
-                    getAccessVersion:function(){},
-                    getCurrentAccess:function(){},
                     getCurrentAction:function(){
                         return {
                             topPath: function () {},
@@ -65,10 +79,14 @@ Test.Aura.Component.ComponentTest=function(){
                             getCurrentPath: function () {}
                         };
                     },
-                    containsComponentConfig: function () { return true;},
-                    releaseCurrentAccess:function(){},
-                    setCurrentAccess: function(){}
+                    containsComponentConfig: function () { return true;}
                 }},
+                clientService:{
+                    getAccessVersion:function(){},
+                    releaseCurrentAccess:function(){},
+                    setCurrentAccess: function(){},
+                    getCurrentAccessGlobalId: function(){return mockedCmp.globalId}
+                },
                 componentService:{
                     get:function(){},
                     getDef:function(){
@@ -80,7 +98,8 @@ Test.Aura.Component.ComponentTest=function(){
                                 getValues:function(){return null}
                             },
                             descriptor: {
-                                getFullName: function() { return "" }
+                                getFullName: function() { return "" },
+                                getNamespace:function(){}
                             },
                             getAllEvents:function(){
                                 return []
@@ -89,9 +108,7 @@ Test.Aura.Component.ComponentTest=function(){
                             getCmpHandlerDefs:function(){},
                             getControllerDef:function(){},
                             getDescriptor:function(){
-                                return {
-                                    getNamespace:function(){}
-                                }
+                                return this.descriptor;
                             },
                             getEventDef:function(){
                                 return {getDescriptor:function(){
@@ -108,7 +125,7 @@ Test.Aura.Component.ComponentTest=function(){
                             hasInit:function(){}
                         };
                     },
-                    index:function(){},
+                    indexComponent:function(){},
                     deIndex:function(){}
                 },
                 eventService: {
@@ -120,7 +137,8 @@ Test.Aura.Component.ComponentTest=function(){
                 },
                 renderingService:{
                     unrender:function(){},
-                    getMarker:function(){}
+                    getMarker:function(){},
+                    cleanComponent: function(){}
                 },
                 util:{
                     apply:function(){
@@ -135,6 +153,7 @@ Test.Aura.Component.ComponentTest=function(){
                         return typeof(target) == "string";
                     },
                     isUndefinedOrNull:function(){
+                        return true
                     }
                 },
                 lockerService: {
@@ -145,7 +164,9 @@ Test.Aura.Component.ComponentTest=function(){
                     wrapComponent: function(component) {
                         return component;
                     }
-                }
+                },
+                auraError: Aura.Errors.AuraError,
+                getComponent: Stubs.Aura.GetComponent
             }
         };
 
@@ -158,46 +179,8 @@ Test.Aura.Component.ComponentTest=function(){
         function NotFiredInitWhenDefHasNoHandler() {
             var fired = false;
             mockFramework(function() {
-                $A.componentService.getDef = function(){
-                    return {
-                        attributeDefs:{
-                            getDef:function(){},
-                            getNames:function(){return []},
-                            getValues:function(){return null}
-                        },
-                        descriptor: {
-                            getFullName: function() { return "" }
-                        },
-                        getAllEvents:function(){
-                            return []
-                        },
-                        getAppHandlerDefs:function(){},
-                        getCmpHandlerDefs:function(){},
-                        getControllerDef:function(){},
-                        getDescriptor:function(){
-                            return {
-                                getNamespace:function(){}
-                            }
-                        },
-                        getEventDef:function(){
-                            return {getDescriptor:function(){
-                                return {
-                                    getQualifiedName:function(){}
-                                }
-                            }}
-                        },
-                        getModelDef:function(){},
-                        getSuperDef:function(){},
-                        getValueHandlerDefs:function(){},
-                        isAbstract:function(){},
-                        isInstanceOf:function(){},
-                        hasInit:function(){
-                            return false;
-                        }
-                    };
-                };
-                Aura.Component.Component.prototype.fire = function() {
-                    fired = true;
+                Aura.Component.Component.prototype.fire=function(){
+                    fired=true;
                 };
                 new Aura.Component.Component({});
             });
@@ -211,6 +194,7 @@ Test.Aura.Component.ComponentTest=function(){
         //this cover when localIndex does not exist
         [Fact]
         function ReturnsNullForNullIndex() {
+
             //Arrange
             var target = null;
             var actual=null;
@@ -347,7 +331,7 @@ Test.Aura.Component.ComponentTest=function(){
 
     [Fixture]
     function Index() {
-        //this cover when index[locaid] does not exist
+        //this cover when index[localid] does not exist
         [Fact]
         function InitLocalIdWithGlobalId() {
             //Arrange
@@ -392,7 +376,7 @@ Test.Aura.Component.ComponentTest=function(){
             Assert.Equal(expected, actual);
         }
 
-        //this cover when index[locaid] is already an array
+        //this cover when index[localid] is already an array
         [Fact]
         function AppendLocalIdArrayWithGlobalId() {
             //Arrange
@@ -460,13 +444,15 @@ Test.Aura.Component.ComponentTest=function(){
 
     [Fixture]
     function render() {
+
         var mockSuperComponent = {
             render: function() {
                 return "SuperRender";
             }
         };
+
         [Fact]
-        function CallsOwnRenderWhenHasOwnRender() {
+        function CallsOwnRender() {
             // Arrange
             var expected = "Render";
             var mockRenderer = {
@@ -488,12 +474,13 @@ Test.Aura.Component.ComponentTest=function(){
         }
 
         [Fact]
-        function CallsSuperComponentRenderWhenNoOwnRender() {
+        function CallsSuperComponentRenderIfNoOwnRender() {
             // Arrange
             var expected = "SuperRender";
             var actual = null;
             mockFramework(function() {
                 var target = new Aura.Component.Component({},true);
+                target["renderer"] = {};
                 target.setSuperComponent(mockSuperComponent);
 
                 // Act
@@ -506,22 +493,48 @@ Test.Aura.Component.ComponentTest=function(){
     }
 
     [Fixture]
-    function unrender() {
+    function rerender() {
+
+        var mockSuperComponent = {
+            rerender: function() {
+                return "SuperRerender";
+            }
+        };
+
         [Fact]
-        function RemoveUnrenderedComponentFromDirtyComponents() {
+        function CallsOwnRerender() {
             // Arrange
-            var expected = "testGlobalId";
+            var expected = "Rerender";
+            var mockRenderer = {
+                    rerender: function() {return expected}
+                };
             var actual = null;
             mockFramework(function() {
-                // Assuming that cleanComponent() cleans the given component from dirtyComponents.
-                $A.renderingService.cleanComponent = function(globalId) {
-                    actual = globalId;
-                }
                 var target = new Aura.Component.Component({},true);
-                target.setupGlobalId(expected);
+                target["renderer"] = mockRenderer;
+                // shouldn't call rerender in super component
+                target.setSuperComponent(mockSuperComponent);
 
                 // Act
-                target.unrender();
+                actual = target.rerender();
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+
+        [Fact]
+        function CallsSuperComponentRerenderIfNoOwnRerender() {
+            // Arrange
+            var expected = "SuperRerender";
+            var actual = null;
+            mockFramework(function() {
+                var target = new Aura.Component.Component({},true);
+                target["renderer"] = {};
+                target.setSuperComponent(mockSuperComponent);
+
+                // Act
+                actual = target.rerender();
             });
 
             // Assert
@@ -530,7 +543,118 @@ Test.Aura.Component.ComponentTest=function(){
     }
 
     [Fixture]
-    function GetDef() {
+    function afterRender() {
+
+        [Fact]
+        function CallsOwnAfterRender() {
+            // Arrange
+            var mockAfterRender = Stubs.GetMethod();
+
+            mockFramework(function() {
+                var target = new Aura.Component.Component({},true);
+                target["renderer"] = {
+                    afterRender: mockAfterRender
+                };
+
+                // Act
+                target.afterRender();
+            });
+
+            // Assert
+            Assert.Equal(1, mockAfterRender.Calls.length);
+        }
+
+        [Fact]
+        function CallsSuperComponentAfterRenderIfNoOwnAfterRender() {
+            // Arrange
+            var mockSuperAfterRender = Stubs.GetMethod();
+
+            mockFramework(function() {
+                var target = new Aura.Component.Component({},true);
+                target["renderer"] = {};
+                target.setSuperComponent({
+                    afterRender: mockSuperAfterRender
+                });
+
+                // Act
+                target.afterRender();
+            });
+
+            // Assert
+            Assert.Equal(1, mockSuperAfterRender.Calls.length);
+        }
+    }
+
+    [Fixture]
+    function unrender() {
+
+        [Fact]
+        function CallsOwnUnrender() {
+            // Arrange
+            var mockUnrender = Stubs.GetMethod();
+
+            mockFramework(function() {
+                var target = new Aura.Component.Component({},true);
+                target["renderer"] = {
+                    unrender: mockUnrender
+                };
+
+                // Act
+                target.unrender();
+            });
+
+            // Assert
+            Assert.Equal(1, mockUnrender.Calls.length);
+        }
+
+        [Fact]
+        function CallsSuperComponentUnrenderIfNoOwnUnrender() {
+            // Arrange
+            var mockSuperUnrender = Stubs.GetMethod();
+
+            mockFramework(function() {
+                var target = new Aura.Component.Component({},true);
+                target["renderer"] = {};
+                target.setSuperComponent({
+                    unrender: mockSuperUnrender
+                });
+
+                // Act
+                target.unrender();
+            });
+
+            // Assert
+            Assert.Equal(1, mockSuperUnrender.Calls.length);
+        }
+
+        [Fact]
+        function RemoveUnrenderedComponentFromDirtyComponents() {
+            // Arrange
+            var expected = "testGlobalId";
+            var actual = null;
+            mockFramework(function() {
+                // Assuming that cleanComponent() cleans the given component from dirtyComponents.
+                var mockCleanComponent = $A.renderingService.cleanComponent;
+                $A.renderingService.cleanComponent = function(globalId) {
+                    actual = globalId;
+                }
+                var target = new Aura.Component.Component({},true);
+                target.setupGlobalId(expected);
+
+                // Act
+                target.unrender();
+
+                // set global mock back
+                $A.renderingService.cleanComponent = mockCleanComponent;
+            });
+
+            // Assert
+            Assert.Equal(expected, actual);
+        }
+    }
+
+    [Fixture]
+    function getDef() {
         [Fact]
         function ReturnsComponentDef() {
             // Arrange
@@ -585,6 +709,81 @@ Test.Aura.Component.ComponentTest=function(){
 
             // Assert
             Assert.True(actual);
+        }
+    }
+
+    [Fixture]
+    function getEventDispatcher() {
+
+        [Fact]
+        function returnEventsIfTheyExist() {
+            // Arrange
+            var target = null;
+            var res = null;
+            var expected = { dummyEvent : function() {} };
+            mockFramework(function() {
+                target = new Aura.Component.Component({},true);
+                target.eventValueProvider = new EventValueProvider(target);
+                target.eventValueProvider.events = { dummyEvent : function() {} }
+
+                res = target.getEventDispatcher();
+            });
+
+            // Assert
+            Assert.Equal(res, expected);
+        }
+
+        [Fact]
+        function createNewEventsIfTheyDoNotExist() {
+            // Arrange
+            var target = null;
+            var res = null;
+            var expected = {};
+            mockFramework(function() {
+                target = new Aura.Component.Component({},true);
+                target.eventValueProvider = null;
+
+                res = target.getEventDispatcher();
+            });
+
+            // Assert
+            Assert.Equal(res, expected);
+        }
+
+        [Fact]
+        function returnNullIfComponentIsBeingDestroyed() {
+            // Arrange
+            var target = null;
+            var res = null;
+            var expected = null;
+            mockFramework(function() {
+                target = new Aura.Component.Component({},true);
+                target.eventValueProvider = null;
+                target.destroyed = -1;
+
+                res = target.getEventDispatcher();
+            });
+
+            // Assert
+            Assert.Equal(res, expected);
+        }
+
+        [Fact]
+        function returnNullIfComponentIsDestroyed() {
+            // Arrange
+            var target = null;
+            var res = null;
+            var expected = null;
+            mockFramework(function() {
+                target = new Aura.Component.Component({},true);
+                target.eventValueProvider = null;
+                target.destroyed = 1;
+
+                res = target.getEventDispatcher();
+            });
+
+            // Assert
+            Assert.Equal(res, expected);
         }
     }
 }

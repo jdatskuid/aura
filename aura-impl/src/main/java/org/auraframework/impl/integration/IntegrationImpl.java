@@ -16,20 +16,27 @@
 package org.auraframework.impl.integration;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import org.auraframework.adapter.ConfigAdapter;
 import org.auraframework.adapter.ServletUtilAdapter;
+import org.auraframework.clientlibrary.ClientLibraryService;
 import org.auraframework.def.ActionDef;
 import org.auraframework.def.ApplicationDef;
 import org.auraframework.def.AttributeDef;
+import org.auraframework.def.BaseComponentDef;
+import org.auraframework.def.ClientLibraryDef;
 import org.auraframework.def.ComponentDef;
 import org.auraframework.def.ControllerDef;
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.RegisterEventDef;
 import org.auraframework.def.StyleDef;
+import org.auraframework.http.BrowserCompatibilityService;
 import org.auraframework.impl.system.RenderContextHTMLImpl;
 import org.auraframework.impl.util.TemplateUtil;
+import org.auraframework.impl.util.TemplateUtil.Script;
 import org.auraframework.instance.Action;
 import org.auraframework.instance.Application;
 import org.auraframework.instance.Component;
@@ -39,13 +46,11 @@ import org.auraframework.service.ContextService;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.service.InstanceService;
 import org.auraframework.service.RenderingService;
-import org.auraframework.service.SerializationService;
 import org.auraframework.system.AuraContext;
 import org.auraframework.system.AuraContext.Authentication;
 import org.auraframework.system.AuraContext.Format;
 import org.auraframework.system.AuraContext.Mode;
 import org.auraframework.system.Client;
-import org.auraframework.system.Message;
 import org.auraframework.system.RenderContext;
 import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.throwable.ClientOutOfSyncException;
@@ -61,6 +66,15 @@ public class IntegrationImpl implements Integration {
     private static final String COMPONENT_DEF_TEMPLATE =
         "{'componentDef': 'markup://%s', 'attributes': { 'values' : %s }, 'localId': '%s'}";
 
+    private static final String DEFAULT_APPLICATION = "aura:integrationServiceApp";
+
+    private final String contextPath;
+    private final Mode mode;
+    private final boolean initializeAura;
+    private final Client client;
+    private final String application;
+    private String userAgent;
+
     private TemplateUtil templateUtil = new TemplateUtil();
 
     private boolean hasApplicationBeenWritten = false;
@@ -68,18 +82,21 @@ public class IntegrationImpl implements Integration {
 
     private InstanceService instanceService;
     private DefinitionService definitionService;
-    private SerializationService serializationService;
     private ContextService contextService;
     private ConfigAdapter configAdapter;
     private RenderingService renderingService;
     private ServletUtilAdapter servletUtilAdapter;
+    private ClientLibraryService clientLibraryService;
+    private BrowserCompatibilityService browserCompatibilityService;
 
     public IntegrationImpl(String contextPath, Mode mode, boolean initializeAura, String userAgent,
                            String application, InstanceService instanceService,
-                           DefinitionService definitionService, SerializationService serializationService,
+                           DefinitionService definitionService,
                            ContextService contextService, ConfigAdapter configAdapter,
-                           RenderingService renderingService, ServletUtilAdapter servletUtilAdapter
-                           ) throws QuickFixException {
+                           RenderingService renderingService, ServletUtilAdapter servletUtilAdapter,
+                           ClientLibraryService clientLibraryService,
+                           BrowserCompatibilityService browserCompatibilityService) throws QuickFixException {
+        this.userAgent = userAgent;
         this.client = userAgent != null ? new Client(userAgent) : null;
         this.contextPath = contextPath;
         this.mode = mode;
@@ -87,11 +104,12 @@ public class IntegrationImpl implements Integration {
         this.application = application != null ? application : DEFAULT_APPLICATION;
         this.instanceService = instanceService;
         this.definitionService = definitionService;
-        this.serializationService = serializationService;
         this.contextService = contextService;
         this.configAdapter = configAdapter;
         this.renderingService = renderingService;
         this.servletUtilAdapter = servletUtilAdapter;
+        this.clientLibraryService = clientLibraryService;
+        this.browserCompatibilityService = browserCompatibilityService;
     }
 
     @Override
@@ -134,6 +152,18 @@ public class IntegrationImpl implements Integration {
             Map<String, String> actionEventHandlers = Maps.newHashMap();
 
             ComponentDef componentDef = this.definitionService.getDefinition(descriptor);
+
+            // workaround for component with client library.
+            // integrationService dynamically creates and injects the component,
+            // so the client library on injected component has no way to become a
+            // dependency of the integrationService app.
+            BaseComponentDef baseCmpDef = componentDef;
+            List<String> clientLibUrls = new ArrayList<>();
+            for (ClientLibraryDef def : baseCmpDef.getClientLibraries()) {
+                clientLibUrls.add(this.clientLibraryService.getResolvedUrl(def));
+            }
+            templateUtil.writeHtmlScripts(context, clientLibUrls, Script.LAZY, rc.getCurrent());
+
             if (attributes != null) {
                 for (Map.Entry<String, Object> entry : attributes.entrySet()) {
                     String key = entry.getKey();
@@ -156,7 +186,6 @@ public class IntegrationImpl implements Integration {
             }
 
             try {
-
                 StringBuilder jsonEventHandlers = null;
                 if (!actionEventHandlers.isEmpty()) {
                     // serialize registered event handlers into js object
@@ -178,7 +207,6 @@ public class IntegrationImpl implements Integration {
                     String newComponentScript = String.format("(function (w) {\n    w.Aura || (w.Aura = {});\n    w.Aura.afterAppReady = Aura.afterAppReady || [];\n    w.Aura.inlineJsLoaded = true;\n\n    function ais() {\n        $A.__aisScopedCallback(function() { \n            $A.clientService.injectComponentAsync(%s, '%s', %s); \n        }); \n    } \n\n    if (Aura.applicationReady) {\n        ais();\n    } else {\n        window.Aura.afterAppReady.push(ais); \n    }\n}(window));", def, locatorDomId, eventHandlers);
 
                     init.append(newComponentScript);
-
                 } else {
                     // config printed onto HTML page
 
@@ -205,24 +233,45 @@ public class IntegrationImpl implements Integration {
                     labelAction.setId("aisLabels");
 
                     Action previous = context.setCurrentAction(action);
+                    boolean labelSetup = false;
                     try {
+                        action.setup();
                         action.run();
                         context.setCurrentAction(labelAction);
+                        labelAction.setup();
+                        labelSetup = true;
                         labelAction.run();
-                    } finally {
-                        context.setCurrentAction(previous);
-                    }
 
-                    Message message = new Message(Lists.newArrayList(action));
+                        init.append("var config = ");
 
-                    init.append("var config = ");
-                    serializationService.write(message, null, Message.class, init);
-                    init.append(";\n");
+                        Map<String, Object> messageMap = Maps.newHashMap();
+                        messageMap.put("actions", Lists.newArrayList(action));
+                        messageMap.put("context", context);
 
-                    if (!actionEventHandlers.isEmpty()) {
-                        init.append("config.actionEventHandlers = ");
-                        init.append(jsonEventHandlers);
+                        // need to serialize the definitions on the context here, but not using 'preloading'
+                        // because preloading excludes css, but these need to have the css included since they
+                        // won't show up in app.css
+                        Boolean uriDefsEnabled = context.getUriDefsEnabled();
+                        context.setUriDefsEnabled(false);
+                        try {
+                            JsonEncoder.serialize(messageMap, init, context.getJsonSerializationContext());
+                        } finally {
+                            context.setUriDefsEnabled(uriDefsEnabled);
+                        }
                         init.append(";\n");
+
+                        if (!actionEventHandlers.isEmpty()) {
+                            init.append("config.actionEventHandlers = ");
+                            init.append(jsonEventHandlers);
+                            init.append(";\n");
+                        }
+
+                    } finally {
+                        action.cleanup();
+                        if (labelSetup) {
+                            labelAction.cleanup();
+                        }
+                        context.setCurrentAction(previous);
                     }
 
                     init.append(String.format("(function (w) {\n    w.Aura || (w.Aura = {});\n    w.Aura.afterAppReady = Aura.afterAppReady || [];\n    window.Aura.inlineJsLoaded = true;\n\n    function ais() {\n        $A.__aisScopedCallback(function() { \n            $A.clientService.injectComponent(config, \"%s\", \"%s\"); \n        }); \n    } \n\n    if (Aura.applicationReady) {\n        ais();\n    } else {\n        window.Aura.afterAppReady.push(ais); \n    }\n}(window));", locatorDomId, localId));
@@ -281,6 +330,9 @@ public class IntegrationImpl implements Integration {
         context.setContextPath(contextPath);
         context.setFrameworkUID(configAdapter.getAuraFrameworkNonce());
 
+        // useCompatSource is REQUIRED
+        context.setUseCompatSource(!this.browserCompatibilityService.isCompatible(this.userAgent));
+
         if (num != null) {
             context.setNum(num);
         }
@@ -303,11 +355,18 @@ public class IntegrationImpl implements Integration {
             Map<String, Object> attributes = Maps.newHashMap();
 
             StringBuilder sb = new StringBuilder();
-            templateUtil.writeHtmlStyles(servletUtilAdapter.getStyles(context), sb);
+            templateUtil.writeHtmlStyles(servletUtilAdapter.getStyles(context), null, sb);
             attributes.put("auraStyleTags", sb.toString());
 
             sb.setLength(0);
-            templateUtil.writeInlineHtmlScripts(context, servletUtilAdapter.getScripts(context, false, false, null), sb);
+            // client libraries need to use lazy load tags to get registered on client side
+            templateUtil.writeHtmlScripts(context, servletUtilAdapter.getJsClientLibraryUrls(context), Script.LAZY, sb);
+            templateUtil.writeInlineHtmlScripts(context, servletUtilAdapter.getBaseScripts(context, attributes), sb);
+            templateUtil.writeInlineHtmlScripts(context, servletUtilAdapter.getFrameworkScripts(context, false, false, null), sb);
+
+            //inline.js is not included with AIS but the non-templated scripts associated with inline are still required
+            templateUtil.writeUnsafeInlineHtmlScripts(context, Lists.newArrayList(servletUtilAdapter.getInlineJs(context, appDef)), sb);
+
             attributes.put("auraScriptTags", sb.toString());
 
             StyleDef styleDef = templateDef.getStyleDef();
@@ -332,7 +391,8 @@ public class IntegrationImpl implements Integration {
 
             StringBuilder contextWriter = new StringBuilder();
 
-            serializationService.write(context, null, AuraContext.class, contextWriter, "JSON");
+            context.setPreloading(true);
+            JsonEncoder.serialize(context, contextWriter, context.getJsonSerializationContext());
 
             auraInit.put("context", new Literal(contextWriter.toString()));
 
@@ -349,12 +409,4 @@ public class IntegrationImpl implements Integration {
     private DefDescriptor<ApplicationDef> getApplicationDescriptor(String application) {
         return definitionService.getDefDescriptor(application, ApplicationDef.class);
     }
-
-    private static final String DEFAULT_APPLICATION = "aura:integrationServiceApp";
-
-    private final String contextPath;
-    private final Mode mode;
-    private final boolean initializeAura;
-    private final Client client;
-    private final String application;
 }

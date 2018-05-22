@@ -15,18 +15,23 @@
  */
 package org.auraframework.impl.system;
 
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import org.auraframework.def.DefDescriptor;
 import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.Definition;
 import org.auraframework.def.DescriptorFilter;
+import org.auraframework.def.PlatformDef;
 import org.auraframework.service.CompilerService;
 import org.auraframework.system.DefRegistry;
 import org.auraframework.system.Source;
 import org.auraframework.system.SourceLoader;
 import org.auraframework.throwable.quickfix.QuickFixException;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
 
 public class PassThroughDefRegistry implements DefRegistry {
@@ -37,11 +42,13 @@ public class PassThroughDefRegistry implements DefRegistry {
     private final Set<String> prefixes;
     private final boolean cacheable;
     private final CompilerService compilerService;
+    private final long creationTime;
 
     public PassThroughDefRegistry(SourceLoader sourceLoader, Set<DefType> defTypes, Set<String> prefixes,
             boolean cacheable, CompilerService compilerService) {
         this.sourceLoader = sourceLoader;
         this.prefixes = Sets.newHashSet();
+        this.creationTime = System.currentTimeMillis();
         for (String prefix : prefixes) {
             this.prefixes.add(prefix.toLowerCase());
         }
@@ -74,6 +81,27 @@ public class PassThroughDefRegistry implements DefRegistry {
         return sourceLoader.find(matcher);
     }
 
+    private static final List<DefType> taggable = new ImmutableList.Builder<DefType>()
+        .add(DefType.COMPONENT)
+        .add(DefType.MODULE)
+        .add(DefType.APPLICATION)
+        .build();
+
+    @Override
+    public Set<DefDescriptor<?>> findByTags(Set<String> tags) {
+        Set<DefDescriptor<?>> all =  sourceLoader.find(new DescriptorFilter("markup://*:*", taggable));
+        return all.stream().map(d -> { try {
+        	    Definition def = getDef(d);
+        		return def;
+        	} catch (QuickFixException ignored) { return null; }})
+            .filter(def ->
+                def != null
+                && def instanceof PlatformDef
+                && !Collections.disjoint(((PlatformDef)def).getTags(), tags))
+            .map(def -> def.getDescriptor())
+            .collect(Collectors.toSet());
+    }
+
     @Override
     public <T extends Definition> boolean exists(DefDescriptor<T> descriptor) {
         Source<T> source = sourceLoader.getSource(descriptor);
@@ -93,6 +121,11 @@ public class PassThroughDefRegistry implements DefRegistry {
     @Override
     public Set<String> getNamespaces() {
         return sourceLoader.getNamespaces();
+    }
+
+    @Override
+    public long getCreationTime() {
+        return creationTime;
     }
 
     @Override

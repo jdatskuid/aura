@@ -21,7 +21,14 @@
     <aura:method name="testScriptSrcExposed"/>
     <aura:method name="testGetSetAttribute"/>
     <aura:method name="testGetSetAttributeNode"/>
-	<aura:method name="testLoadScript"/>
+    <aura:method name="testLoadScript"/>
+    <aura:method name="testScriptURL"/>
+    <aura:method name="testSetAttributeNodeSrcAttribute"/>
+    <aura:method name="testSVGScriptLoadHref"/>
+    <aura:method name="testSVGScriptLoadHrefOnlySVG"/>
+    <aura:method name="testSVGScriptAttributesList"/>
+    <aura:method name="testSVGScriptSetAttributeNode"/>
+    <aura:method name="testScriptDisableXlinkHref"/>
 
     <div aura:id="title">SecureScriptElement test</div>
 </aura:component>

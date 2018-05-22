@@ -24,17 +24,25 @@
     <aura:method name="testExerciseEventAPIs" />
     <aura:method name="testGetType" />
     <aura:method name="testGetEventType" />
+    <aura:method name="testGetSetParamAndParams" />
+    <aura:method name="testSetParamFilter" />
+    <aura:method name="testSetParamsFilter" />
+    <aura:method name="testGetParamFilter" />
+    <aura:method name="testGetParamsFilter" />
     <aura:method name="testEventParamsFilteringNonLockerHandler"/>
     <aura:method name="testEventParamsFilteringSameLocker"/>
     <aura:method name="testEventParamsFilteringDifferentLocker"/>
+    <aura:method name="testGetSourceEvent"/>
 
     <aura:registerevent name="debugLog" type="aura:debugLog"/>
     <aura:registerevent name="applicationEvent" type="lockerTest:applicationEvent"/>
+    <aura:registerEvent name="componentEvent" type="lockerTest:componentEvent"/>
 
-    <ui:button label="press event" aura:id="button" press="c.testGetSourceReturnsSecureComponentRefWhenNoAccess"/>
+    <ui:button label="press event test" aura:id="button" press="{!c.testGetSourceReturnsSecureComponentRefWhenNoAccess}"/>
+    <lockerTest:button aura:id="btn2" press="{!e.componentEvent}"/>
 
     <!-- panelManager is required to repro ui:createPanel event scenario -->
-    <aura:dependency resource="markup://ui:createPanel" type="EVENT"/> 
+    <aura:dependency resource="markup://ui:createPanel" type="EVENT"/>
     <ui:panelManager2>
         <aura:set attribute="registeredPanels">
                 <ui:modal alias="modal"/>

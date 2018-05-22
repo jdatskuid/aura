@@ -15,7 +15,6 @@
  */
 package org.auraframework.impl;
 
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -50,6 +49,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Function;
 
 public class CachingServiceImplTest extends AuraImplTestCase {
 
@@ -97,7 +97,7 @@ public class CachingServiceImplTest extends AuraImplTestCase {
             lock.lock();
 
             // try to notify
-            cachingService.notifyDependentSourceChange(null, null, null, null);
+            cachingService.notifyDependentSourceChange(null, null, null);
             long start = System.nanoTime();
             do {
                 if (!events.isEmpty()) {
@@ -124,9 +124,6 @@ public class CachingServiceImplTest extends AuraImplTestCase {
 
     @Test
     public void testNotifyDependentSourceChange_NotifiesListeners() {
-        DefDescriptor<?> source = definitionService.getDefDescriptor(
-                getAuraTestingUtil().getNonce("some:descriptor"),
-                ComponentDef.class);
         SourceMonitorEvent event = SourceMonitorEvent.CHANGED;
         String filePath = "someFilePath";
         Collection<WeakReference<SourceListener>> listeners = Sets.newHashSet();
@@ -138,18 +135,17 @@ public class CachingServiceImplTest extends AuraImplTestCase {
         CachingServiceImpl cachingService = new CachingServiceImpl();
         cachingService.setLoggingAdapter(loggingAdapter);
         cachingService.initializeCaches();
-        cachingService.notifyDependentSourceChange(listeners, source, event, filePath);
+        cachingService.notifyDependentSourceChange(listeners, event, filePath);
         for (WeakReference<SourceListener> ref : listeners) {
-            Mockito.verify(ref.get(), Mockito.times(1)).onSourceChanged(source,
-                    event, filePath);
+            SourceListener item = ref.get();
+            if (item != null) {
+                Mockito.verify(item, Mockito.times(1)).onSourceChanged(event, filePath);
+            }
         }
     }
 
     @Test
     public void testNotifyDependentSourceChange_NotifiesNoListeners() {
-        DefDescriptor<?> source = definitionService.getDefDescriptor(
-                getAuraTestingUtil().getNonce("some:descriptor"),
-                ComponentDef.class);
         SourceMonitorEvent event = SourceMonitorEvent.CHANGED;
         String filePath = "someFilePath";
         Collection<WeakReference<SourceListener>> listeners = Sets.newHashSet();
@@ -157,7 +153,7 @@ public class CachingServiceImplTest extends AuraImplTestCase {
         CachingServiceImpl cachingService = new CachingServiceImpl();
         cachingService.setLoggingAdapter(loggingAdapter);
         cachingService.initializeCaches();
-        cachingService.notifyDependentSourceChange(listeners, source, event, filePath);
+        cachingService.notifyDependentSourceChange(listeners, event, filePath);
     }
 
     private <K, V> void testNotifyDependentSourceChange_InvalidatesSomeCachedValues(
@@ -178,16 +174,14 @@ public class CachingServiceImplTest extends AuraImplTestCase {
 
         // call target function
         cachingService.notifyDependentSourceChange(
-                Collections.<WeakReference<SourceListener>> emptySet(), source,
-                null, null);
+                Collections.<WeakReference<SourceListener>> emptySet(), null, null);
 
         // check for invalidated and untouched keys
         for (K key : keys) {
             V val = cache.getIfPresent(key);
+            // we only test for invalidated, as we may kill more than the minimum
             if (invalidatedKeys.contains(key)) {
                 assertNull("Cache not invalidated for " + key, val);
-            } else {
-                assertNotNull("Missing cached value for " + key, val);
             }
         }
     }
@@ -199,12 +193,7 @@ public class CachingServiceImplTest extends AuraImplTestCase {
                 cache, valGenerator, keys, null, keys);
     }
 
-    private Function<DefDescriptor<?>, Optional<? extends Definition>> mockDefinitionFunction = new Function<DefDescriptor<?>, Optional<? extends Definition>>() {
-        @Override
-        public Optional<? extends Definition> apply(DefDescriptor<?> key) {
-            return Optional.of(Mockito.mock(Definition.class));
-        }
-    };
+    private Function<DefDescriptor<?>, Optional<? extends Definition>> mockDefinitionFunction = key -> Optional.of(Mockito.mock(Definition.class));
 
     @Test
     public void testNotifyDependentSourceChange_InvalidatesAllCachedDependencies() {
@@ -218,12 +207,7 @@ public class CachingServiceImplTest extends AuraImplTestCase {
         cachingService.initializeCaches();
         testNotifyDependentSourceChange_InvalidatesAllCachedValues(cachingService,
                 cachingService.getDepsCache(),
-                new Function<String, DependencyEntry>() {
-                    @Override
-                    public DependencyEntry apply(String key) {
-                        return new DependencyEntry(null);
-                    }
-                }, keys);
+                key -> new DependencyEntry(null), keys);
     }
 
     @Test
@@ -238,12 +222,7 @@ public class CachingServiceImplTest extends AuraImplTestCase {
         cachingService.initializeCaches();
         testNotifyDependentSourceChange_InvalidatesAllCachedValues(cachingService,
                 cachingService.getDescriptorFilterCache(),
-                new Function<String, Set<DefDescriptor<?>>>() {
-                    @Override
-                    public Set<DefDescriptor<?>> apply(String key) {
-                        return Collections.emptySet();
-                    }
-                }, keys);
+                key -> Collections.emptySet(), keys);
     }
 
     @Test
@@ -257,12 +236,7 @@ public class CachingServiceImplTest extends AuraImplTestCase {
         cachingService.setLoggingAdapter(loggingAdapter);
         cachingService.initializeCaches();
         testNotifyDependentSourceChange_InvalidatesAllCachedValues(cachingService,
-                cachingService.getStringsCache(), new Function<String, String>() {
-                    @Override
-                    public String apply(String key) {
-                        return "";
-                    }
-                }, keys);
+                cachingService.getStringsCache(), key -> "", keys);
     }
 
     @Test
@@ -360,12 +334,7 @@ public class CachingServiceImplTest extends AuraImplTestCase {
         cachingService.initializeCaches();
         Cache<DefDescriptor<?>, Boolean> cache = cachingService.getExistsCache();
         testNotifyDependentSourceChange_InvalidatesSome(cachingService, cache,
-                new Function<DefDescriptor<?>, Boolean>() {
-                    @Override
-                    public Boolean apply(DefDescriptor<?> input) {
-                        return true;
-                    }
-                }, baseDds, source, invalidatedDds);
+                input -> true, baseDds, source, invalidatedDds);
     }
 
     @Test
@@ -386,11 +355,6 @@ public class CachingServiceImplTest extends AuraImplTestCase {
         cachingService.initializeCaches();
         testNotifyDependentSourceChange_InvalidatesAllCachedValues(cachingService,
                 cachingService.getExistsCache(),
-                new Function<DefDescriptor<?>, Boolean>() {
-                    @Override
-                    public Boolean apply(DefDescriptor<?> key) {
-                        return true;
-                    }
-                }, keys);
+                key -> true, keys);
     }
 }

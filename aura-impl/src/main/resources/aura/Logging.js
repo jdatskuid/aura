@@ -27,19 +27,21 @@
      * $A.warning() will log to console in proddebug
      */
     $A.logger.subscribe("WARNING", function(level, message, error) {
-        if(window["console"]){
-            window["console"].warn(level+": "+(message||error&&error.message));
+        if (window["console"]) {
+            if (error && error.message) {
+                if (message) {
+                    message += ". Caused by: " + error.message;
+                } else {
+                    message = error.message;
+                }
+            }
+            window["console"].warn(level + ": " + message);
         }
     });
     //#end
 
     $A.logger.subscribe("ASSERT", function(level, message) {
-        var a = new $A.auraError(message);
-        var context = $A.getContext();
-        if (context) {
-            a["componentStack"] = context.getAccessStackHierarchy();
-        }
-        throw a;
+        throw new $A.auraError(message);
     });
 
     $A.logger.subscribe("ERROR", function(level, message, e) {
@@ -55,7 +57,7 @@
             }
 
             if (!$A.reportError(message, err) && !existing) {
-                var console_error = (window.console && window.console.error);
+                var console_error = (window.console && window.console.error.bind(window.console));
                 // if we ignored the error && there is no existing onerror handler, we log to the console.
                 if (console_error) {
                     console_error(message, err);
@@ -79,8 +81,16 @@
     })();
 
     window.addEventListener("unhandledrejection", function (event) {
-        if (!$A.reportError(null, event.reason)) {
-            var console_error = (window.console && window.console.error);
+        var error = event.reason;
+        var validError = false;
+
+        if (error && error.name && error.name.indexOf('Error') !== -1) {
+            error = new $A.auraError(null, error);
+            validError = true;
+        }
+
+        if (!validError || !$A.reportError(null, error)) {
+            var console_error = (window.console && window.console.error.bind(window.console));
             if (console_error) {
                 console_error(null, event.reason);
             }

@@ -16,6 +16,7 @@
 package org.auraframework.impl.root.component;
 
 import java.io.IOException;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,6 +32,7 @@ import org.auraframework.def.DefinitionAccess;
 import org.auraframework.def.DefinitionReference;
 import org.auraframework.def.module.ModuleDef;
 import org.auraframework.def.module.ModuleDefRef;
+import org.auraframework.expression.PropertyReference;
 import org.auraframework.impl.root.component.ModuleDefRefImpl.Builder;
 import org.auraframework.service.DefinitionService;
 import org.auraframework.system.Location;
@@ -38,6 +40,7 @@ import org.auraframework.system.SubDefDescriptor;
 import org.auraframework.throwable.quickfix.DefinitionNotFoundException;
 import org.auraframework.throwable.quickfix.QuickFixException;
 import org.auraframework.util.json.Json;
+import org.auraframework.validation.ReferenceValidationContext;
 
 /**
  * Delegates either ComponentDefRef or ModuleDefRef based on modules enablement
@@ -48,53 +51,23 @@ public class DefRefDelegate implements DefinitionReference {
     private static final long serialVersionUID = 781643093362675129L;
 
     private DefinitionReference componentDefRef;
-    private DefinitionReference moduleDefRef = null;
-    private Boolean switchable = null;
+    private transient DefinitionReference actualReference = null;
 
     public DefRefDelegate(ComponentDefRef componentDefRef) throws DefinitionNotFoundException {
         this.componentDefRef = componentDefRef;
     }
 
-    private void processReferences() throws DefinitionNotFoundException {
-        this.switchable = false;
+    private void processReferences() {
+        DefinitionService definitionService = Aura.getDefinitionService();
+        DefDescriptor<ModuleDef> moduleDefDescriptor = definitionService.getDefDescriptor(this.componentDefRef.getDescriptor(),
+                DefDescriptor.MARKUP_PREFIX, ModuleDef.class);
 
-        Set<String> moduleNamespaces = Aura.getConfigAdapter().getModuleNamespaces();
+        boolean moduleExists = definitionService.exists(moduleDefDescriptor);
 
-        // Only process references that have namespaces registered as modules
-        if (moduleNamespaces.contains(this.componentDefRef.getDescriptor().getNamespace())) {
-
-            DefinitionService definitionService = Aura.getDefinitionService();
-            DefDescriptor<ModuleDef> moduleDefDescriptor = definitionService.getDefDescriptor(this.componentDefRef.getDescriptor(),
-                    DefDescriptor.MARKUP_PREFIX, ModuleDef.class);
-
-            boolean moduleExists = definitionService.exists(moduleDefDescriptor);
-
-            if (moduleExists) {
-                this.moduleDefRef = createModuleDefRef(moduleDefDescriptor);
-            }
-
-            boolean componentExists = definitionService.exists(this.componentDefRef.getDescriptor());
-            
-            if (!componentExists && !moduleExists) {
-                throw new DefinitionNotFoundException(this.componentDefRef.getDescriptor());
-            }
-
-            if (!componentExists) {
-                // This allows NON existence of aura component of same name
-                // Remove to REQUIRE existence of aura component version
-                this.componentDefRef = this.moduleDefRef;
-            }
-
-            if (componentExists && !moduleExists) {
-                this.moduleDefRef = this.componentDefRef;
-            }
-
-            if (componentExists && moduleExists) {
-                this.switchable = true;
-            }
-
+        if (moduleExists) {
+            this.actualReference = createModuleDefRef(moduleDefDescriptor);
         } else {
-            this.moduleDefRef = this.componentDefRef;
+            this.actualReference = this.componentDefRef;
         }
     }
 
@@ -169,6 +142,16 @@ public class DefRefDelegate implements DefinitionReference {
         select().serialize(json);
     }
 
+    /**
+     * This is broken.
+     *
+     * the contract with validate definition is that it may not depend on things outside the definition, but in
+     * this case, we attempt to validate based on the existence or non-existence of a different component. My guess
+     * is that this all needs to be set up so that we do validation here, then have validateReferences do the right
+     * thing based on existence. This is complicated by the fact that this is violating the mechanisms of the compiler
+     * without actually correcting those mechanisms. I.e. appendDependencies is assumed to be constant for a given
+     * definition. This violates that assumption.
+     */
     @Override
     public void validateDefinition() throws QuickFixException {
         select().validateDefinition();
@@ -180,8 +163,13 @@ public class DefRefDelegate implements DefinitionReference {
     }
 
     @Override
-    public void validateReferences() throws QuickFixException {
-        select().validateReferences();
+    public Set<DefDescriptor<?>> getDependencySet() {
+        return select().getDependencySet();
+    }
+
+    @Override
+    public void validateReferences(ReferenceValidationContext validationContext) throws QuickFixException {
+        select().validateReferences(validationContext);
     }
 
     @Override
@@ -207,11 +195,6 @@ public class DefRefDelegate implements DefinitionReference {
     @Override
     public DefinitionAccess getAccess() {
         return select().getAccess();
-    }
-
-    @Override
-    public void retrieveLabels() throws QuickFixException {
-        select().retrieveLabels();
     }
 
     @Override
@@ -250,19 +233,25 @@ public class DefRefDelegate implements DefinitionReference {
      * @return definition reference dependent on module enablement
      */
     public DefinitionReference select() {
-        if (this.switchable == null) {
-            try {
-                // build time compilation requires runtime operation since namespace and existing descriptor lookup
-                // is limited to the current maven module during build time
-                processReferences();
-            } catch (DefinitionNotFoundException dnfe) {
-                this.switchable = false;
+        if (this.actualReference == null) {
+            synchronized(this) {
+                if (this.actualReference == null) {
+                    // build time compilation requires runtime operation since namespace and existing descriptor lookup
+                    // is limited to the current maven module during build time
+                    processReferences();
+                }
             }
         }
+        return this.actualReference;
+    }
 
-        if (this.switchable && Aura.getContextService().getCurrentContext().isModulesEnabled()) {
-            return this.moduleDefRef;
-        }
-        return this.componentDefRef;
+    @Override
+    public Collection<PropertyReference> getPropertyReferences() {
+        return select().getPropertyReferences();
+    }
+
+    @Override
+    public String toString() {
+        return "DefRefDelegate: " + this.actualReference;
     }
 }

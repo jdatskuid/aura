@@ -19,11 +19,14 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.JarURLConnection;
+import java.net.URLConnection;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import org.auraframework.Aura;
 import org.auraframework.def.DefDescriptor;
@@ -31,21 +34,27 @@ import org.auraframework.def.DefDescriptor.DefType;
 import org.auraframework.def.Definition;
 import org.auraframework.def.DescriptorFilter;
 import org.auraframework.system.BundleSource;
+import org.auraframework.system.BundleSourceLoader;
 import org.auraframework.system.FileBundleSourceBuilder;
 import org.auraframework.system.InternalNamespaceSourceLoader;
+import org.auraframework.system.Source;
 import org.auraframework.system.SourceListener;
-import org.auraframework.system.SourceLoader;
 import org.auraframework.throwable.AuraRuntimeException;
 import org.auraframework.util.AuraTextUtil;
 import org.auraframework.util.FileMonitor;
 
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableSet.Builder;
 import com.google.common.collect.Sets;
+
 import org.auraframework.util.IOUtil;
 import org.auraframework.util.resource.ResourceLoader;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 
-public class FileBundleSourceLoader implements SourceLoader, InternalNamespaceSourceLoader, SourceListener {
+public class FileBundleSourceLoader implements BundleSourceLoader, InternalNamespaceSourceLoader, SourceListener {
+
+    protected final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
     protected class FileEntry {
         public File file;
@@ -60,32 +69,30 @@ public class FileBundleSourceLoader implements SourceLoader, InternalNamespaceSo
         }
     }
 
-    protected final File base;
-    protected Set<String> namespaces;
+    private final File base;
+    private Set<String> namespaces;
     protected Map<String,FileEntry> fileMap;
     private final Collection<FileBundleSourceBuilder> builders;
 
     private void updateFileMap() {
-        synchronized (this) {
-            Set<String> tnamespaces = Sets.newHashSet();
-            Map<String,FileEntry> tfileMap = new ConcurrentHashMap<String,FileEntry>();
-            for (File namespace : base.listFiles()) {
-                if (namespace.isDirectory()) {
-                    tnamespaces.add(namespace.getName());
-                    for (File file : namespace.listFiles()) {
-                        FileEntry entry = new FileEntry();
-                        entry.namespace = namespace.getName();
-                        entry.name = file.getName();
-                        entry.qualified = entry.namespace+":"+entry.name;
-                        entry.file = file;
-                        entry.source = null;
-                        tfileMap.put(entry.qualified.toLowerCase(), entry);
-                    }
+    	Builder<String> namespacesBuilder = ImmutableSet.builder();
+        Map<String,FileEntry> tfileMap = new ConcurrentHashMap<>();
+        for (File namespace : base.listFiles()) {
+            if (namespace.isDirectory()) {
+            	namespacesBuilder.add(namespace.getName());
+                for (File file : namespace.listFiles()) {
+                    FileEntry entry = new FileEntry();
+                    entry.namespace = namespace.getName();
+                    entry.name = file.getName();
+                    entry.qualified = entry.namespace+":"+entry.name;
+                    entry.file = file;
+                    entry.source = null;
+                    tfileMap.put(entry.qualified.toLowerCase(), entry);
                 }
             }
-            namespaces = tnamespaces;
-            fileMap = tfileMap;
         }
+        namespaces = namespacesBuilder.build();
+        fileMap = tfileMap;
     }
 
     /**
@@ -115,19 +122,58 @@ public class FileBundleSourceLoader implements SourceLoader, InternalNamespaceSo
         // add the namespace root to the file monitor
         if (fileMonitor != null) {
             fileMonitor.subscribeToChangeNotification(this);
-            fileMonitor.addDirectory(base.getPath());
         }
     }
 
     @SuppressWarnings("unchecked")
     @Override
-    public <D extends Definition> BundleSource<D> getSource(DefDescriptor<D> descriptor) {
-        String lookup = descriptor.getDescriptorName().toLowerCase();
-        BundleSource<?> provisional = createSource(fileMap.get(lookup));
-        if (provisional != null && provisional.getDescriptor().equals(descriptor)) {
-            return (BundleSource<D>)provisional;
+    public <D extends Definition> Source<D> getSource(DefDescriptor<D> descriptor) {
+        rwLock.readLock().lock();
+        try {
+            BundleSource<?> provisional = getBundle(descriptor);
+            Source<D> bundledProvisional;
+            if (provisional == null) {
+                return null;
+            }
+            // If the provisional source matches the descriptor, we are done.
+            if (provisional.getDescriptor().equals(descriptor)) {
+                return (Source<D>)provisional;
+            }
+            // Blindly try to get the descriptor from the parts.
+            bundledProvisional = (Source<D>)provisional.getBundledParts().get(descriptor);
+            if (bundledProvisional != null) {
+                return bundledProvisional;
+            }
+            if (descriptor.getPrefix().equals(DefDescriptor.TEMPLATE_CSS_PREFIX)
+                    && descriptor.getDefType() == DefType.STYLE) {
+                // try harder.
+                for (Source<?> part : provisional.getBundledParts().values()) {
+                    // this violates a pile of rules, but then, the caller is as well.
+                    if (part.getDescriptor().getDefType() == DefType.STYLE
+                            && part.getDescriptor().getDescriptorName().equals(descriptor.getDescriptorName())) {
+                        return (Source<D>)part;
+                    }
+                }
+            }
+            return null;
+        } finally {
+            rwLock.readLock().unlock();
         }
-        return null;
+    }
+
+    @Override
+    public BundleSource<?> getBundle(DefDescriptor<?> descriptor) {
+        if (descriptor == null) {
+            return null;
+        }
+        rwLock.readLock().lock();
+        try {
+            String lookup = BundleSourceLoader.getBundleName(descriptor);
+
+            return createSource(fileMap.get(lookup));
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     /**
@@ -138,7 +184,12 @@ public class FileBundleSourceLoader implements SourceLoader, InternalNamespaceSo
      */
     @Override
     public Set<String> getNamespaces() {
-        return namespaces;
+        rwLock.readLock().lock();
+        try {
+            return namespaces;
+        } finally {
+            rwLock.readLock().unlock();
+        }
     }
 
     private BundleSource<?> createSource(FileEntry entry) {
@@ -176,35 +227,40 @@ public class FileBundleSourceLoader implements SourceLoader, InternalNamespaceSo
 
     @Override
     public Set<DefDescriptor<?>> find(DescriptorFilter matcher) {
-        Set<DefDescriptor<?>> ret = Sets.newHashSet();
-        if (matcher.getNamespaceMatch().isConstant() && matcher.getNameMatch().isConstant()) {
-            String ns = matcher.getNamespaceMatch().toString();
-            String name = matcher.getNameMatch().toString();
-            String lookup = ns + ":" + name;
-            DefDescriptor<?> descriptor = getDescriptor(fileMap.get(lookup.toLowerCase()));
-            if (matcher.matchDescriptor(descriptor)) {
-                ret.add(descriptor);
-            }
-        } else {
-            for (FileEntry entry : fileMap.values()) {
-                if (matcher.matchNamespace(entry.namespace) && matcher.matchName(entry.name)) {
-                    BundleSource<?> source = createSource(entry);
-                    if (source != null) {
-                        if (matcher.matchDescriptor(source.getDescriptor())) {
-                           ret.add(source.getDescriptor());
-                        }
-                        /*
-                        for (DefDescriptor<?> descriptor : source.getBundledParts().keySet()) {
-                            if (matcher.matchDescriptor(descriptor)) {
-                               ret.add(descriptor);
+        rwLock.readLock().lock();
+        try {
+            Set<DefDescriptor<?>> ret = Sets.newHashSet();
+            if (matcher.getNamespaceMatch().isConstant() && matcher.getNameMatch().isConstant()) {
+                String ns = matcher.getNamespaceMatch().toString();
+                String name = matcher.getNameMatch().toString();
+                String lookup = ns + ":" + name;
+                DefDescriptor<?> descriptor = getDescriptor(fileMap.get(lookup.toLowerCase()));
+                if (descriptor != null && matcher.matchDescriptor(descriptor)) {
+                    ret.add(descriptor);
+                }
+            } else {
+                for (FileEntry entry : fileMap.values()) {
+                    if (matcher.matchNamespace(entry.namespace) && matcher.matchName(entry.name)) {
+                        BundleSource<?> source = createSource(entry);
+                        if (source != null) {
+                            if (matcher.matchDescriptor(source.getDescriptor())) {
+                               ret.add(source.getDescriptor());
                             }
+                            /*
+                            for (DefDescriptor<?> descriptor : source.getBundledParts().keySet()) {
+                                if (matcher.matchDescriptor(descriptor)) {
+                                   ret.add(descriptor);
+                                }
+                            }
+                            */
                         }
-                        */
                     }
                 }
             }
+            return ret;
+        } finally {
+            rwLock.readLock().unlock();
         }
-        return ret;
     }
 
     @Override
@@ -219,7 +275,7 @@ public class FileBundleSourceLoader implements SourceLoader, InternalNamespaceSo
     }
 
     @Override
-    public void onSourceChanged(DefDescriptor<?> source, SourceMonitorEvent event, String filePath) {
+    public void onSourceChanged(SourceMonitorEvent event, String filePath) {
         // rip out namespace cache if need be.
         // Note that this is a little more aggressive than it has to be, but, well, it does only do it
         // for creation/deletion. There is a race condition whereby this will cause odd failures if files
@@ -230,19 +286,17 @@ public class FileBundleSourceLoader implements SourceLoader, InternalNamespaceSo
     }
 
     @Override
-    public Set<String> getPrefixes() {
-        return Sets.newHashSet("markup:");
-    }
-
-    @Override
     public Set<DefType> getDefTypes() {
         return BundleSource.bundleDefTypes;
     }
 
     @Override
     public void reset() {
-        synchronized (this) {
+        rwLock.writeLock().lock();
+        try {
             updateFileMap();
+        } finally {
+            rwLock.writeLock().unlock();
         }
     }
 
@@ -258,28 +312,56 @@ public class FileBundleSourceLoader implements SourceLoader, InternalNamespaceSo
 
         try {
             PathMatchingResourcePatternResolver p = new PathMatchingResourcePatternResolver(resourceLoader);
-            Resource[] res = p.getResources("classpath*:/" + basePackage + "/*/*/*.*");
+            Resource[] res = p.getResources("classpath*:/" + basePackage + "/**/*.*");
             for (Resource r : res) {
                 //
                 // TOTAL HACK: Move this to getAllDescriptors later.
                 //
-                String filename = r.getURL().toString();
+                /**
+                 * r.getURL().toString(); and then tokenizing it on "/" and looking for basePackage name is hacky. It depends
+                 * on the location of the jar file on the file system. Changing this to use relative paths for files
+                 * within jar files to remove the above mentioned vulnerability.
+                 */
+                String filename;
+                try {
+                    URLConnection conn = r.getURL().openConnection();
+                    if (conn instanceof JarURLConnection) {
+                        filename = ((JarURLConnection) conn).getEntryName();
+                    } else {
+                        filename = r.getURL().toString();
+                    }
+                } catch (Exception e) {
+                    filename = r.getURL().toString();
+                }
                 List<String> names = AuraTextUtil.splitSimple("/", filename);
-                if (names.size() < 3) {
+
+                int namesSize = names.size();
+                int packagePosition = names.indexOf(basePackage);
+
+                if (namesSize < 3 || packagePosition == -1 || namesSize - 1 < packagePosition + 3) {
+                    // ensure resource has at least namespace folder, bundle folder, bundle file
                     continue;
                 }
-                String last = names.get(names.size() - 1);
-                String name = names.get(names.size() - 2);
-                String ns = names.get(names.size() - 3);
+
+                String ns = names.get(packagePosition + 1);
                 File nsDir = new File(directory, ns);
                 if (!nsDir.exists()) {
                     nsDir.mkdir();
                 }
-                File nameDir = new File(nsDir, name);
-                if (!nameDir.exists()) {
-                    nameDir.mkdir();
+
+                File parent = nsDir;
+                for (int i = packagePosition + 2; i < namesSize - 1; i++) {
+                    // create nested folders
+                    String folder = names.get(i);
+                    File dir = new File(parent, folder);
+                    if (!dir.exists()) {
+                        dir.mkdir();
+                    }
+                    parent = dir;
                 }
-                File target = new File(nameDir, last);
+
+                String file = names.get(namesSize - 1);
+                File target = new File(parent, file);
                 try (
                     InputStream resourceStream = r.getInputStream();
                     FileOutputStream targetStream = new FileOutputStream(target)

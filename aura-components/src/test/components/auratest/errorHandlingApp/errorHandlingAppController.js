@@ -113,6 +113,16 @@
         targetComponent.throwErrorFromFunctionWrappedInGetCallback();
     },
 
+    throwErrorFromPromise: function(cmp) {
+        var promise = new Promise(function(resolve, reject) {
+            reject(new Error("an error from promise"));
+        });
+    },
+
+    throwErrorFromAError: function(cmp) {
+        $A.error(null, new Error("Intended error through $A.error()"));
+    },
+
     fireTestEvent: function(cmp) {
         cmp.get("e.testEvt").fire();
     },
